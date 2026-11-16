@@ -23,7 +23,20 @@ Cadeia de provedores, sempre visível no bloco Resumo:
 2. **OpenRouteService** (`ORS_API_KEY`, opcional): sem previsão de trânsito.
 3. **Estimativa por distância** (haversine × 1.4 ÷ 35 km/h): último recurso, sempre rotulada como estimativa. É o que aparece quando nenhuma chave está configurada.
 
-Cada provedor tem timeout de 8 s, 1 retry e pausa de 60 s após 3 falhas seguidas. Sem geometria, o mapa mostra retas tracejadas com o aviso "Traçado aproximado".
+Cada provedor tem timeout de 8 s, 1 retry e pausa de 60 s após 3 falhas seguidas.
+
+### Duas linhas no mapa
+
+- **Azul pontilhada:** retas ligando os pontos, sempre presente.
+- **Verde:** a rota pelas ruas (TomTom Calculate Route). Clicar nela mostra a distância em km e o tempo médio daquele trecho. Sem essa geometria, aparece o aviso "Traçado aproximado".
+
+Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha verde vem do servidor demo público do OSRM, sem trânsito. A política dele não permite uso em produção, então no deploy a linha verde depende da chave da TomTom.
+
+### Sem travessia por mar
+
+Carro não atravessa o mar: as consultas à TomTom pedem para evitar balsas (`avoid=ferries`), enquanto pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
+
+Limites: a estimativa por distância sozinha não sabe onde há mar, então esse bloqueio depende de um provedor de rotas responder. O servidor demo do OSRM (desenvolvimento) não aceita excluir balsas; nele, o bloqueio vale para pontos sem estrada por perto ou sem ligação por terra.
 
 **Cota da TomTom:** o plano gratuito tem 2.500 requisições de matriz por mês, e tudo indica que cada célula conta (uma rota com 20 paradas são 441 células). Para poupar: o cache é por par de locais (chave = coordenadas com 4 casas + dia da semana + faixa de 15 minutos + provedor), então uma parada nova só consulta os pares novos; e com o horário em "Agora" a rota não é recalculada sozinha com o passar do tempo, só quando algo muda.
 
@@ -34,6 +47,7 @@ A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de
 
 - Até 10 paradas: solução exata (Held-Karp), com início e fim fixos.
 - De 11 a 20: heurística (vizinho mais próximo + 2-opt + Or-opt), com aviso de ordem aproximada.
+- **Ordem manual:** as setas de cada parada movem a posição na lista e travam a ordem; o botão "Travar ordem" faz o mesmo com a ordem que está na tela. Travada, a ordem não muda sozinha, e o Resumo mostra quanto a melhor ordem economizaria. "Destravar" devolve o controle ao algoritmo.
 - A matriz de tempos é tratada como assimétrica.
 - "Chegar até": a saída é a chegada menos a duração, recalculada em até 3 iterações quando muda de faixa de 15 minutos (entra em uso com os provedores de trânsito, na fase 4).
 

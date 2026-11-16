@@ -1,8 +1,8 @@
 /** Planejamento completo no servidor: matriz → solver → horários → geometria. */
 import { planArrival, routeCost, solveRoute, type RouteSolution } from "../solver";
 import type { TimeMode } from "../types";
-import type { MatrixResult, MatrixService, Point } from "./matrix";
-import type { GeometryService } from "./route-geometry";
+import { NoRouteError, type MatrixResult, type MatrixService, type Point } from "./matrix";
+import type { GeometryService, RouteLeg } from "./route-geometry";
 
 export interface PlanPoint extends Point {
   id: string;
@@ -16,6 +16,8 @@ export interface PlanRequest {
   end: PlanPoint | null;
   /** true = volta ao início (ignora `end`). */
   roundTrip: boolean;
+  /** true = respeita a ordem recebida (ordem manual travada), sem reordenar. */
+  lockOrder?: boolean;
   mode: TimeMode;
   /** Horário de saída ou de chegada. null = agora. */
   at: Date | null;
@@ -29,13 +31,19 @@ export interface PlanResponse {
   totalSeconds: number;
   /** Tempo da ordem digitada, com a mesma matriz. */
   typedSeconds: number;
+  /** Tempo da melhor ordem encontrada (igual a totalSeconds, salvo com a ordem travada). */
+  bestSeconds: number;
   exact: boolean;
+  /** true quando a ordem veio travada pelo usuário. */
+  locked: boolean;
   departAt: string;
   arriveAt: string;
   source: { name: string; label: string; trafficAware: boolean; estimated: boolean };
-  /** Linha real da rota em [lng, lat], ou null (traçado aproximado). */
-  geometry: [number, number][] | null;
-  /** Tempo total conferido pelo Calculate Route, quando disponível. */
+  /** Rota pelas ruas, um item por trecho, ou null (só as retas entre os pontos). */
+  streetLegs: RouteLeg[] | null;
+  /** Provedor da rota pelas ruas. */
+  streetSource: string | null;
+  /** Tempo total conferido pela rota pelas ruas, quando disponível. */
   checkedSeconds: number | null;
   /** Modo "Chegar até": quantas vezes a matriz foi recalculada e se estabilizou. */
   arrival: { iterations: number; converged: boolean } | null;
@@ -59,9 +67,17 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const stopIndexes = stops.map((_, i) => i + 1);
 
   let lastMatrix: MatrixResult | null = null;
+  const locked = request.lockOrder === true;
+  let bestSeconds = 0;
   const solveAt = async (departAt: Date): Promise<RouteSolution> => {
     lastMatrix = await deps.matrix.getMatrix(nodes, departAt);
-    return solveRoute({ matrix: lastMatrix.seconds, start: 0, stops: stopIndexes, end: endIndex });
+    const problem = { matrix: lastMatrix.seconds, start: 0, stops: stopIndexes, end: endIndex };
+    const best = solveRoute(problem);
+    bestSeconds = best.cost;
+    // Ordem travada: os horários seguem a ordem recebida; a melhor fica só para comparação.
+    return locked
+      ? { order: stopIndexes, cost: routeCost(problem, stopIndexes), exact: best.exact }
+      : best;
   };
 
   const at = request.at ?? new Date(now());
@@ -96,12 +112,17 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
         )
       : null;
 
+  // A rota pelas ruas confirma (ou nega) que dá para ir de carro, sem balsa.
+  if (route === "no-route") throw new NoRouteError();
+
   return {
     order: order.map((i) => nodes[i].id),
     legSeconds,
     totalSeconds,
     typedSeconds,
+    bestSeconds,
     exact: solution.exact,
+    locked,
     departAt: departAt.toISOString(),
     arriveAt: new Date(departAt.getTime() + totalSeconds * 1000).toISOString(),
     source: {
@@ -110,7 +131,8 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
       trafficAware: matrix.trafficAware,
       estimated: matrix.estimated,
     },
-    geometry: route?.coordinates ?? null,
+    streetLegs: route?.legs ?? null,
+    streetSource: route?.source ?? null,
     checkedSeconds: route?.seconds ?? null,
     arrival,
   };

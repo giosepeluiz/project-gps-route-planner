@@ -8,6 +8,8 @@ interface RouteInput {
   stops: readonly Place[];
   end: Place | null;
   endSame: boolean;
+  /** Ordem manual travada: o servidor não reordena. */
+  locked: boolean;
   mode: TimeMode;
   /** Valor do campo datetime-local, ou null para "agora". */
   dateTime: string | null;
@@ -15,24 +17,30 @@ interface RouteInput {
 
 const point = (p: Place) => ({ id: p.id, lat: p.lat, lng: p.lng });
 
-export function planRequestBody({ start, stops, end, endSame, mode, dateTime }: RouteInput) {
+export function planRequestBody({ start, stops, end, endSame, locked, mode, dateTime }: RouteInput) {
   const at = dateTime ? new Date(dateTime) : null;
   return {
     start: point(start),
     stops: stops.map(point),
     end: !endSame && end ? point(end) : null,
     roundTrip: endSame,
+    lockOrder: locked,
     mode,
     at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : null,
   };
 }
 
-/** Devolve o plano do servidor, ou null se a consulta falhar. */
+export type PlanOutcome =
+  | { kind: "ok"; plan: PlanResponse }
+  /** Não existe caminho de carro (ex.: locais separados pelo mar). */
+  | { kind: "no-route"; fromId: string | null; toId: string | null }
+  | { kind: "failed" };
+
 export async function fetchPlan(
   body: string,
   signal: AbortSignal,
   fetchFn: typeof fetch = fetch,
-): Promise<PlanResponse | null> {
+): Promise<PlanOutcome> {
   try {
     const res = await fetchFn("/api/plan", {
       method: "POST",
@@ -40,8 +48,15 @@ export async function fetchPlan(
       body,
       signal,
     });
-    return res.ok ? ((await res.json()) as PlanResponse) : null;
+    if (res.ok) return { kind: "ok", plan: (await res.json()) as PlanResponse };
+    if (res.status === 422) {
+      const data = (await res.json()) as { error?: string; fromId?: string | null; toId?: string | null };
+      if (data.error === "no_route") {
+        return { kind: "no-route", fromId: data.fromId ?? null, toId: data.toId ?? null };
+      }
+    }
+    return { kind: "failed" };
   } catch {
-    return null;
+    return { kind: "failed" };
   }
 }

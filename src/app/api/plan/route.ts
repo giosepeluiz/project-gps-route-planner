@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { planRoute } from "@/lib/server/plan";
+import { NoRouteError } from "@/lib/server/matrix";
+import { planRoute, type PlanPoint } from "@/lib/server/plan";
 import { getServices } from "@/lib/server/services";
 import { MAX_STOPS } from "@/lib/stops";
 
@@ -15,6 +16,7 @@ const Body = z.object({
   stops: z.array(Point).max(MAX_STOPS),
   end: Point.nullable(),
   roundTrip: z.boolean(),
+  lockOrder: z.boolean().optional(),
   mode: z.enum(["depart", "arrive"]),
   /** ISO 8601, ou null para "agora". */
   at: z.iso.datetime({ offset: true }).nullable(),
@@ -45,6 +47,17 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json(plan, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
+    if (err instanceof NoRouteError) {
+      // 422: os locais são válidos, mas não há caminho de carro entre eles.
+      return NextResponse.json(
+        {
+          error: "no_route",
+          fromId: (err.from as PlanPoint | undefined)?.id ?? null,
+          toId: (err.to as PlanPoint | undefined)?.id ?? null,
+        },
+        { status: 422 },
+      );
+    }
     console.error("Falha ao planejar a rota:", err);
     return NextResponse.json({ error: "Não foi possível calcular a rota." }, { status: 502 });
   }

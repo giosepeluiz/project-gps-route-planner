@@ -9,6 +9,12 @@ export class CircuitOpenError extends Error {
   }
 }
 
+/**
+ * Resposta definitiva do provedor (ex.: "não existe caminho"). Não é falha:
+ * não tem retry, não abre o circuito e não passa para o próximo provedor.
+ */
+export class DefinitiveError extends Error {}
+
 export class CircuitBreaker {
   private failures = 0;
   private openUntil = 0;
@@ -59,6 +65,10 @@ export async function withPolicy<T>(
       breaker.success();
       return result;
     } catch (err) {
+      if (err instanceof DefinitiveError) {
+        breaker.success();
+        throw err;
+      }
       lastError = err;
     }
   }

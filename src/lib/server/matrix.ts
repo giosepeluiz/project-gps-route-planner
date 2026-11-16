@@ -9,7 +9,7 @@
 import { estimateSeconds, haversineMeters } from "../geo";
 import { timeSlot } from "../solver";
 import type { Cache } from "./cache";
-import { CircuitBreaker, withPolicy } from "./resilience";
+import { CircuitBreaker, DefinitiveError, withPolicy } from "./resilience";
 
 export interface Point {
   lat: number;
@@ -48,6 +48,21 @@ export interface MatrixResult {
   estimated: boolean;
 }
 
+/**
+ * Não existe caminho de carro entre dois locais (ex.: separados pelo mar).
+ * Balsas não contam; pontes e túneis (inclusive trens de carros, como o
+ * Eurotúnel), sim.
+ */
+export class NoRouteError extends DefinitiveError {
+  constructor(
+    readonly from?: Point,
+    readonly to?: Point,
+  ) {
+    super("Não existe caminho de carro entre os locais.");
+    this.name = "NoRouteError";
+  }
+}
+
 type FetchFn = typeof fetch;
 
 const round4 = (n: number) => n.toFixed(4);
@@ -83,6 +98,7 @@ interface TomTomMatrixResponse {
     originIndex: number;
     destinationIndex: number;
     routeSummary?: { travelTimeInSeconds?: number; lengthInMeters?: number };
+    detailedError?: { innerError?: { code?: string } };
   }[];
 }
 
@@ -114,6 +130,8 @@ export function createTomTomMatrix(
         traffic: live ? "live" : "historical",
         routeType: "fastest",
         travelMode: "car",
+        // Carro não atravessa o mar de balsa. Pontes, túneis e trens de carros continuam valendo.
+        avoid: ["ferries"],
       };
 
       const seconds = emptyBlock(origins.length, destinations.length);
@@ -130,6 +148,9 @@ export function createTomTomMatrix(
           signal,
         )) as TomTomMatrixResponse;
         for (const cell of data.data ?? []) {
+          if (cell.detailedError?.innerError?.code === "NO_ROUTE_FOUND") {
+            throw new NoRouteError(chunk[cell.originIndex], destinations[cell.destinationIndex]);
+          }
           const time = cell.routeSummary?.travelTimeInSeconds;
           if (typeof time !== "number") continue;
           seconds[from + cell.originIndex][cell.destinationIndex] = time;
@@ -173,9 +194,11 @@ export function createOrsMatrix(apiKey: string, fetchFn: FetchFn = fetch): Matri
         signal,
       )) as OrsMatrixResponse;
 
-      const seconds = origins.map((_, i) =>
-        destinations.map((_, j) => {
+      const seconds = origins.map((from, i) =>
+        destinations.map((to, j) => {
           const value = data.durations?.[i]?.[j];
+          // Célula nula = sem caminho entre os dois pontos.
+          if (value === null && data.durations) throw new NoRouteError(from, to);
           return typeof value === "number" ? Math.round(value) : NaN;
         }),
       );
@@ -356,6 +379,8 @@ export function createMatrixService({
             estimated: provider.local === true,
           };
         } catch (err) {
+          // "Sem caminho" é resposta, não falha: não cai na estimativa em linha reta.
+          if (err instanceof NoRouteError) throw err;
           lastError = err;
           console.warn(`Matriz: ${provider.name} falhou, tentando o próximo.`, err);
         }

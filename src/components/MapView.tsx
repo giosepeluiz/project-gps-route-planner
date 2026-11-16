@@ -23,11 +23,15 @@ export type MapLayout = "desktop" | "sheet-open" | "sheet-closed";
 
 interface MapViewProps {
   points: MapPoint[];
-  /** Linha da rota, em [lng, lat]. */
+  /** Retas entre os pontos, em [lng, lat]: a linha azul pontilhada. */
   path: [number, number][];
-  /** true quando a linha não é a geometria real (retas tracejadas). */
-  approximate: boolean;
+  /** Rota pelas ruas, um trecho por item: a linha verde. null quando não há geometria. */
+  streetLegs: [number, number][][] | null;
+  /** Clique em um trecho da linha verde. */
+  onLegClick: (index: number, lat: number, lng: number) => void;
   layout: MapLayout;
+  /** Altura (px) ocupada pelo bloco Resumo no canto inferior esquerdo, no desktop. */
+  desktopBottomInset: number;
   fallbackStyleUrl: string | null;
   /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
@@ -43,16 +47,22 @@ interface MapViewProps {
   children?: ReactNode;
 }
 
-const ROUTE_SOURCE = "rota";
-const ROUTE_LAYER = "rota-linha";
-const ROUTE_COLOR = "#2563eb";
+const STRAIGHT_SOURCE = "rota-reta";
+const STRAIGHT_LAYER = "rota-reta-linha";
+const STRAIGHT_COLOR = "#2563eb";
+const STREET_SOURCE = "rota-ruas";
+const STREET_CASING = "rota-ruas-borda";
+const STREET_LAYER = "rota-ruas-linha";
+const STREET_COLOR = "#15803d";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 export default function MapView({
   points,
   path,
-  approximate,
+  streetLegs,
+  onLegClick,
   layout,
+  desktopBottomInset,
   fallbackStyleUrl,
   onMapClick,
   onMapContextMenu,
@@ -76,6 +86,9 @@ export default function MapView({
   );
 
   const handleClick = useEffectEvent((lat: number, lng: number) => onMapClick(lat, lng));
+  const handleLegClick = useEffectEvent((index: number, lat: number, lng: number) =>
+    onLegClick(index, lat, lng),
+  );
   const handleContextMenu = useEffectEvent((lat: number, lng: number) => onMapContextMenu(lat, lng));
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
@@ -158,7 +171,25 @@ export default function MapView({
         setStatus("error");
       });
 
-      map.on("click", (event) => handleClick(event.lngLat.lat, event.lngLat.lng));
+      map.on("click", (event) => {
+        // Clique na linha verde (com uma folga de 6 px) mostra os dados do trecho.
+        if (map?.getLayer(STREET_LAYER)) {
+          const { x, y } = event.point;
+          const hits = map.queryRenderedFeatures(
+            [
+              [x - 6, y - 6],
+              [x + 6, y + 6],
+            ],
+            { layers: [STREET_LAYER] },
+          );
+          const index = hits[0]?.properties?.index;
+          if (typeof index === "number") {
+            handleLegClick(index, event.lngLat.lat, event.lngLat.lng);
+            return;
+          }
+        }
+        handleClick(event.lngLat.lat, event.lngLat.lng);
+      });
       map.on("contextmenu", (event) => {
         event.preventDefault();
         handleContextMenu(event.lngLat.lat, event.lngLat.lng);
@@ -210,27 +241,63 @@ export default function MapView({
       return new lib.Marker({ element }).setLngLat([point.lng, point.lat]).addTo(map);
     });
 
-    const data = {
+    // Linha azul pontilhada: retas entre os pontos, sempre presente.
+    const straight = {
       type: "Feature" as const,
       properties: {},
       geometry: { type: "LineString" as const, coordinates: path },
     };
-    const source = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
-    if (source) {
-      source.setData(data);
+    // Linha verde: a rota pelas ruas, um trecho por feature (para o clique saber qual é).
+    const streets = {
+      type: "FeatureCollection" as const,
+      features: (streetLegs ?? []).map((coordinates, index) => ({
+        type: "Feature" as const,
+        properties: { index },
+        geometry: { type: "LineString" as const, coordinates },
+      })),
+    };
+
+    const straightSource = map.getSource(STRAIGHT_SOURCE) as GeoJSONSource | undefined;
+    if (straightSource) {
+      straightSource.setData(straight);
+      (map.getSource(STREET_SOURCE) as GeoJSONSource | undefined)?.setData(streets);
     } else {
-      map.addSource(ROUTE_SOURCE, { type: "geojson", data });
+      const round = { "line-cap": "round" as const, "line-join": "round" as const };
+      map.addSource(STRAIGHT_SOURCE, { type: "geojson", data: straight });
+      map.addSource(STREET_SOURCE, { type: "geojson", data: streets });
       map.addLayer({
-        id: ROUTE_LAYER,
+        id: STREET_CASING,
         type: "line",
-        source: ROUTE_SOURCE,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ROUTE_COLOR, "line-width": 4, "line-opacity": 0.85 },
+        source: STREET_SOURCE,
+        layout: round,
+        paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.9 },
+      });
+      map.addLayer({
+        id: STREET_LAYER,
+        type: "line",
+        source: STREET_SOURCE,
+        layout: round,
+        paint: { "line-color": STREET_COLOR, "line-width": 5 },
+      });
+      map.addLayer({
+        id: STRAIGHT_LAYER,
+        type: "line",
+        source: STRAIGHT_SOURCE,
+        layout: round,
+        paint: { "line-color": STRAIGHT_COLOR, "line-dasharray": [0.5, 2.5] },
+      });
+      // A linha verde é clicável.
+      map.on("mouseenter", STREET_LAYER, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", STREET_LAYER, () => {
+        map.getCanvas().style.cursor = "";
       });
     }
-    // Sem geometria real, a linha fica tracejada.
-    map.setPaintProperty(ROUTE_LAYER, "line-dasharray", approximate ? [1.5, 2] : [1, 0]);
-  }, [points, path, approximate, styleVersion]);
+    // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
+    map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
+    map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
+  }, [points, path, streetLegs, styleVersion]);
 
   // Balão de informação.
   const popupLat = popupAt?.lat;
@@ -267,15 +334,28 @@ export default function MapView({
       return [lng, lat] as [number, number];
     });
     const height = map.getContainer().clientHeight;
+    const layoutBottom = desktopBottomInset + 24;
     const padding =
       layout === "desktop"
-        ? { top: 56, bottom: 56, left: 56, right: 392 }
+        ? { top: 56, bottom: layoutBottom, left: 56, right: 392 }
         : {
             top: 72,
             left: 40,
             right: 40,
             bottom: layout === "sheet-open" ? Math.round(height * 0.6) + 24 : 112,
           };
+
+    // Em telas pequenas o HUD pode cobrir quase tudo: limita as margens a 60% do
+    // mapa, senão o enquadramento não tem solução (e o MapLibre lança erro).
+    const width = map.getContainer().clientWidth;
+    const horizontal = padding.left + padding.right;
+    const vertical = padding.top + padding.bottom;
+    const scaleX = horizontal > width * 0.6 ? (width * 0.6) / horizontal : 1;
+    const scaleY = vertical > height * 0.6 ? (height * 0.6) / vertical : 1;
+    padding.left *= scaleX;
+    padding.right *= scaleX;
+    padding.top *= scaleY;
+    padding.bottom *= scaleY;
 
     if (coords.length === 1) {
       map.easeTo({ center: coords[0], zoom: Math.max(map.getZoom(), 13), padding, duration: 400 });
@@ -285,8 +365,12 @@ export default function MapView({
       (acc, c) => acc.extend(c),
       new lib.LngLatBounds(coords[0], coords[0]),
     );
-    map.fitBounds(bounds, { padding, maxZoom: 15, duration: 400 });
-  }, [boundsKey, layout, styleVersion, size]);
+    try {
+      map.fitBounds(bounds, { padding, maxZoom: 15, duration: 400 });
+    } catch (err) {
+      console.warn("Não foi possível enquadrar a rota no mapa.", err);
+    }
+  }, [boundsKey, layout, desktopBottomInset, styleVersion, size]);
 
   return (
     <div className="absolute inset-0">
@@ -310,11 +394,11 @@ export default function MapView({
           Não foi possível carregar o mapa base. Verifique a conexão e recarregue a página.
         </p>
       )}
-      {(approximate || status === "fallback") && status !== "error" && status !== "loading" && (
+      {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul className="pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-12 md:top-2.5">
-          {approximate && (
+          {!streetLegs && (
             <li className="w-fit rounded-full bg-white/95 px-2.5 py-1 text-zinc-800 shadow dark:bg-zinc-900/95 dark:text-zinc-100">
-              Traçado aproximado
+              Traçado aproximado (sem rota pelas ruas)
             </li>
           )}
           {status === "fallback" && (

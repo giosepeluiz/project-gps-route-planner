@@ -9,7 +9,12 @@ import {
   type MatrixService,
 } from "./matrix";
 import { createResolver } from "./resolve";
-import { createTomTomGeometry, noGeometry, type GeometryService } from "./route-geometry";
+import {
+  chainGeometry,
+  createOsrmDemoGeometry,
+  createTomTomGeometry,
+  type GeometryService,
+} from "./route-geometry";
 
 interface Services {
   cache: Cache;
@@ -39,12 +44,17 @@ export function getServices(): Services {
   if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey));
   if (orsKey) matrixProviders.push(createOrsMatrix(orsKey));
 
+  // Rota pelas ruas: TomTom. Sem chave, e só em desenvolvimento, o servidor demo do OSRM.
+  const geometries: GeometryService[] = [];
+  if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache));
+  if (process.env.NODE_ENV === "development") geometries.push(createOsrmDemoGeometry(cache));
+
   services = {
     cache,
     geocoder,
     resolveInput: createResolver({ geocoder, cache }),
     matrix: createMatrixService({ providers: matrixProviders, cache }),
-    geometry: tomtomKey ? createTomTomGeometry(tomtomKey, cache) : noGeometry,
+    geometry: chainGeometry(geometries),
   };
   return services;
 }

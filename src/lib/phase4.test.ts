@@ -1,19 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLACES as P, fixtureSeconds } from "./mock-data";
-import { planRequestBody } from "./plan-client";
+import { fetchPlan, planRequestBody } from "./plan-client";
 import { MemoryCache } from "./server/cache";
 import {
   createMatrixService,
   createOrsMatrix,
   createTomTomMatrix,
   estimateProvider,
+  NoRouteError,
   planRequests,
   type MatrixProvider,
   type Point,
 } from "./server/matrix";
 import { planRoute, type PlanPoint } from "./server/plan";
-import { createTomTomGeometry, noGeometry } from "./server/route-geometry";
+import {
+  chainGeometry,
+  createOsrmDemoGeometry,
+  createTomTomGeometry,
+  noGeometry,
+  splitLine,
+  type RouteGeometry,
+} from "./server/route-geometry";
 
+/** Nos testes de geometria, a resposta esperada é sempre uma rota. */
+const geo = (route: unknown) => route as RouteGeometry;
 const quiet = () => vi.spyOn(console, "warn").mockImplementation(() => {});
 const TUESDAY_9 = new Date(Date.UTC(2026, 10, 17, 9, 0));
 const NOW = Date.UTC(2026, 10, 16, 12, 0);
@@ -268,8 +278,14 @@ describe("geometria da rota (TomTom Calculate Route)", () => {
       {
         summary: { travelTimeInSeconds: 8000, lengthInMeters: 90_000 },
         legs: [
-          { points: [{ latitude: 38.66, longitude: -9.07 }, { latitude: 38.64, longitude: -9.23 }] },
-          { points: [{ latitude: 38.64, longitude: -9.23 }, { latitude: 38.69, longitude: -9.21 }] },
+          {
+            summary: { travelTimeInSeconds: 2000, lengthInMeters: 30_000 },
+            points: [{ latitude: 38.66, longitude: -9.07 }, { latitude: 38.64, longitude: -9.23 }],
+          },
+          {
+            summary: { travelTimeInSeconds: 6000, lengthInMeters: 60_000 },
+            points: [{ latitude: 38.64, longitude: -9.23 }, { latitude: 38.69, longitude: -9.21 }],
+          },
         ],
       },
     ],
@@ -288,9 +304,11 @@ describe("geometria da rota (TomTom Calculate Route)", () => {
     );
     expect(urls[0]).toContain("traffic=true");
     expect(urls[0]).toContain("departAt=2026-11-17T09%3A00%3A00.000Z");
-    expect(route?.coordinates[0]).toEqual([-9.07, 38.66]);
-    expect(route?.coordinates).toHaveLength(4);
-    expect(route?.seconds).toBe(8000);
+    expect(geo(route).legs).toHaveLength(2);
+    expect(geo(route).legs[0].coordinates[0]).toEqual([-9.07, 38.66]);
+    expect(geo(route).legs[0]).toMatchObject({ seconds: 2000, meters: 30_000 });
+    expect(geo(route).seconds).toBe(8000);
+    expect(geo(route).meters).toBe(90_000);
     // Segunda vez vem do cache.
     await service.getRoute([pts[0], pts[3], pts[1]], TUESDAY_9);
     expect(urls).toHaveLength(1);
@@ -306,7 +324,202 @@ describe("geometria da rota (TomTom Calculate Route)", () => {
   });
 });
 
+describe("sem travessia por mar", () => {
+  const oceanProvider = (): MatrixProvider & { calls: number } => {
+    const provider = {
+      name: "tomtom",
+      trafficAware: true,
+      label: "TomTom com trânsito",
+      calls: 0,
+      async getCells(origins: readonly Point[], destinations: readonly Point[]): Promise<never> {
+        provider.calls += 1;
+        throw new NoRouteError(origins[0], destinations[0]);
+      },
+    };
+    return provider;
+  };
+
+  it("'sem caminho' é resposta definitiva: sem retry e sem cair na estimativa em linha reta", async () => {
+    const tomtom = oceanProvider();
+    const ors = fixtureProvider("openrouteservice");
+    const service = createMatrixService({ providers: [tomtom, ors], cache: new MemoryCache(), now: () => NOW });
+    await expect(service.getMatrix(pts, TUESDAY_9)).rejects.toBeInstanceOf(NoRouteError);
+    expect(tomtom.calls).toBe(1);
+    expect(ors.calls).toBe(0);
+    // E não conta como falha: o circuito continua fechado.
+    await expect(service.getMatrix(pts, TUESDAY_9)).rejects.toBeInstanceOf(NoRouteError);
+    expect(tomtom.calls).toBe(2);
+  });
+
+  it("TomTom: pede para evitar balsas e reconhece NO_ROUTE_FOUND", async () => {
+    let avoid: unknown;
+    const fetchFn = (async (_u: string, init: RequestInit) => {
+      avoid = JSON.parse(init.body as string).options.avoid;
+      return Response.json({
+        data: [
+          {
+            originIndex: 0,
+            destinationIndex: 0,
+            detailedError: { code: "CELL_PROCESSING_ERROR", innerError: { code: "NO_ROUTE_FOUND" } },
+          },
+        ],
+      });
+    }) as typeof fetch;
+    const error = await createTomTomMatrix("CHAVE", fetchFn, () => NOW)
+      .getCells([pts[0]], [pts[1]], TUESDAY_9, AbortSignal.timeout(1000))
+      .catch((e: unknown) => e);
+    expect(avoid).toEqual(["ferries"]);
+    expect(error).toBeInstanceOf(NoRouteError);
+    expect((error as NoRouteError).from).toBe(pts[0]);
+    expect((error as NoRouteError).to).toBe(pts[1]);
+  });
+
+  it("OpenRouteService: célula nula vira 'sem caminho'", async () => {
+    const fetchFn = (async () => Response.json({ durations: [[null]] })) as unknown as typeof fetch;
+    await expect(
+      createOrsMatrix("CHAVE", fetchFn).getCells([pts[0]], [pts[1]], TUESDAY_9, AbortSignal.timeout(1000)),
+    ).rejects.toBeInstanceOf(NoRouteError);
+  });
+
+  it("rota pelas ruas: evita balsas e devolve 'no-route' quando não há caminho", async () => {
+    const urls: string[] = [];
+    const osrm = createOsrmDemoGeometry(new MemoryCache(), (async (url: string) => {
+      urls.push(url);
+      return Response.json({ code: "NoRoute", message: "Impossible route between points" }, { status: 400 });
+    }) as typeof fetch);
+    expect(await osrm.getRoute([pts[0], pts[1]], TUESDAY_9)).toBe("no-route");
+
+    // Ponto longe de qualquer estrada (o OSRM o "encaixa" a milhares de km).
+    const snapped = createOsrmDemoGeometry(new MemoryCache(), (async () =>
+      Response.json({
+        code: "Ok",
+        routes: [{ geometry: { coordinates: [[-9.07, 38.66], [-9.2, 38.7]] }, legs: [{ duration: 3000, distance: 60000 }] }],
+        waypoints: [{ location: [-9.07, 38.66], distance: 12 }, { location: [-9.2, 38.7], distance: 5_400_000 }],
+      })) as unknown as typeof fetch);
+    expect(await snapped.getRoute([pts[0], { lat: 40.7128, lng: -74.006 }], TUESDAY_9)).toBe("no-route");
+
+    const tomtom = createTomTomGeometry(
+      "CHAVE",
+      new MemoryCache(),
+      (async (url: string) => {
+        urls.push(url);
+        return Response.json({ routes: [] });
+      }) as typeof fetch,
+      () => NOW,
+    );
+    await tomtom.getRoute([pts[0], pts[1]], TUESDAY_9);
+    expect(urls[1]).toContain("avoid=ferries");
+  });
+
+  it("o plano falha com NoRouteError mesmo quando os tempos vêm da estimativa", async () => {
+    await expect(
+      planRoute(
+        { start: pts[0], stops: [pts[1]], end: null, roundTrip: true, mode: "depart", at: TUESDAY_9 },
+        {
+          matrix: createMatrixService({ providers: [], cache: new MemoryCache() }),
+          geometry: { getRoute: async () => "no-route" as const },
+          now: () => NOW,
+        },
+      ),
+    ).rejects.toBeInstanceOf(NoRouteError);
+  });
+
+  it("o navegador recebe o aviso com os dois locais", async () => {
+    const fetchFn = (async () =>
+      Response.json({ error: "no_route", fromId: "B", toId: "Be" }, { status: 422 })) as unknown as typeof fetch;
+    expect(await fetchPlan("{}", AbortSignal.timeout(1000), fetchFn)).toEqual({
+      kind: "no-route",
+      fromId: "B",
+      toId: "Be",
+    });
+    const down = (async () => new Response("", { status: 502 })) as unknown as typeof fetch;
+    expect(await fetchPlan("{}", AbortSignal.timeout(1000), down)).toEqual({ kind: "failed" });
+  });
+});
+
+describe("rota pelas ruas: OSRM demo e cadeia", () => {
+  it("corta a linha inteira nos pontos das paradas", () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+    ];
+    const pieces = splitLine(line, [
+      [0, 0],
+      [2, 0],
+      [4, 0],
+    ]);
+    expect(pieces).toEqual([
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ],
+      [
+        [2, 0],
+        [3, 0],
+        [4, 0],
+      ],
+    ]);
+  });
+
+  it("OSRM: longitude primeiro na URL e um trecho por perna", async () => {
+    let seenUrl = "";
+    const fetchFn = (async (url: string) => {
+      seenUrl = url;
+      return Response.json({
+        code: "Ok",
+        routes: [
+          {
+            geometry: { coordinates: [[-9.07, 38.66], [-9.15, 38.65], [-9.23, 38.64], [-9.22, 38.67], [-9.21, 38.69]] },
+            legs: [
+              { duration: 1500.4, distance: 21000 },
+              { duration: 700, distance: 8000 },
+            ],
+          },
+        ],
+        waypoints: [{ location: [-9.07, 38.66] }, { location: [-9.23, 38.64] }, { location: [-9.21, 38.69] }],
+      });
+    }) as typeof fetch;
+    const route = await createOsrmDemoGeometry(new MemoryCache(), fetchFn).getRoute(
+      [pts[0], pts[3], pts[1]],
+      TUESDAY_9,
+    );
+    expect(seenUrl).toContain("https://router.project-osrm.org/route/v1/driving/-9.075855,38.661328;");
+    expect(geo(route).legs).toHaveLength(2);
+    expect(geo(route).legs[0]).toMatchObject({ seconds: 1500, meters: 21000 });
+    expect(geo(route).legs[0].coordinates).toHaveLength(3);
+    expect(geo(route).legs[1].coordinates).toHaveLength(3);
+    expect(geo(route).seconds).toBe(2200);
+  });
+
+  it("a cadeia fica com o primeiro serviço que responder", async () => {
+    const answer = { legs: [], seconds: 1, meters: 1, source: "segundo" };
+    const chain = chainGeometry([noGeometry, { getRoute: async () => answer }]);
+    expect(await chain.getRoute([pts[0], pts[1]], TUESDAY_9)).toBe(answer);
+    expect(await chainGeometry([]).getRoute([pts[0], pts[1]], TUESDAY_9)).toBeNull();
+  });
+});
+
 describe("planejamento completo (POST /api/plan)", () => {
+  it("ordem travada: respeita a ordem recebida e informa a melhor para comparação", async () => {
+    const [B, Be, PN, CC] = pts;
+    const plan = await planRoute(
+      { start: B, stops: [Be, PN, CC], end: null, roundTrip: true, lockOrder: true, mode: "depart", at: TUESDAY_9 },
+      {
+        matrix: createMatrixService({ providers: [fixtureProvider("tomtom")], cache: new MemoryCache(), now: () => NOW }),
+        geometry: noGeometry,
+        now: () => NOW,
+      },
+    );
+    expect(plan.order).toEqual(["Be", "PN", "CC"]);
+    expect(plan.totalSeconds).toBe(9419);
+    expect(plan.bestSeconds).toBe(7984);
+    expect(plan.locked).toBe(true);
+  });
+
   const matrix = () =>
     createMatrixService({ providers: [fixtureProvider("tomtom")], cache: new MemoryCache(), now: () => NOW });
   const [B, Be, PN, CC] = pts;
@@ -324,7 +537,9 @@ describe("planejamento completo (POST /api/plan)", () => {
     expect(plan.source).toMatchObject({ name: "tomtom", trafficAware: true, estimated: false });
     expect(plan.departAt).toBe(TUESDAY_9.toISOString());
     expect(new Date(plan.arriveAt).getTime()).toBe(TUESDAY_9.getTime() + 7984_000);
-    expect(plan.geometry).toBeNull();
+    expect(plan.streetLegs).toBeNull();
+    expect(plan.bestSeconds).toBe(7984);
+    expect(plan.locked).toBe(false);
     expect(plan.arrival).toBeNull();
   });
 
@@ -357,7 +572,12 @@ describe("planejamento completo (POST /api/plan)", () => {
 
   it("sem paradas e com a geometria conferida", async () => {
     const geometry = {
-      getRoute: async () => ({ coordinates: [[-9.07, 38.66], [-9.21, 38.69]] as [number, number][], seconds: 3100, meters: 20_000 }),
+      getRoute: async () => ({
+        legs: [{ coordinates: [[-9.07, 38.66], [-9.21, 38.69]] as [number, number][], seconds: 3100, meters: 20_000 }],
+        seconds: 3100,
+        meters: 20_000,
+        source: "TomTom",
+      }),
     };
     const plan = await planRoute(
       { start: B, stops: [], end: Be, roundTrip: false, mode: "depart", at: TUESDAY_9 },
@@ -365,7 +585,8 @@ describe("planejamento completo (POST /api/plan)", () => {
     );
     expect(plan.order).toEqual([]);
     expect(plan.totalSeconds).toBe(3049);
-    expect(plan.geometry).toHaveLength(2);
+    expect(plan.streetLegs).toHaveLength(1);
+    expect(plan.streetSource).toBe("TomTom");
     expect(plan.checkedSeconds).toBe(3100);
   });
 
@@ -375,6 +596,7 @@ describe("planejamento completo (POST /api/plan)", () => {
       stops: [P.Be],
       end: P.PN,
       endSame: true,
+      locked: false,
       mode: "depart",
       dateTime: null,
     });
@@ -383,6 +605,7 @@ describe("planejamento completo (POST /api/plan)", () => {
       stops: [{ id: "Be", lat: P.Be.lat, lng: P.Be.lng }],
       end: null,
       roundTrip: true,
+      lockOrder: false,
       mode: "depart",
       at: null,
     });

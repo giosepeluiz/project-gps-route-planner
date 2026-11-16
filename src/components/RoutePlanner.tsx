@@ -6,6 +6,7 @@ import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import {
   formatDuration,
+  formatKm,
   formatLatLng,
   formatTime,
   formatTimeWithDay,
@@ -17,7 +18,7 @@ import { MOCK_START, MOCK_TYPED_STOPS } from "@/lib/mock-data";
 import { optimizeStops } from "@/lib/optimize";
 import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
 import { computePlan, estimateLegTime } from "@/lib/plan";
-import { fetchPlan, planRequestBody } from "@/lib/plan-client";
+import { fetchPlan, planRequestBody, type PlanOutcome } from "@/lib/plan-client";
 import type { PlanResponse } from "@/lib/server/plan";
 import {
   addStop,
@@ -41,6 +42,8 @@ interface RouteState {
   end: Place | null;
   /** Paradas na ordem em que foram digitadas. A ordem exibida vem do solver. */
   stops: Place[];
+  /** Ordem manual travada: o solver não reordena. */
+  locked?: boolean;
   timeMode: TimeMode;
 }
 
@@ -92,6 +95,8 @@ interface Info {
   lat: number;
   lng: number;
   placeId?: string;
+  /** Trecho da linha verde clicado (índice na sequência da rota). */
+  leg?: number;
   /** undefined = buscando; null = não encontrado. */
   address?: string | null;
 }
@@ -120,6 +125,8 @@ const popupButton =
 export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
   const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
   const { start, endSame, end, stops: typedStops, timeMode } = route;
+  const locked = route.locked === true;
+  const [summaryHeight, setSummaryHeight] = useState(0);
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -152,16 +159,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Pedido ao servidor (matriz com trânsito + solver). Só muda quando a rota muda:
   // em "agora", o relógio andando NÃO dispara novas consultas (a cota é limitada).
   const requestBody = useMemo(
-    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, mode: timeMode, dateTime })),
-    [start, typedStops, end, endSame, timeMode, dateTime],
+    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locked, mode: timeMode, dateTime })),
+    [start, typedStops, end, endSame, locked, timeMode, dateTime],
   );
-  const [remote, setRemote] = useState<{ body: string; plan: PlanResponse | null } | null>(null);
+  const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void fetchPlan(requestBody, controller.signal).then((plan) => {
-        if (!controller.signal.aborted) setRemote({ body: requestBody, plan });
+      void fetchPlan(requestBody, controller.signal).then((outcome) => {
+        if (!controller.signal.aborted) setRemote({ body: requestBody, outcome });
       });
     }, 500);
     return () => {
@@ -171,25 +178,29 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [requestBody]);
 
   /** Resposta do servidor para a rota atual; null enquanto calcula ou se falhou. */
-  const serverPlan = remote?.body === requestBody ? remote.plan : null;
-  const planStatus: "loading" | "ok" | "failed" =
-    remote?.body !== requestBody ? "loading" : remote.plan ? "ok" : "failed";
+  const outcome = remote?.body === requestBody ? remote.outcome : null;
+  const serverPlan: PlanResponse | null = outcome?.kind === "ok" ? outcome.plan : null;
+  const planStatus: "loading" | "ok" | "failed" | "no-route" =
+    !outcome ? "loading" : outcome.kind === "ok" ? "ok" : outcome.kind;
 
   // Enquanto o servidor não responde (ou se falhar), vale a estimativa local por distância.
-  const local = useMemo(
-    () => optimizeStops(start, typedStops, finalPlace, estimateLegTime),
-    [start, typedStops, finalPlace],
-  );
+  const local = useMemo(() => {
+    const best = optimizeStops(start, typedStops, finalPlace, estimateLegTime);
+    // Ordem travada: vale a ordem guardada; a melhor fica só para comparação.
+    return locked
+      ? { ...best, stops: [...typedStops], bestSeconds: best.seconds, seconds: best.typedSeconds }
+      : { ...best, bestSeconds: best.seconds };
+  }, [start, typedStops, finalPlace, locked]);
 
   // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
   const stops = useMemo(() => {
-    if (!serverPlan) return local.stops;
+    if (locked || !serverPlan) return local.stops;
     const byId = new Map(typedStops.map((s) => [s.id, s]));
     const ordered = serverPlan.order.map((id) => byId.get(id));
     return ordered.length === typedStops.length && ordered.every((s) => s !== undefined)
       ? (ordered as Place[])
       : local.stops;
-  }, [serverPlan, local, typedStops]);
+  }, [serverPlan, local, typedStops, locked]);
 
   const legTime = useMemo<LegTimeFn>(() => {
     if (!serverPlan) return estimateLegTime;
@@ -208,6 +219,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const typedSeconds = serverPlan?.typedSeconds ?? local.typedSeconds;
   const orderExact = serverPlan?.exact ?? local.exact;
+  const bestSeconds = serverPlan?.bestSeconds ?? local.bestSeconds;
 
   const anchor = useMemo(() => {
     if (dateTime) return new Date(dateTime);
@@ -215,10 +227,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [dateTime, currentMinute]);
 
   const plan = useMemo(() => {
+    // Sem caminho de carro, não há tempos para mostrar.
+    if (planStatus === "no-route") return null;
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
     return computePlan(sequence, timeMode, anchor, legTime);
-  }, [anchor, start, stops, finalPlace, timeMode, legTime]);
+  }, [anchor, start, stops, finalPlace, timeMode, legTime, planStatus]);
 
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (place: Place): string | null => {
@@ -239,6 +253,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       ...prev,
       stops: prev.stops.filter((s) => s.id !== id),
     }));
+
+  /** Move uma parada na lista. Reposicionar à mão trava a ordem, senão o solver desfaria. */
+  const moveStop = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= stops.length) return;
+    const next = [...stops];
+    [next[index], next[target]] = [next[target], next[index]];
+    setRoute((prev) => ({ ...prev, stops: next, locked: true }));
+  };
+
+  /** Ao travar, a ordem que está na tela passa a ser a ordem guardada. */
+  const toggleLock = () =>
+    setRoute((prev) => (prev.locked ? { ...prev, locked: false } : { ...prev, stops, locked: true }));
 
   const setFixed = (which: "start" | "end", place: Place): string | null => {
     let problem: string | null = null;
@@ -291,6 +318,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
   };
 
+  const handleLegClick = (leg: number, lat: number, lng: number) => setInfo({ lat, lng, leg, address: null });
+
   const handlePointClick = (id: string) => {
     const place = [start, ...stops, ...(end ? [end] : [])].find((p) => p.id === id);
     if (place) openInfo(place.lat, place.lng, place.id);
@@ -330,15 +359,55 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return list;
   }, [start, stops, endSame, end]);
 
-  // Geometria real quando o provedor devolve; senão, retas entre os pontos.
-  const geometry = serverPlan?.geometry ?? null;
+  // Linha azul: retas entre os pontos. Linha verde: a rota pelas ruas, quando o provedor devolve.
   const path = useMemo<[number, number][]>(() => {
-    if (geometry) return geometry;
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
     return sequence.map((p) => [p.lng, p.lat]);
-  }, [geometry, start, stops, finalPlace]);
+  }, [start, stops, finalPlace]);
+  const streetLegs = useMemo(
+    () => serverPlan?.streetLegs?.map((leg) => leg.coordinates) ?? null,
+    [serverPlan],
+  );
+
+  // Conteúdo do balão quando o clique foi em um trecho da linha verde.
+  const legDetails = (() => {
+    if (info?.leg === undefined) return null;
+    const street = serverPlan?.streetLegs?.[info.leg];
+    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const from = sequence[info.leg];
+    const to = sequence[info.leg + 1];
+    if (!street || !from || !to) return null;
+    const planned = plan?.legs[info.leg];
+    return (
+      <div className="flex min-w-48 flex-col gap-1 pr-3 text-sm text-zinc-900">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-600">Trecho {info.leg + 1}</p>
+        <p className="font-semibold">
+          {from.label} → {to.label}
+        </p>
+        <p className="text-base font-semibold text-green-800">
+          {formatKm(street.meters)} · {formatDuration(street.seconds)}
+        </p>
+        <p className="text-xs text-zinc-600">
+          Distância e tempo médio pelas ruas. Fonte: {serverPlan?.streetSource}.
+        </p>
+        {planned && !planned.estimated && Math.abs(planned.seconds - street.seconds) >= 60 && (
+          <p className="text-xs text-zinc-600">Com o trânsito previsto: {formatDuration(planned.seconds)}.</p>
+        )}
+      </div>
+    );
+  })();
 
   const layout: MapLayout = isDesktop ? "desktop" : sheetOpen ? "sheet-open" : "sheet-closed";
+
+  // Aviso de rota impossível (ex.: locais separados pelo mar).
+  const noRouteMessage = (() => {
+    if (outcome?.kind !== "no-route") return null;
+    const all = [start, ...typedStops, ...(end ? [end] : [])];
+    const from = all.find((p) => p.id === outcome.fromId);
+    const to = all.find((p) => p.id === outcome.toId);
+    const where = from && to ? `entre ${from.label} e ${to.label}` : "ligando todos os locais";
+    return `Não existe caminho de carro ${where}. Balsas não contam; pontes e túneis, sim.`;
+  })();
 
   // Textos de resumo.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
@@ -359,7 +428,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       <MapView
         points={points}
         path={path}
-        approximate={!geometry}
+        streetLegs={streetLegs}
+        onLegClick={handleLegClick}
+        desktopBottomInset={isDesktop ? summaryHeight + 32 : 0}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
         onMapClick={(lat, lng) => openInfo(lat, lng)}
@@ -371,7 +442,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         popupAt={info ? { lat: info.lat, lng: info.lng } : null}
         onPopupClose={() => setInfo(null)}
       >
-        {info && (
+        {legDetails}
+        {info && info.leg === undefined && (
           <div className="flex min-w-48 flex-col gap-2 pr-3 text-sm text-zinc-900">
             <div>
               <p className="font-semibold">
@@ -479,8 +551,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
         <div
           id="hud-conteudo"
-          className={`${sheetOpen ? "flex" : "hidden"} min-h-0 flex-col gap-3 overflow-y-auto px-3 pb-3 md:flex md:p-0 md:pr-1`}
+          inert={!isDesktop && !sheetOpen}
+          className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none md:grid-rows-[1fr] ${
+            sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
         >
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-3 md:p-0 md:pr-1">
           <CollapsibleCard
             id="bloco-inicio"
             title="Início e fim"
@@ -592,11 +668,36 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   Nenhuma parada ainda. Adicione abaixo ou clique no mapa.
                 </p>
               ) : (
+                <>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                    {locked ? "Ordem travada: não muda sozinha." : "Ordem otimizada automaticamente."}
+                  </p>
+                  <button
+                    type="button"
+                    aria-pressed={locked}
+                    onClick={toggleLock}
+                    className={`focus-ring flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none ${
+                      locked
+                        ? "border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                        : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="9" width="12" height="8" rx="2" />
+                      <path d={locked ? "M7 9V6a3 3 0 016 0v3" : "M7 9V6a3 3 0 015.6-1.5"} />
+                    </svg>
+                    {locked ? "Destravar" : "Travar ordem"}
+                  </button>
+                </div>
                 <ol className="flex flex-col gap-1">
                   {stops.map((stop, i) => {
                     const leg = plan?.legs[i];
                     return (
-                      <li key={stop.id} className="flex items-center gap-2 rounded-lg px-1 py-1.5">
+                      <li
+                        key={stop.id}
+                        className="flex items-center gap-1.5 rounded-lg px-1 py-1.5 transition-colors duration-200 hover:bg-zinc-100 motion-reduce:transition-none dark:hover:bg-zinc-800/70"
+                      >
                         <span
                           aria-hidden="true"
                           className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-600 text-xs font-semibold text-white"
@@ -610,6 +711,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                               ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · chega ${formatTime(leg.arriveAt)}`
                               : "—"}
                           </span>
+                        </span>
+                        <span className="flex shrink-0 flex-col">
+                          {([-1, 1] as const).map((delta) => (
+                            <button
+                              key={delta}
+                              type="button"
+                              onClick={() => moveStop(i, delta)}
+                              disabled={delta === -1 ? i === 0 : i === stops.length - 1}
+                              aria-label={`Mover ${stop.label} para ${delta === -1 ? "cima" : "baixo"}`}
+                              className="focus-ring grid h-4 w-6 place-items-center rounded text-zinc-600 hover:bg-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-700"
+                            >
+                              <svg aria-hidden="true" viewBox="0 0 20 20" className={`h-3.5 w-3.5 ${delta === 1 ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M5 12l5-5 5 5" />
+                              </svg>
+                            </button>
+                          ))}
                         </span>
                         <button
                           type="button"
@@ -625,6 +742,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     );
                   })}
                 </ol>
+                </>
+              )}
+
+              {noRouteMessage && (
+                <p role="alert" className="rounded-lg bg-red-100 px-2.5 py-2 text-xs text-red-900 dark:bg-red-950 dark:text-red-200">
+                  {noRouteMessage}
+                </p>
               )}
 
               {isApproximate(stops.length) && (
@@ -649,6 +773,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             summary={`${totalText} · chega ${arriveText}`}
             open={isOpen("resumo")}
             onToggle={() => toggle("resumo")}
+            className="md:fixed md:bottom-8 md:left-4 md:z-10 md:w-80"
+            collapseTo={isDesktop ? "down" : "up"}
+            onHeightChange={setSummaryHeight}
           >
             <div className="flex flex-col gap-3 text-sm">
               <div>
@@ -669,30 +796,52 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </div>
               </dl>
 
-              <p>
-                Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
-                {savedMinutes > 0 ? (
-                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
-                    Economia de {savedMinutes} min.
-                  </strong>
-                ) : (
-                  "A ordem digitada já é a melhor."
-                )}
-              </p>
+              {locked ? (
+                <p>
+                  Ordem travada por você.{" "}
+                  {plan && plan.totalSeconds - bestSeconds >= 60 ? (
+                    <strong className="font-semibold text-amber-800 dark:text-amber-300">
+                      A melhor ordem levaria {formatDuration(bestSeconds)} (
+                      {Math.round((plan.totalSeconds - bestSeconds) / 60)} min a menos).
+                    </strong>
+                  ) : (
+                    "Ela já é a melhor ordem."
+                  )}
+                </p>
+              ) : (
+                <p>
+                  Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
+                  {savedMinutes > 0 ? (
+                    <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                      Economia de {savedMinutes} min.
+                    </strong>
+                  ) : (
+                    "A ordem digitada já é a melhor."
+                  )}
+                </p>
+              )}
 
               <ul className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
                 <li aria-live="polite">
                   Fonte:{" "}
                   {planStatus === "ok" && serverPlan
                     ? serverPlan.source.label
-                    : planStatus === "loading"
-                      ? "calculando… (estimativa por distância enquanto isso)"
+                    : planStatus === "no-route"
+                      ? "sem caminho de carro entre os locais"
+                      : planStatus === "loading"
+                        ? "calculando… (estimativa por distância enquanto isso)"
                       : "servidor indisponível; estimativa por distância, sem previsão de trânsito"}
                   .
                 </li>
-                <li>Ordem: {orderExact ? "exata (a melhor possível)" : "aproximada"}.</li>
+                <li>
+                  Ordem:{" "}
+                  {locked ? "travada (manual)" : orderExact ? "exata (a melhor possível)" : "aproximada"}.
+                </li>
                 {serverPlan?.checkedSeconds != null && (
-                  <li>Conferido na rota desenhada: {formatDuration(serverPlan.checkedSeconds)}.</li>
+                  <li>
+                    Pelas ruas (linha verde): {formatDuration(serverPlan.checkedSeconds)}. Clique na linha
+                    para ver cada trecho.
+                  </li>
                 )}
                 {serverPlan?.arrival && !serverPlan.arrival.converged && (
                   <li>O horário de saída ainda oscila com o trânsito; trate-o como aproximado.</li>
@@ -705,6 +854,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               </p>
             </div>
           </CollapsibleCard>
+            <div aria-hidden="true" className="h-0 shrink-0 md:hidden" />
+          </div>
         </div>
       </aside>
 
