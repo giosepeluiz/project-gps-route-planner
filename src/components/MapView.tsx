@@ -1,7 +1,8 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
@@ -28,7 +29,18 @@ interface MapViewProps {
   approximate: boolean;
   layout: MapLayout;
   fallbackStyleUrl: string | null;
+  /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
+  /** Clique direito (ou toque longo): adiciona um pin. */
+  onMapContextMenu: (lat: number, lng: number) => void;
+  /** Clique em um pin existente. */
+  onPointClick: (id: string) => void;
+  /** Área visível: [oeste, sul, leste, norte]. */
+  onBoundsChange: (bbox: [number, number, number, number]) => void;
+  /** Balão de informação aberto no mapa (o conteúdo vem em `children`). */
+  popupAt: { lat: number; lng: number } | null;
+  onPopupClose: () => void;
+  children?: ReactNode;
 }
 
 const ROUTE_SOURCE = "rota";
@@ -43,6 +55,12 @@ export default function MapView({
   layout,
   fallbackStyleUrl,
   onMapClick,
+  onMapContextMenu,
+  onPointClick,
+  onBoundsChange,
+  popupAt,
+  onPopupClose,
+  children,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -52,8 +70,19 @@ export default function MapView({
   const [styleVersion, setStyleVersion] = useState(0);
   const [size, setSize] = useState("");
   const [status, setStatus] = useState<"loading" | "ok" | "fallback" | "error">("loading");
+  /** Elemento do balão, preenchido pelo React via portal. */
+  const [popupEl] = useState(() =>
+    typeof document === "undefined" ? null : document.createElement("div"),
+  );
 
   const handleClick = useEffectEvent((lat: number, lng: number) => onMapClick(lat, lng));
+  const handleContextMenu = useEffectEvent((lat: number, lng: number) => onMapContextMenu(lat, lng));
+  const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
+  const handlePopupClose = useEffectEvent(() => onPopupClose());
+  const handleBounds = useEffectEvent((map: MapLibreMap) => {
+    const b = map.getBounds();
+    onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+  });
 
   // Cria o mapa uma única vez.
   useEffect(() => {
@@ -81,7 +110,7 @@ export default function MapView({
       const media = window.matchMedia(DESKTOP_QUERY);
       let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
       let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
-      const placeAttribution = () => {
+      const placeControls = () => {
         if (!map) return;
         if (attribution) map.removeControl(attribution);
         if (zoom) map.removeControl(zoom);
@@ -97,9 +126,9 @@ export default function MapView({
         });
         map.addControl(attribution, media.matches ? "bottom-left" : "top-left");
       };
-      placeAttribution();
-      media.addEventListener("change", placeAttribution);
-      detachMedia = () => media.removeEventListener("change", placeAttribution);
+      placeControls();
+      media.addEventListener("change", placeControls);
+      detachMedia = () => media.removeEventListener("change", placeControls);
 
       // Reenquadra a rota quando o tamanho do mapa muda (rotação, redimensionamento).
       map.on("resize", () => {
@@ -130,6 +159,12 @@ export default function MapView({
       });
 
       map.on("click", (event) => handleClick(event.lngLat.lat, event.lngLat.lng));
+      map.on("contextmenu", (event) => {
+        event.preventDefault();
+        handleContextMenu(event.lngLat.lat, event.lngLat.lng);
+      });
+      map.on("moveend", () => map && handleBounds(map));
+      map.on("load", () => map && handleBounds(map));
     });
 
     return () => {
@@ -154,8 +189,24 @@ export default function MapView({
       element.className = `pin pin-${point.kind}`;
       element.textContent = point.badge;
       element.title = point.title;
-      element.setAttribute("role", "img");
-      element.setAttribute("aria-label", `${point.badge}: ${point.title}`);
+      element.setAttribute("role", "button");
+      element.tabIndex = 0;
+      element.setAttribute("aria-label", `${point.badge}: ${point.title}. Ver informações.`);
+      // O clique no pin não deve contar como clique no mapa.
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        handlePointClick(point.id);
+      });
+      element.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handlePointClick(point.id);
+        }
+      });
+      element.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
       return new lib.Marker({ element }).setLngLat([point.lng, point.lat]).addTo(map);
     });
 
@@ -180,6 +231,29 @@ export default function MapView({
     // Sem geometria real, a linha fica tracejada.
     map.setPaintProperty(ROUTE_LAYER, "line-dasharray", approximate ? [1.5, 2] : [1, 0]);
   }, [points, path, approximate, styleVersion]);
+
+  // Balão de informação.
+  const popupLat = popupAt?.lat;
+  const popupLng = popupAt?.lng;
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!map || !lib || !popupEl || styleVersion === 0) return;
+    if (popupLat === undefined || popupLng === undefined) return;
+
+    let closedByUs = false;
+    const popup = new lib.Popup({ offset: 18, maxWidth: "280px", focusAfterOpen: false })
+      .setLngLat([popupLng, popupLat])
+      .setDOMContent(popupEl)
+      .addTo(map);
+    popup.on("close", () => {
+      if (!closedByUs) handlePopupClose();
+    });
+    return () => {
+      closedByUs = true;
+      popup.remove();
+    };
+  }, [popupLat, popupLng, popupEl, styleVersion]);
 
   // Enquadra a rota no espaço livre do HUD.
   const boundsKey = points.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join("|");
@@ -220,8 +294,9 @@ export default function MapView({
         ref={containerRef}
         className="h-full w-full"
         role="application"
-        aria-label="Mapa da rota. Clique para adicionar uma parada."
+        aria-label="Mapa da rota. Clique para ver um local; clique direito ou toque longo para adicionar uma parada."
       />
+      {popupEl && popupAt && createPortal(children, popupEl)}
       {status === "loading" && (
         <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-zinc-600 dark:text-zinc-300">
           Carregando o mapa…

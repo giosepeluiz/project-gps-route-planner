@@ -26,17 +26,3 @@ export function estimateSeconds(a: LatLng, b: LatLng): number {
   return Math.round(roadMeters / metersPerSecond);
 }
 
-/**
- * Leitura mínima de "lat, lng" em decimal, usada só na fase 1.
- * A fase 2 troca por um leitor completo (DMS, DDM, hemisférios e links).
- */
-export function parseDecimalPair(text: string): LatLng | null {
-  const match = text
-    .trim()
-    .match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
-  if (!match) return null;
-  const lat = Number(match[1]);
-  const lng = Number(match[2]);
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  return { lat, lng };
-}

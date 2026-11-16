@@ -1,0 +1,173 @@
+/**
+ * Resolve no servidor links que não trazem coordenadas na própria URL
+ * (links curtos maps.app.goo.gl, waze.com/ul/h…, maps.apple/p/…, lugares por nome).
+ * Adaptado do conversor de coordenadas.
+ *
+ * Segurança (anti-SSRF): só acessa hosts de mapas conhecidos por HTTPS, valida
+ * CADA redirecionamento, usa timeout curto e limita o tamanho da resposta.
+ */
+import { parseCoordinates, type LatLng } from "../coordinates";
+import {
+  extractFromUrl,
+  extractUrlFromText,
+  isAppleMaps,
+  isGoogleMaps,
+  isGoogleShort,
+  isMapUrl,
+  isSite,
+  isWaze,
+  parseInput,
+  placeQuery,
+  toUrl,
+  unwrapSiteUrl,
+} from "../map-urls";
+import type { Cache } from "./cache";
+import type { Geocoder } from "./geocode";
+
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+const MAX_REDIRECTS = 5;
+const MAX_BYTES = 1_500_000;
+const TIMEOUT_MS = 6000;
+const LINK_TTL_S = 30 * 24 * 3600;
+
+export interface ResolvedPlace extends LatLng {
+  /** Nome do lugar, quando o link trouxer um. */
+  label?: string;
+}
+
+type FetchFn = typeof fetch;
+
+/** Allowlist: só estes serviços podem ser acessados pelo servidor. */
+export const canFetch = (u: URL) =>
+  u.protocol === "https:" &&
+  !u.username &&
+  !u.password &&
+  (u.port === "" || u.port === "443") &&
+  (isGoogleShort(u) || isGoogleMaps(u) || isWaze(u) || isAppleMaps(u));
+
+const isGoogleHost = (u: URL) => isGoogleShort(u) || /(^|\.)google\.[a-z.]+$/.test(u.hostname);
+
+async function readLimited(res: Response): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (total < MAX_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  await reader.cancel().catch(() => {});
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+async function follow(start: URL, fetchFn: FetchFn): Promise<{ url: URL; html: string }> {
+  let url = start;
+  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    if (!canFetch(url)) break;
+    // Se a URL atual já tem coordenadas, não precisa continuar.
+    if (i > 0 && extractFromUrl(url)) return { url, html: "" };
+    const headers: Record<string, string> = {
+      "User-Agent": UA,
+      "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    };
+    // Evita a página de consentimento de cookies do Google na Europa.
+    if (isGoogleHost(url)) headers.Cookie = "SOCS=CAI; CONSENT=YES+";
+    const res = await fetchFn(url, {
+      redirect: "manual",
+      headers,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      cache: "no-store",
+    });
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      await res.body?.cancel().catch(() => {});
+      url = new URL(location, url);
+      continue;
+    }
+    const isHtml = res.headers.get("content-type")?.includes("html");
+    return { url, html: res.ok && isHtml ? await readLimited(res) : "" };
+  }
+  return { url, html: "" };
+}
+
+/**
+ * Coordenadas confiáveis dentro do HTML. Não usa o "center=", o
+ * "[[[alt,lng,lat]" nem o "/@lat,lng" do Google: em páginas de lugar por nome,
+ * eles trazem a posição estimada pelo IP de quem pediu, e não a do lugar.
+ */
+export function fromHtml(html: string): LatLng | null {
+  if (!html) return null;
+  const meta = (prop: string) =>
+    html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)`, "i"))?.[1];
+  // Apple Maps: <meta property="place:location:latitude" ...>
+  const lat = meta("place:location:latitude") ?? meta("og:latitude");
+  const lng = meta("place:location:longitude") ?? meta("og:longitude");
+  if (lat && lng) {
+    const c = parseCoordinates(`${lat},${lng}`);
+    if (c) return c;
+  }
+  const geo = meta("geo.position") ?? meta("ICBM");
+  if (geo) {
+    const c = parseCoordinates(geo.replace(";", ","));
+    if (c) return c;
+  }
+  // Google: marcador do lugar (o "@lat,lng" do HTML pode ser só o centro da tela)
+  const pin = html.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (pin) return parseCoordinates(`${pin[1]},${pin[2]}`);
+  return null;
+}
+
+export interface ResolverDeps {
+  geocoder: Geocoder;
+  cache: Cache;
+  fetchFn?: FetchFn;
+}
+
+export function createResolver({ geocoder, cache, fetchFn = fetch }: ResolverDeps) {
+  /** Resolve coordenadas de qualquer entrada, acessando a rede só quando necessário. */
+  return async function resolveInput(input: string, depth = 0): Promise<ResolvedPlace | null> {
+    const local = parseInput(input);
+    if (local) return local;
+    if (depth > 2) return null;
+
+    const start = toUrl(input);
+    // Texto de compartilhamento: "Nome do lugar https://maps.app.goo.gl/…"
+    if (!start) {
+      const inText = extractUrlFromText(input);
+      return inText && inText !== input.trim() ? resolveInput(inText, depth + 1) : null;
+    }
+    if (!isMapUrl(start)) return null;
+
+    // Link do conversor com um link de mapa dentro: resolve o de dentro.
+    if (isSite(start)) {
+      const inner = unwrapSiteUrl(start);
+      return inner ? resolveInput(inner, depth + 1) : null;
+    }
+
+    const key = `link:v1:${start.href}`;
+    const cached = await cache.get<ResolvedPlace>(key);
+    if (cached) return cached;
+
+    try {
+      const { url, html } = await follow(start, fetchFn);
+      const name = placeQuery(url) ?? placeQuery(start);
+      const label = name?.split(",")[0]?.trim() || undefined;
+
+      const found = extractFromUrl(url) ?? fromHtml(html);
+      let result: ResolvedPlace | null = found ? { ...found, label } : null;
+      if (!result && name) {
+        const geocoded = await geocoder.search(name);
+        if (geocoded) result = { lat: geocoded.lat, lng: geocoded.lng, label: geocoded.label };
+      }
+      // Só guarda acertos: falhas (rede, timeout) podem ser temporárias.
+      if (result) await cache.set(key, result, LINK_TTL_S);
+      return result;
+    } catch (err) {
+      console.error("Falha ao resolver URL:", err);
+      return null;
+    }
+  };
+}

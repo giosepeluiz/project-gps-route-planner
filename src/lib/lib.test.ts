@@ -7,7 +7,7 @@ import {
   pluralStops,
   toLocalInputValue,
 } from "./format";
-import { estimateSeconds, haversineMeters, parseDecimalPair } from "./geo";
+import { estimateSeconds, haversineMeters } from "./geo";
 import { getFallbackStyleUrl } from "./map-style";
 import {
   FIXTURE_PLACES as P,
@@ -59,12 +59,6 @@ describe("geo", () => {
     expect(estimateSeconds(P.B, P.Be)).toBe(Math.round((meters * 1.4) / (35_000 / 3600)));
   });
 
-  it("lê pares decimais simples", () => {
-    expect(parseDecimalPair("38.7074, -9.1373")).toEqual({ lat: 38.7074, lng: -9.1373 });
-    expect(parseDecimalPair("38.7074 -9.1373")).toEqual({ lat: 38.7074, lng: -9.1373 });
-    expect(parseDecimalPair("Praça do Comércio")).toBeNull();
-    expect(parseDecimalPair("95, 10")).toBeNull();
-  });
 });
 
 describe("plano com os fixtures das 09:00", () => {

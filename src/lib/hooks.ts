@@ -25,25 +25,39 @@ function subscribeStorage(onChange: () => void): () => void {
  * Estado salvo em localStorage. No servidor (e na hidratação) vale `fallback`,
  * que precisa ser uma referência estável (constante de módulo).
  */
-export function useLocalStorageState<T>(key: string, fallback: T): [T, (value: T) => void] {
+export function useLocalStorageState<T>(
+  key: string,
+  fallback: T,
+  /** Valida o que veio do armazenamento; se devolver false, vale o fallback. */
+  isValid: (value: unknown) => boolean = () => true,
+): [T, (next: T | ((previous: T) => T)) => void] {
   const raw = useSyncExternalStore(
     subscribeStorage,
     () => readRaw(key),
     () => null,
   );
 
-  const value = useMemo<T>(() => {
-    if (raw === null) return fallback;
-    try {
-      return JSON.parse(raw) as T;
-    } catch {
-      return fallback;
-    }
-  }, [raw, fallback]);
+  const parse = useCallback(
+    (text: string | null): T => {
+      if (text === null) return fallback;
+      try {
+        const parsed: unknown = JSON.parse(text);
+        return isValid(parsed) ? (parsed as T) : fallback;
+      } catch {
+        return fallback;
+      }
+    },
+    [fallback, isValid],
+  );
+
+  const value = useMemo<T>(() => parse(raw), [raw, parse]);
 
   const setValue = useCallback(
-    (next: T) => {
-      const json = JSON.stringify(next);
+    (next: T | ((previous: T) => T)) => {
+      // A forma com função lê o valor mais recente (útil em respostas assíncronas).
+      const resolved =
+        typeof next === "function" ? (next as (previous: T) => T)(parse(readRaw(key))) : next;
+      const json = JSON.stringify(resolved);
       memory.set(key, json);
       try {
         window.localStorage.setItem(key, json);
@@ -52,7 +66,7 @@ export function useLocalStorageState<T>(key: string, fallback: T): [T, (value: T
       }
       window.dispatchEvent(new Event(STORAGE_EVENT));
     },
-    [key],
+    [key, parse],
   );
 
   return [value, setValue];

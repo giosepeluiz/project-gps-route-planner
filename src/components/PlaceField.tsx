@@ -11,7 +11,7 @@ interface PlaceFieldProps {
   /** Mostra o botão + e limpa o campo depois de enviar (campo de adicionar parada). */
   addMode?: boolean;
   /** Recebe o texto digitado. Devolve uma mensagem de erro ou null se deu certo. */
-  onSubmit: (text: string) => string | null;
+  onSubmit: (text: string) => Promise<string | null>;
 }
 
 export const inputClass =
@@ -26,20 +26,28 @@ export default function PlaceField({
   onSubmit,
 }: PlaceFieldProps) {
   const inputId = useId();
-  const errorId = `${inputId}-erro`;
+  const messageId = `${inputId}-msg`;
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
+    if (busy) return;
     const text = (draft ?? "").trim();
     if (!text) {
       setDraft(null);
       setError(null);
       return;
     }
-    const problem = onSubmit(text);
-    setError(problem);
-    if (!problem) setDraft(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const problem = await onSubmit(text);
+      setError(problem);
+      if (!problem) setDraft(null);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -57,8 +65,10 @@ export default function PlaceField({
           value={draft ?? value}
           placeholder={placeholder}
           disabled={disabled}
+          readOnly={busy}
+          aria-busy={busy}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={error || busy ? messageId : undefined}
           onChange={(e) => {
             setDraft(e.target.value);
             setError(null);
@@ -66,7 +76,7 @@ export default function PlaceField({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              submit();
+              void submit();
             } else if (e.key === "Escape") {
               setDraft(null);
               setError(null);
@@ -76,8 +86,8 @@ export default function PlaceField({
         {addMode && (
           <button
             type="button"
-            onClick={submit}
-            disabled={disabled}
+            onClick={() => void submit()}
+            disabled={disabled || busy}
             aria-label="Adicionar parada"
             className="focus-ring grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-blue-600 text-lg font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
           >
@@ -85,8 +95,13 @@ export default function PlaceField({
           </button>
         )}
       </div>
-      {error && (
-        <p id={errorId} role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">
+      {busy && (
+        <p id={messageId} role="status" className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+          Buscando o local…
+        </p>
+      )}
+      {error && !busy && (
+        <p id={messageId} role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">
           {error}
         </p>
       )}

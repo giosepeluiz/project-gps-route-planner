@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import CollapsibleCard, { Chevron } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
@@ -12,9 +12,9 @@ import {
   pluralStops,
   toLocalInputValue,
 } from "@/lib/format";
-import { parseDecimalPair } from "@/lib/geo";
 import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
 import { MOCK_ORDERED_STOPS, MOCK_START, MOCK_TYPED_STOPS, mockLegTime } from "@/lib/mock-data";
+import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
 import { computePlan, sequenceSeconds } from "@/lib/plan";
 import {
   addStop,
@@ -23,16 +23,64 @@ import {
   MAX_STOPS,
   MSG_APPROX,
   MSG_DUPLICATE,
+  MSG_NOT_FOUND,
 } from "@/lib/stops";
-import type { Place, PlaceSource, TimeMode } from "@/lib/types";
+import type { Place, TimeMode } from "@/lib/types";
 
 type BlockId = "inicio" | "paradas" | "resumo";
 const BLOCKS_KEY = "rotas:blocos";
 const BLOCKS_DEFAULT: Record<BlockId, boolean> = { inicio: true, paradas: true, resumo: true };
 
-/** Fase 1: só coordenadas decimais. Endereços e links entram na fase 2. */
-const MSG_PHASE_1 =
-  "A busca por endereço e por link chega na fase 2. Por enquanto, use coordenadas (ex.: 38.7074, -9.1373) ou clique no mapa.";
+/** Último estado da rota, salvo em localStorage. */
+interface RouteState {
+  start: Place;
+  endSame: boolean;
+  end: Place | null;
+  /** Paradas na ordem exibida (a ordem otimizada, quando o solver existir). */
+  stops: Place[];
+  /** Ids na ordem em que foram digitadas, para a comparação. */
+  typedIds: string[];
+  timeMode: TimeMode;
+}
+
+const ROUTE_KEY = "rotas:rota:v1";
+const ROUTE_DEFAULT: RouteState = {
+  start: MOCK_START,
+  endSame: true,
+  end: null,
+  stops: MOCK_ORDERED_STOPS,
+  typedIds: MOCK_TYPED_STOPS.map((s) => s.id),
+  timeMode: "depart",
+};
+
+const isPlace = (value: unknown): value is Place => {
+  const p = value as Partial<Place> | null;
+  return (
+    !!p &&
+    typeof p.id === "string" &&
+    typeof p.label === "string" &&
+    typeof p.lat === "number" &&
+    typeof p.lng === "number" &&
+    Math.abs(p.lat) <= 90 &&
+    Math.abs(p.lng) <= 180
+  );
+};
+
+function isRouteState(value: unknown): boolean {
+  const r = value as Partial<RouteState> | null;
+  return (
+    !!r &&
+    isPlace(r.start) &&
+    typeof r.endSame === "boolean" &&
+    (r.end === null || isPlace(r.end)) &&
+    Array.isArray(r.stops) &&
+    r.stops.length <= MAX_STOPS &&
+    r.stops.every(isPlace) &&
+    Array.isArray(r.typedIds) &&
+    r.typedIds.every((id) => typeof id === "string") &&
+    (r.timeMode === "depart" || r.timeMode === "arrive")
+  );
+}
 
 interface Toast {
   id: number;
@@ -41,16 +89,23 @@ interface Toast {
   undoStopId?: string;
 }
 
-function makePlace(lat: number, lng: number, source: PlaceSource): Place {
-  return {
-    id: crypto.randomUUID(),
-    label: source === "pin" ? `Pin ${formatLatLng(lat, lng)}` : formatLatLng(lat, lng),
-    lat,
-    lng,
-    source,
-    confidence: 1,
-    dwellMinutes: 0,
-  };
+/** Balão aberto no mapa: um ponto livre ou um local da rota (`placeId`). */
+interface Info {
+  lat: number;
+  lng: number;
+  placeId?: string;
+  /** undefined = buscando; null = não encontrado. */
+  address?: string | null;
+}
+
+const pinLabel = (lat: number, lng: number) => `Pin ${formatLatLng(lat, lng)}`;
+
+function makePlace(draft: PlaceDraft): Place {
+  return { ...draft, id: crypto.randomUUID(), dwellMinutes: 0 };
+}
+
+function fixedPlacesOf(route: RouteState): Place[] {
+  return !route.endSame && route.end ? [route.start, route.end] : [route.start];
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
@@ -61,19 +116,19 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
+const popupButton =
+  "focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-100";
+
 export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
-  const [start, setStart] = useState<Place>(MOCK_START);
-  const [endSame, setEndSame] = useState(true);
-  const [end, setEnd] = useState<Place | null>(null);
-  /** Paradas na ordem exibida (a ordem otimizada, quando o solver existir). */
-  const [stops, setStops] = useState<Place[]>(MOCK_ORDERED_STOPS);
-  /** Ids na ordem em que foram digitadas, para a comparação. */
-  const [typedIds, setTypedIds] = useState<string[]>(() => MOCK_TYPED_STOPS.map((s) => s.id));
-  const [timeMode, setTimeMode] = useState<TimeMode>("depart");
+  const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
+  const { start, endSame, end, stops, typedIds, timeMode } = route;
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [info, setInfo] = useState<Info | null>(null);
+  /** Área visível do mapa, usada como viés na busca por endereço. */
+  const bboxRef = useRef<BBoxTuple | null>(null);
 
   const [blocks, setBlocks] = useLocalStorageState(BLOCKS_KEY, BLOCKS_DEFAULT);
   const isDesktop = useMediaQuery("(min-width: 768px)");
@@ -95,10 +150,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setToast({ id: Date.now(), text, undoStopId });
 
   const finalPlace = endSame ? start : end;
-  const fixedPlaces = useMemo(
-    () => (finalPlace && finalPlace !== start ? [start, finalPlace] : [start]),
-    [start, finalPlace],
-  );
 
   const anchor = useMemo(() => {
     if (dateTime) return new Date(dateTime);
@@ -119,41 +170,97 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return sequenceSeconds(sequence, mockLegTime);
   }, [typedIds, stops, start, finalPlace]);
 
+  /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (place: Place): string | null => {
-    const result = addStop(stops, place, fixedPlaces);
-    if (!result.ok) return result.message;
-    setStops(result.stops);
-    setTypedIds((ids) => [...ids, place.id]);
-    return null;
+    let problem: string | null = null;
+    setRoute((prev) => {
+      const result = addStop(prev.stops, place, fixedPlacesOf(prev));
+      if (!result.ok) {
+        problem = result.message;
+        return prev;
+      }
+      return { ...prev, stops: result.stops, typedIds: [...prev.typedIds, place.id] };
+    });
+    return problem;
   };
 
-  const removeStop = (id: string) => {
-    setStops((list) => list.filter((s) => s.id !== id));
-    setTypedIds((ids) => ids.filter((x) => x !== id));
+  const removeStop = (id: string) =>
+    setRoute((prev) => ({
+      ...prev,
+      stops: prev.stops.filter((s) => s.id !== id),
+      typedIds: prev.typedIds.filter((x) => x !== id),
+    }));
+
+  const setFixed = (which: "start" | "end", place: Place): string | null => {
+    let problem: string | null = null;
+    setRoute((prev) => {
+      if (isDuplicate(place, prev.stops)) {
+        problem = MSG_DUPLICATE;
+        return prev;
+      }
+      return which === "start" ? { ...prev, start: place } : { ...prev, end: place, endSame: false };
+    });
+    return problem;
   };
 
-  const submitStop = (text: string): string | null => {
-    const coords = parseDecimalPair(text);
-    if (!coords) return MSG_PHASE_1;
-    return tryAddStop(makePlace(coords.lat, coords.lng, "coords"));
+  const submitStop = async (text: string): Promise<string | null> => {
+    const draft = await resolvePlaceInput(text, bboxRef.current);
+    return draft ? tryAddStop(makePlace(draft)) : MSG_NOT_FOUND;
   };
 
-  const submitFixed = (text: string, which: "start" | "end"): string | null => {
-    const coords = parseDecimalPair(text);
-    if (!coords) return MSG_PHASE_1;
-    const place = makePlace(coords.lat, coords.lng, "coords");
-    if (isDuplicate(place, stops)) return MSG_DUPLICATE;
-    if (which === "start") setStart(place);
-    else setEnd(place);
-    return null;
+  const submitFixed = async (text: string, which: "start" | "end"): Promise<string | null> => {
+    const draft = await resolvePlaceInput(text, bboxRef.current);
+    return draft ? setFixed(which, makePlace(draft)) : MSG_NOT_FOUND;
   };
 
-  const handleMapClick = (lat: number, lng: number) => {
-    const place = makePlace(lat, lng, "pin");
+  /** Clique esquerdo: abre o balão e busca o endereço do ponto. */
+  const openInfo = (lat: number, lng: number, placeId?: string) => {
+    setInfo({ lat, lng, placeId });
+    void reverseLabel({ lat, lng }).then((address) =>
+      setInfo((current) =>
+        current && current.lat === lat && current.lng === lng ? { ...current, address } : current,
+      ),
+    );
+  };
+
+  /** Clique direito (ou toque longo): adiciona o pin e depois troca o rótulo pelo endereço. */
+  const handleContextMenu = (lat: number, lng: number) => {
+    const place = makePlace({ lat, lng, label: pinLabel(lat, lng), source: "pin", confidence: 1 });
     const problem = tryAddStop(place);
-    if (problem) notify(problem);
-    else notify("Parada adicionada.", place.id);
+    if (problem) {
+      notify(problem);
+      return;
+    }
+    setInfo(null);
+    notify("Parada adicionada.", place.id);
+    void reverseLabel({ lat, lng }).then((address) => {
+      if (!address) return;
+      setRoute((prev) => ({
+        ...prev,
+        stops: prev.stops.map((s) => (s.id === place.id ? { ...s, label: address } : s)),
+      }));
+    });
   };
+
+  const handlePointClick = (id: string) => {
+    const place = [start, ...stops, ...(end ? [end] : [])].find((p) => p.id === id);
+    if (place) openInfo(place.lat, place.lng, place.id);
+  };
+
+  /** Local do balão como novo Place (usa o endereço, se já chegou). */
+  const placeFromInfo = (current: Info): Place =>
+    makePlace({
+      lat: current.lat,
+      lng: current.lng,
+      label: current.address || pinLabel(current.lat, current.lng),
+      source: "pin",
+      confidence: 1,
+    });
+
+  const infoPlace = info?.placeId
+    ? [start, ...stops, ...(end ? [end] : [])].find((p) => p.id === info.placeId)
+    : undefined;
+  const infoIsStop = !!infoPlace && stops.some((s) => s.id === infoPlace.id);
 
   // Pins e linha do mapa.
   const points = useMemo<MapPoint[]>(() => {
@@ -203,8 +310,99 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         approximate
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
-        onMapClick={handleMapClick}
-      />
+        onMapClick={(lat, lng) => openInfo(lat, lng)}
+        onMapContextMenu={handleContextMenu}
+        onPointClick={handlePointClick}
+        onBoundsChange={(bbox) => {
+          bboxRef.current = bbox;
+        }}
+        popupAt={info ? { lat: info.lat, lng: info.lng } : null}
+        onPopupClose={() => setInfo(null)}
+      >
+        {info && (
+          <div className="flex min-w-48 flex-col gap-2 pr-3 text-sm text-zinc-900">
+            <div>
+              <p className="font-semibold">
+                {infoPlace ? infoPlace.label : (info.address ?? "Local selecionado")}
+              </p>
+              {infoPlace && (
+                <p className="text-xs text-zinc-600">
+                  {infoPlace.id === start.id
+                    ? "Início da rota"
+                    : infoIsStop
+                      ? `Parada ${stops.findIndex((s) => s.id === infoPlace.id) + 1}`
+                      : "Fim da rota"}
+                </p>
+              )}
+              <p className="text-xs text-zinc-600" aria-live="polite">
+                {info.address === undefined
+                  ? "Buscando o endereço…"
+                  : info.address === null
+                    ? "Endereço não encontrado."
+                    : infoPlace && info.address !== infoPlace.label
+                      ? info.address
+                      : null}
+              </p>
+              <p className="font-mono text-xs text-zinc-600">{formatLatLng(info.lat, info.lng)}</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {!infoPlace && (
+                <>
+                  <button
+                    type="button"
+                    className={`${popupButton} border-blue-600 bg-blue-600 text-white hover:bg-blue-700`}
+                    onClick={() => {
+                      const place = placeFromInfo(info);
+                      const problem = tryAddStop(place);
+                      if (problem) notify(problem);
+                      else {
+                        notify("Parada adicionada.", place.id);
+                        setInfo(null);
+                      }
+                    }}
+                  >
+                    Adicionar parada
+                  </button>
+                  <button
+                    type="button"
+                    className={popupButton}
+                    onClick={() => {
+                      const problem = setFixed("start", placeFromInfo(info));
+                      if (problem) notify(problem);
+                      else setInfo(null);
+                    }}
+                  >
+                    Usar como início
+                  </button>
+                  <button
+                    type="button"
+                    className={popupButton}
+                    onClick={() => {
+                      const problem = setFixed("end", placeFromInfo(info));
+                      if (problem) notify(problem);
+                      else setInfo(null);
+                    }}
+                  >
+                    Usar como fim
+                  </button>
+                </>
+              )}
+              {infoPlace && infoIsStop && (
+                <button
+                  type="button"
+                  className={popupButton}
+                  onClick={() => {
+                    removeStop(infoPlace.id);
+                    setInfo(null);
+                  }}
+                >
+                  Remover parada
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </MapView>
 
       <aside
         aria-label="Planejamento da rota"
@@ -255,7 +453,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   role="switch"
                   aria-checked={endSame}
                   aria-labelledby={switchId}
-                  onClick={() => setEndSame((v) => !v)}
+                  onClick={() => setRoute((prev) => ({ ...prev, endSame: !prev.endSame }))}
                   className={`focus-ring relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none ${
                     endSame ? "bg-blue-600" : "bg-zinc-400 dark:bg-zinc-600"
                   }`}
@@ -294,7 +492,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                       key={mode}
                       type="button"
                       aria-pressed={timeMode === mode}
-                      onClick={() => setTimeMode(mode)}
+                      onClick={() => setRoute((prev) => ({ ...prev, timeMode: mode }))}
                       className={`focus-ring rounded-md px-2 py-1.5 text-sm font-medium ${
                         timeMode === mode
                           ? "bg-white text-zinc-900 shadow dark:bg-zinc-600 dark:text-white"
@@ -432,7 +630,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
               <ul className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
                 <li>
-                  Fonte: dados fictícios da fase 1
+                  Tempos: dados fictícios (os provedores de trânsito chegam na fase 4)
                   {plan?.hasEstimates ? ", com estimativa por distância (≈) nos locais novos" : ""}.
                 </li>
                 <li>
