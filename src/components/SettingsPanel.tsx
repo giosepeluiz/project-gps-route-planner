@@ -16,6 +16,8 @@ import {
 interface SettingsPanelProps {
   settings: Settings;
   onChange: (next: Settings) => void;
+  /** Encerra a sessão. Só existe quando o site exige senha. */
+  onLogout?: () => void;
 }
 
 interface Option<T extends string> {
@@ -82,7 +84,7 @@ const DOCKS: Option<SummaryDock>[] = [
   { value: "panel", label: "Junto dos blocos" },
 ];
 
-export default function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onLogout }: SettingsPanelProps) {
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     onChange({ ...settings, [key]: value });
 
@@ -147,13 +149,24 @@ export default function SettingsPanel({ settings, onChange }: SettingsPanelProps
         </ol>
       </div>
 
-      <button
-        type="button"
-        onClick={() => onChange(DEFAULT_SETTINGS)}
-        className="focus-ring self-start rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-      >
-        Restaurar o padrão
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => onChange(DEFAULT_SETTINGS)}
+          className="focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+        >
+          Restaurar o padrão
+        </button>
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Sair
+          </button>
+        )}
+      </div>
     </div>
   );
 }

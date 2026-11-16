@@ -11,7 +11,7 @@ Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de in
 | F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
 | F4 | Provedores de matriz e rota, com cache e fallback | Pronta |
 | F5 | Camada de IA com fallback | Pronta |
-| F6 | Ações de saída, senha, rate limit e deploy na Vercel | A fazer |
+| F6 | Ações de saída, senha, rate limit e deploy na Vercel | Pronta (falta só publicar) |
 
 ## Tempos e rota
 
@@ -62,6 +62,29 @@ Cadeia: Gemini Flash (`GEMINI_API_KEY`, primária) → Groq/Llama (`GROQ_API_KEY
 
 Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
 
+## Abrir e compartilhar
+
+- **Abrir no Google Maps:** link de rota na ordem otimizada. O Google aceita até 9 paradas por link (3 nos navegadores de celular); acima disso a rota é dividida em partes encadeadas.
+- **Navegar no Waze:** abre a navegação até a próxima parada (o Waze aceita um destino por link).
+- **Copiar rota** em texto e **Compartilhar** (onde o navegador oferece compartilhamento).
+
+## Configurações
+
+O bloco Configurações guarda no navegador: tema (sistema, claro ou escuro), tamanho da fonte, lado do painel, posição do Resumo e a ordem dos blocos (arrastando pela alça). "Restaurar o padrão" desfaz tudo.
+
+## Acesso e segurança
+
+- **Senha:** com `APP_PASSWORD` definida, o site e as rotas `/api` exigem login. A sessão é um cookie httpOnly assinado (HMAC-SHA256), válido por 30 dias; o botão "Sair" fica nas Configurações.
+- **Sem senha:** em desenvolvimento o site fica aberto; em produção tudo responde 503, para ninguém consumir as cotas.
+- **Limite de requisições:** 60 por minuto por IP nas rotas `/api` (`RATE_LIMIT_PER_MIN`) e 10 tentativas de login por minuto. O contador fica na memória de cada instância do servidor, então na Vercel é uma proteção simples, não uma garantia.
+- Entradas validadas com zod, chaves só no servidor e lista fixa de domínios no `/api/resolve`.
+
+## Publicar na Vercel
+
+1. Suba o repositório para o GitHub e importe o projeto na Vercel (framework Next.js, sem ajustes de build).
+2. Em Settings > Environment Variables, cadastre no mínimo `APP_PASSWORD` e `TOMTOM_API_KEY`. Recomendadas: `SESSION_SECRET`, `GEMINI_API_KEY`, `GROQ_API_KEY` e `NOMINATIM_USER_AGENT` com um contato real. Opcionais: `ORS_API_KEY`, `MAPTILER_KEY`, `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
+3. Faça o deploy. Sem `TOMTOM_API_KEY` em produção não há linha pelas ruas (o OSRM de demonstração só vale em desenvolvimento) e os tempos são estimativa.
+
 ## Como usar o mapa
 
 - **Clique esquerdo** em qualquer ponto: abre um balão com o endereço e as coordenadas (clicáveis para copiar) e pergunta o que fazer com o local: adicionar como parada, definir como início ou definir como fim.
@@ -83,6 +106,10 @@ npm install
 npm run dev
 ```
 
+As chaves ficam em `.env.local` (fora do git); copie de [.env.example](.env.example). Depois de alterar esse arquivo, reinicie o servidor.
+
+Observação: esta cópia do projeto fica no Google Drive, onde o `npm install` falha. Nesse caso, instale em uma pasta de disco local e copie o `node_modules` para cá.
+
 Abra http://localhost:3000.
 
 Outros comandos: `npm run lint`, `npm run typecheck`, `npm test` e `npm run build`.
@@ -95,4 +122,4 @@ Outros comandos: `npm run lint`, `npm run typecheck`, `npm test` e `npm run buil
 
 ## Variáveis de ambiente
 
-Veja [.env.example](.env.example). Nenhuma é obrigatória por enquanto: sem `TOMTOM_API_KEY` a geocodificação usa só o Nominatim, e sem as do Upstash o cache fica em memória.
+Veja [.env.example](.env.example). Em desenvolvimento nenhuma é obrigatória: sem `TOMTOM_API_KEY` os tempos são estimativa e a geocodificação usa só o Nominatim; sem chaves de IA o selo fica em "Local"; sem as do Upstash o cache fica em memória. Em produção, `APP_PASSWORD` é obrigatória.

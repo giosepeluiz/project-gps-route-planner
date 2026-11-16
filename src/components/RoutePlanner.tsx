@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron } from "./CollapsibleCard";
@@ -147,7 +148,14 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
+export default function RoutePlanner({
+  fallbackStyleUrl,
+  authEnabled = false,
+}: {
+  fallbackStyleUrl: string | null;
+  /** true quando o site exige senha (mostra o botão "Sair"). */
+  authEnabled?: boolean;
+}) {
   const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
   const { start, endSame, end, stops: typedStops, timeMode } = route;
   // Travas válidas para a lista atual (ignora restos de paradas removidas).
@@ -156,6 +164,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [typedStops, route.locks],
   );
   const lockCount = Object.keys(locks).length;
+  const router = useRouter();
   const [summaryHeight, setSummaryHeight] = useState(0);
 
   // Preferências de aparência (tema, fonte e posição dos blocos).
@@ -832,7 +841,20 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             open={isOpen("config")}
             onToggle={() => toggle("config")}
           >
-            <SettingsPanel settings={settings} onChange={setSettings} />
+            <SettingsPanel
+              settings={settings}
+              onChange={setSettings}
+              onLogout={
+                authEnabled
+                  ? () => {
+                      void fetch("/api/login", { method: "DELETE" }).finally(() => {
+                        router.replace("/login");
+                        router.refresh();
+                      });
+                    }
+                  : undefined
+              }
+            />
           </CollapsibleCard>
     ),
   };
