@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f4f5;
+  --foreground: #18181b;
+  color-scheme: light dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #09090b;
+    --foreground: #f4f4f5;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+}
+
+/* Foco visível e consistente em todos os controles. */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    outline-color: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:focus-visible {
+      outline-color: #60a5fa;
+    }
+  }
+}
+
+/* Pins do mapa (criados fora do React, pelo MapLibre). */
+.pin {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  background: #2563eb;
+  color: #ffffff;
+  font: 700 13px/1 system-ui, sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  cursor: default;
+}
+
+.pin-start,
+.pin-end {
+  background: #18181b;
+}
+
+/* A atribuição fica sempre legível, também no tema escuro. */
+.maplibregl-ctrl-attrib {
+  font-size: 11px;
+}

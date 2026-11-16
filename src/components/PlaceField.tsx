@@ -1,0 +1,95 @@
+"use client";
+
+import { useId, useState } from "react";
+
+interface PlaceFieldProps {
+  label: string;
+  /** Texto do local atual (mostrado quando não há edição em curso). */
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  /** Mostra o botão + e limpa o campo depois de enviar (campo de adicionar parada). */
+  addMode?: boolean;
+  /** Recebe o texto digitado. Devolve uma mensagem de erro ou null se deu certo. */
+  onSubmit: (text: string) => string | null;
+}
+
+export const inputClass =
+  "focus-ring w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:disabled:bg-zinc-800/50 dark:disabled:text-zinc-400";
+
+export default function PlaceField({
+  label,
+  value,
+  placeholder,
+  disabled = false,
+  addMode = false,
+  onSubmit,
+}: PlaceFieldProps) {
+  const inputId = useId();
+  const errorId = `${inputId}-erro`;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = () => {
+    const text = (draft ?? "").trim();
+    if (!text) {
+      setDraft(null);
+      setError(null);
+      return;
+    }
+    const problem = onSubmit(text);
+    setError(problem);
+    if (!problem) setDraft(null);
+  };
+
+  return (
+    <div>
+      <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+        {label}
+      </label>
+      <div className="flex gap-2">
+        <input
+          id={inputId}
+          type="text"
+          autoComplete="off"
+          enterKeyHint={addMode ? "done" : "search"}
+          className={inputClass}
+          value={draft ?? value}
+          placeholder={placeholder}
+          disabled={disabled}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            } else if (e.key === "Escape") {
+              setDraft(null);
+              setError(null);
+            }
+          }}
+        />
+        {addMode && (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={disabled}
+            aria-label="Adicionar parada"
+            className="focus-ring grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-blue-600 text-lg font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          >
+            +
+          </button>
+        )}
+      </div>
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

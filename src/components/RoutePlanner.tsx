@@ -1,0 +1,476 @@
+"use client";
+
+import { useEffect, useId, useMemo, useState } from "react";
+import CollapsibleCard, { Chevron } from "./CollapsibleCard";
+import MapView, { type MapLayout, type MapPoint } from "./MapView";
+import PlaceField, { inputClass } from "./PlaceField";
+import {
+  formatDuration,
+  formatLatLng,
+  formatTime,
+  formatTimeWithDay,
+  pluralStops,
+  toLocalInputValue,
+} from "@/lib/format";
+import { parseDecimalPair } from "@/lib/geo";
+import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
+import { MOCK_ORDERED_STOPS, MOCK_START, MOCK_TYPED_STOPS, mockLegTime } from "@/lib/mock-data";
+import { computePlan, sequenceSeconds } from "@/lib/plan";
+import {
+  addStop,
+  isApproximate,
+  isDuplicate,
+  MAX_STOPS,
+  MSG_APPROX,
+  MSG_DUPLICATE,
+} from "@/lib/stops";
+import type { Place, PlaceSource, TimeMode } from "@/lib/types";
+
+type BlockId = "inicio" | "paradas" | "resumo";
+const BLOCKS_KEY = "rotas:blocos";
+const BLOCKS_DEFAULT: Record<BlockId, boolean> = { inicio: true, paradas: true, resumo: true };
+
+/** Fase 1: só coordenadas decimais. Endereços e links entram na fase 2. */
+const MSG_PHASE_1 =
+  "A busca por endereço e por link chega na fase 2. Por enquanto, use coordenadas (ex.: 38.7074, -9.1373) ou clique no mapa.";
+
+interface Toast {
+  id: number;
+  text: string;
+  /** Parada que o botão "Desfazer" remove. */
+  undoStopId?: string;
+}
+
+function makePlace(lat: number, lng: number, source: PlaceSource): Place {
+  return {
+    id: crypto.randomUUID(),
+    label: source === "pin" ? `Pin ${formatLatLng(lat, lng)}` : formatLatLng(lat, lng),
+    lat,
+    lng,
+    source,
+    confidence: 1,
+    dwellMinutes: 0,
+  };
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100">
+      {children}
+    </span>
+  );
+}
+
+export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
+  const [start, setStart] = useState<Place>(MOCK_START);
+  const [endSame, setEndSame] = useState(true);
+  const [end, setEnd] = useState<Place | null>(null);
+  /** Paradas na ordem exibida (a ordem otimizada, quando o solver existir). */
+  const [stops, setStops] = useState<Place[]>(MOCK_ORDERED_STOPS);
+  /** Ids na ordem em que foram digitadas, para a comparação. */
+  const [typedIds, setTypedIds] = useState<string[]>(() => MOCK_TYPED_STOPS.map((s) => s.id));
+  const [timeMode, setTimeMode] = useState<TimeMode>("depart");
+  /** null = "agora" (acompanha o relógio). */
+  const [dateTime, setDateTime] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  const [blocks, setBlocks] = useLocalStorageState(BLOCKS_KEY, BLOCKS_DEFAULT);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const currentMinute = useCurrentMinute();
+  const switchId = useId();
+  const dateId = useId();
+
+  const isOpen = (id: BlockId) => blocks[id] ?? true;
+  const toggle = (id: BlockId) => setBlocks({ ...BLOCKS_DEFAULT, ...blocks, [id]: !isOpen(id) });
+
+  // O aviso some sozinho depois de alguns segundos.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const notify = (text: string, undoStopId?: string) =>
+    setToast({ id: Date.now(), text, undoStopId });
+
+  const finalPlace = endSame ? start : end;
+  const fixedPlaces = useMemo(
+    () => (finalPlace && finalPlace !== start ? [start, finalPlace] : [start]),
+    [start, finalPlace],
+  );
+
+  const anchor = useMemo(() => {
+    if (dateTime) return new Date(dateTime);
+    return currentMinute === null ? null : new Date(currentMinute * 60_000);
+  }, [dateTime, currentMinute]);
+
+  const plan = useMemo(() => {
+    if (!anchor || Number.isNaN(anchor.getTime())) return null;
+    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    return computePlan(sequence, timeMode, anchor, mockLegTime);
+  }, [anchor, start, stops, finalPlace, timeMode]);
+
+  const typedSeconds = useMemo(() => {
+    const typed = typedIds
+      .map((id) => stops.find((s) => s.id === id))
+      .filter((s): s is Place => s !== undefined);
+    const sequence = finalPlace ? [start, ...typed, finalPlace] : [start, ...typed];
+    return sequenceSeconds(sequence, mockLegTime);
+  }, [typedIds, stops, start, finalPlace]);
+
+  const tryAddStop = (place: Place): string | null => {
+    const result = addStop(stops, place, fixedPlaces);
+    if (!result.ok) return result.message;
+    setStops(result.stops);
+    setTypedIds((ids) => [...ids, place.id]);
+    return null;
+  };
+
+  const removeStop = (id: string) => {
+    setStops((list) => list.filter((s) => s.id !== id));
+    setTypedIds((ids) => ids.filter((x) => x !== id));
+  };
+
+  const submitStop = (text: string): string | null => {
+    const coords = parseDecimalPair(text);
+    if (!coords) return MSG_PHASE_1;
+    return tryAddStop(makePlace(coords.lat, coords.lng, "coords"));
+  };
+
+  const submitFixed = (text: string, which: "start" | "end"): string | null => {
+    const coords = parseDecimalPair(text);
+    if (!coords) return MSG_PHASE_1;
+    const place = makePlace(coords.lat, coords.lng, "coords");
+    if (isDuplicate(place, stops)) return MSG_DUPLICATE;
+    if (which === "start") setStart(place);
+    else setEnd(place);
+    return null;
+  };
+
+  const handleMapClick = (lat: number, lng: number) => {
+    const place = makePlace(lat, lng, "pin");
+    const problem = tryAddStop(place);
+    if (problem) notify(problem);
+    else notify("Parada adicionada.", place.id);
+  };
+
+  // Pins e linha do mapa.
+  const points = useMemo<MapPoint[]>(() => {
+    const list: MapPoint[] = [
+      { id: start.id, lat: start.lat, lng: start.lng, kind: "start", badge: "A", title: start.label },
+      ...stops.map<MapPoint>((s, i) => ({
+        id: s.id,
+        lat: s.lat,
+        lng: s.lng,
+        kind: "stop",
+        badge: String(i + 1),
+        title: s.label,
+      })),
+    ];
+    if (!endSame && end) {
+      list.push({ id: end.id, lat: end.lat, lng: end.lng, kind: "end", badge: "B", title: end.label });
+    }
+    return list;
+  }, [start, stops, endSame, end]);
+
+  const path = useMemo<[number, number][]>(() => {
+    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    return sequence.map((p) => [p.lng, p.lat]);
+  }, [start, stops, finalPlace]);
+
+  const layout: MapLayout = isDesktop ? "desktop" : sheetOpen ? "sheet-open" : "sheet-closed";
+
+  // Textos de resumo.
+  const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
+  const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
+  const handleSummary = `${totalText} · ${pluralStops(stops.length)} · chega ${arriveText}`;
+  const startEndSummary = endSame
+    ? `${start.label} · ida e volta`
+    : end
+      ? `${start.label} → ${end.label}`
+      : `${start.label} · termina na última parada`;
+  const savedMinutes = plan ? Math.round((typedSeconds - plan.totalSeconds) / 60) : 0;
+  const dateValue = dateTime ?? (anchor ? toLocalInputValue(anchor) : "");
+
+  return (
+    <main className="relative h-dvh w-full overflow-hidden">
+      <h1 className="sr-only">Planejador de rotas</h1>
+
+      <MapView
+        points={points}
+        path={path}
+        approximate
+        layout={layout}
+        fallbackStyleUrl={fallbackStyleUrl}
+        onMapClick={handleMapClick}
+      />
+
+      <aside
+        aria-label="Planejamento da rota"
+        className="fixed inset-x-0 bottom-0 z-10 flex max-h-[60dvh] flex-col rounded-t-2xl bg-zinc-100/95 shadow-[0_-4px_24px_rgba(0,0,0,0.2)] backdrop-blur md:pointer-events-none md:absolute md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:max-h-none md:w-80 md:rounded-none md:bg-transparent md:shadow-none md:backdrop-blur-none dark:bg-zinc-950/95 md:dark:bg-transparent"
+      >
+        <button
+          type="button"
+          aria-expanded={sheetOpen}
+          aria-controls="hud-conteudo"
+          onClick={() => setSheetOpen((open) => !open)}
+          className="focus-ring flex w-full shrink-0 flex-col items-center gap-1.5 rounded-t-2xl px-4 pb-3 pt-2 md:hidden"
+        >
+          <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold">
+            <span className="truncate">{handleSummary}</span>
+            <span className="rotate-180 text-zinc-500 dark:text-zinc-400">
+              <Chevron open={sheetOpen} />
+            </span>
+          </span>
+          <span className="sr-only">{sheetOpen ? "Recolher painel" : "Abrir painel"}</span>
+        </button>
+
+        <div
+          id="hud-conteudo"
+          className={`${sheetOpen ? "flex" : "hidden"} min-h-0 flex-col gap-3 overflow-y-auto px-3 pb-3 md:flex md:p-0 md:pr-1`}
+        >
+          <CollapsibleCard
+            id="bloco-inicio"
+            title="Início e fim"
+            summary={startEndSummary}
+            open={isOpen("inicio")}
+            onToggle={() => toggle("inicio")}
+          >
+            <div className="flex flex-col gap-3">
+              <PlaceField
+                label="Início"
+                value={start.label}
+                placeholder="Endereço, coordenadas ou link"
+                onSubmit={(text) => submitFixed(text, "start")}
+              />
+
+              <div className="flex items-center justify-between gap-3">
+                <span id={switchId} className="text-sm">
+                  O local de fim é o mesmo do início
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={endSame}
+                  aria-labelledby={switchId}
+                  onClick={() => setEndSame((v) => !v)}
+                  className={`focus-ring relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none ${
+                    endSame ? "bg-blue-600" : "bg-zinc-400 dark:bg-zinc-600"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform motion-reduce:transition-none ${
+                      endSame ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* O campo Fim só aparece com o switch desligado. */}
+              {!endSame && (
+                <PlaceField
+                  label="Fim"
+                  value={end?.label ?? ""}
+                  placeholder="Opcional: endereço, coordenadas ou link"
+                  onSubmit={(text) => submitFixed(text, "end")}
+                />
+              )}
+
+              <fieldset>
+                <legend className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                  Horário
+                </legend>
+                <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-zinc-200 p-1 dark:bg-zinc-800">
+                  {(
+                    [
+                      ["depart", "Sair em"],
+                      ["arrive", "Chegar até"],
+                    ] as const
+                  ).map(([mode, text]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={timeMode === mode}
+                      onClick={() => setTimeMode(mode)}
+                      className={`focus-ring rounded-md px-2 py-1.5 text-sm font-medium ${
+                        timeMode === mode
+                          ? "bg-white text-zinc-900 shadow dark:bg-zinc-600 dark:text-white"
+                          : "text-zinc-700 dark:text-zinc-300"
+                      }`}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <label htmlFor={dateId} className="sr-only">
+                    Data e hora
+                  </label>
+                  <input
+                    id={dateId}
+                    type="datetime-local"
+                    className={inputClass}
+                    value={dateValue}
+                    onChange={(e) => setDateTime(e.target.value || null)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDateTime(null)}
+                    disabled={dateTime === null}
+                    className="focus-ring shrink-0 rounded-lg border border-zinc-300 px-3 text-sm font-medium hover:bg-zinc-100 disabled:cursor-default disabled:text-zinc-500 disabled:hover:bg-transparent dark:border-zinc-600 dark:hover:bg-zinc-800 dark:disabled:text-zinc-400"
+                  >
+                    Agora
+                  </button>
+                </div>
+              </fieldset>
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard
+            id="bloco-paradas"
+            title={`Paradas (${stops.length}/${MAX_STOPS})`}
+            summary={pluralStops(stops.length)}
+            open={isOpen("paradas")}
+            onToggle={() => toggle("paradas")}
+          >
+            <div className="flex flex-col gap-3">
+              {stops.length === 0 ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Nenhuma parada ainda. Adicione abaixo ou clique no mapa.
+                </p>
+              ) : (
+                <ol className="flex flex-col gap-1">
+                  {stops.map((stop, i) => {
+                    const leg = plan?.legs[i];
+                    return (
+                      <li key={stop.id} className="flex items-center gap-2 rounded-lg px-1 py-1.5">
+                        <span
+                          aria-hidden="true"
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-600 text-xs font-semibold text-white"
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{stop.label}</span>
+                          <span className="block text-xs text-zinc-600 dark:text-zinc-400">
+                            {leg
+                              ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · chega ${formatTime(leg.arriveAt)}`
+                              : "—"}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeStop(stop.id)}
+                          aria-label={`Remover ${stop.label}`}
+                          className="focus-ring grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-600 hover:bg-zinc-200 hover:text-red-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                        >
+                          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <path d="M5 5l10 10M15 5L5 15" />
+                          </svg>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+
+              {isApproximate(stops.length) && (
+                <p role="status" className="rounded-lg bg-amber-100 px-2.5 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  {MSG_APPROX}
+                </p>
+              )}
+
+              <PlaceField
+                label="Adicionar parada"
+                value=""
+                placeholder="Endereço, coordenadas ou link"
+                addMode
+                onSubmit={submitStop}
+              />
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard
+            id="bloco-resumo"
+            title="Resumo"
+            summary={`${totalText} · chega ${arriveText}`}
+            open={isOpen("resumo")}
+            onToggle={() => toggle("resumo")}
+          >
+            <div className="flex flex-col gap-3 text-sm">
+              <div>
+                <p className="text-2xl font-semibold leading-tight">{totalText}</p>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  {endSame ? "Tempo total, ida e volta" : "Tempo total"}
+                </p>
+              </div>
+
+              <dl className="grid grid-cols-2 gap-2">
+                <div>
+                  <dt className="text-xs text-zinc-600 dark:text-zinc-400">Saída</dt>
+                  <dd className="font-medium">{plan ? formatTime(plan.departAt) : "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-zinc-600 dark:text-zinc-400">Chegada</dt>
+                  <dd className="font-medium">{arriveText}</dd>
+                </div>
+              </dl>
+
+              <p>
+                Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
+                {savedMinutes > 0 ? (
+                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                    Economia de {savedMinutes} min.
+                  </strong>
+                ) : (
+                  "Sem economia nesta ordem."
+                )}
+              </p>
+
+              <ul className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+                <li>
+                  Fonte: dados fictícios da fase 1
+                  {plan?.hasEstimates ? ", com estimativa por distância (≈) nos locais novos" : ""}.
+                </li>
+                <li>
+                  Ordem: {isApproximate(stops.length) ? "aproximada" : "exata"} (demonstração; a
+                  otimização chega na fase 3).
+                </li>
+              </ul>
+
+              <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <Badge>Local</Badge>
+                Algoritmo local (nenhuma IA respondeu)
+              </p>
+            </div>
+          </CollapsibleCard>
+        </div>
+      </aside>
+
+      {toast && (
+        <div
+          key={toast.id}
+          role="status"
+          className="fixed left-1/2 top-16 w-max z-20 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg md:absolute md:bottom-6 md:top-auto dark:bg-zinc-100 dark:text-zinc-900"
+        >
+          <span>{toast.text}</span>
+          {toast.undoStopId && (
+            <button
+              type="button"
+              onClick={() => {
+                removeStop(toast.undoStopId!);
+                setToast(null);
+              }}
+              className="focus-ring rounded font-semibold text-blue-300 underline underline-offset-2 dark:text-blue-700"
+            >
+              Desfazer
+            </button>
+          )}
+        </div>
+      )}
+    </main>
+  );
+}
