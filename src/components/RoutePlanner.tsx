@@ -13,9 +13,10 @@ import {
   toLocalInputValue,
 } from "@/lib/format";
 import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
-import { MOCK_ORDERED_STOPS, MOCK_START, MOCK_TYPED_STOPS, mockLegTime } from "@/lib/mock-data";
+import { MOCK_START, MOCK_TYPED_STOPS, mockLegTime } from "@/lib/mock-data";
+import { optimizeStops } from "@/lib/optimize";
 import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
-import { computePlan, sequenceSeconds } from "@/lib/plan";
+import { computePlan } from "@/lib/plan";
 import {
   addStop,
   isApproximate,
@@ -36,20 +37,17 @@ interface RouteState {
   start: Place;
   endSame: boolean;
   end: Place | null;
-  /** Paradas na ordem exibida (a ordem otimizada, quando o solver existir). */
+  /** Paradas na ordem em que foram digitadas. A ordem exibida vem do solver. */
   stops: Place[];
-  /** Ids na ordem em que foram digitadas, para a comparação. */
-  typedIds: string[];
   timeMode: TimeMode;
 }
 
-const ROUTE_KEY = "rotas:rota:v1";
+const ROUTE_KEY = "rotas:rota:v2";
 const ROUTE_DEFAULT: RouteState = {
   start: MOCK_START,
   endSame: true,
   end: null,
-  stops: MOCK_ORDERED_STOPS,
-  typedIds: MOCK_TYPED_STOPS.map((s) => s.id),
+  stops: MOCK_TYPED_STOPS,
   timeMode: "depart",
 };
 
@@ -76,8 +74,6 @@ function isRouteState(value: unknown): boolean {
     Array.isArray(r.stops) &&
     r.stops.length <= MAX_STOPS &&
     r.stops.every(isPlace) &&
-    Array.isArray(r.typedIds) &&
-    r.typedIds.every((id) => typeof id === "string") &&
     (r.timeMode === "depart" || r.timeMode === "arrive")
   );
 }
@@ -121,7 +117,7 @@ const popupButton =
 
 export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
   const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
-  const { start, endSame, end, stops, typedIds, timeMode } = route;
+  const { start, endSame, end, stops: typedStops, timeMode } = route;
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -151,6 +147,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const finalPlace = endSame ? start : end;
 
+  // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
+  const optimized = useMemo(
+    () => optimizeStops(start, typedStops, finalPlace, mockLegTime),
+    [start, typedStops, finalPlace],
+  );
+  const stops = optimized.stops;
+  const typedSeconds = optimized.typedSeconds;
+
   const anchor = useMemo(() => {
     if (dateTime) return new Date(dateTime);
     return currentMinute === null ? null : new Date(currentMinute * 60_000);
@@ -162,14 +166,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return computePlan(sequence, timeMode, anchor, mockLegTime);
   }, [anchor, start, stops, finalPlace, timeMode]);
 
-  const typedSeconds = useMemo(() => {
-    const typed = typedIds
-      .map((id) => stops.find((s) => s.id === id))
-      .filter((s): s is Place => s !== undefined);
-    const sequence = finalPlace ? [start, ...typed, finalPlace] : [start, ...typed];
-    return sequenceSeconds(sequence, mockLegTime);
-  }, [typedIds, stops, start, finalPlace]);
-
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (place: Place): string | null => {
     let problem: string | null = null;
@@ -179,7 +175,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         problem = result.message;
         return prev;
       }
-      return { ...prev, stops: result.stops, typedIds: [...prev.typedIds, place.id] };
+      return { ...prev, stops: result.stops };
     });
     return problem;
   };
@@ -188,7 +184,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setRoute((prev) => ({
       ...prev,
       stops: prev.stops.filter((s) => s.id !== id),
-      typedIds: prev.typedIds.filter((x) => x !== id),
     }));
 
   const setFixed = (which: "start" | "end", place: Place): string | null => {
@@ -624,7 +619,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     Economia de {savedMinutes} min.
                   </strong>
                 ) : (
-                  "Sem economia nesta ordem."
+                  "A ordem digitada já é a melhor."
                 )}
               </p>
 
@@ -634,8 +629,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   {plan?.hasEstimates ? ", com estimativa por distância (≈) nos locais novos" : ""}.
                 </li>
                 <li>
-                  Ordem: {isApproximate(stops.length) ? "aproximada" : "exata"} (demonstração; a
-                  otimização chega na fase 3).
+                  Ordem: {optimized.exact ? "exata (a melhor possível)" : "aproximada"}.
                 </li>
               </ul>
 

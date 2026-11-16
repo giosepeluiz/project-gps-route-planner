@@ -8,12 +8,21 @@ Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de in
 | --- | --- | --- |
 | F1 | Estrutura, mapa, layout responsivo e blocos colapsáveis (dados fictícios) | Pronta |
 | F2 | Leitura de locais (coordenadas, links, geocodificação) e `/api/resolve` | Pronta |
-| F3 | Solver (Held-Karp, heurística e modo chegada) | A fazer |
+| F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
 | F4 | Provedores de matriz e rota, com cache e fallback | A fazer |
 | F5 | Camada de IA com fallback | A fazer |
 | F6 | Ações de saída, senha, rate limit e deploy na Vercel | A fazer |
 
-Os tempos ainda vêm de dados fictícios (fixtures reais da TomTom); locais novos usam estimativa por distância. A ordem das paradas ainda não é otimizada (fase 3).
+Os tempos ainda vêm de dados fictícios (fixtures reais da TomTom); locais novos usam estimativa por distância. 
+
+## Ordem das paradas
+
+A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de paradas se reorganiza sozinha quando uma ordem melhor é encontrada.
+
+- Até 10 paradas: solução exata (Held-Karp), com início e fim fixos.
+- De 11 a 20: heurística (vizinho mais próximo + 2-opt + Or-opt), com aviso de ordem aproximada.
+- A matriz de tempos é tratada como assimétrica.
+- "Chegar até": a saída é a chegada menos a duração, recalculada em até 3 iterações quando muda de faixa de 15 minutos (entra em uso com os provedores de trânsito, na fase 4).
 
 ## Como usar o mapa
 
