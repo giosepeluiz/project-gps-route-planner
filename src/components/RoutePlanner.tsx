@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
+import SettingsPanel from "./SettingsPanel";
 import StopList from "./StopList";
 import {
   formatDuration,
@@ -32,6 +34,15 @@ import { computePlan, estimateLegTime } from "@/lib/plan";
 import { fetchPlan, planRequestBody, type PlanOutcome } from "@/lib/plan-client";
 import type { PlanResponse } from "@/lib/server/plan";
 import {
+  DEFAULT_SETTINGS,
+  FONT_PX,
+  normalizeSettings,
+  resolveTheme,
+  SETTINGS_KEY,
+  type BlockId,
+  type Settings,
+} from "@/lib/settings";
+import {
   addStop,
   isApproximate,
   isDuplicate,
@@ -42,9 +53,15 @@ import {
 } from "@/lib/stops";
 import type { LegTimeFn, Place, TimeMode } from "@/lib/types";
 
-type BlockId = "inicio" | "paradas" | "resumo";
 const BLOCKS_KEY = "rotas:blocos";
-const BLOCKS_DEFAULT: Record<BlockId, boolean> = { inicio: true, paradas: true, resumo: true };
+/** Blocos abertos por padrão. As Configurações começam recolhidas. */
+const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
+  inicio: true,
+  paradas: true,
+  acoes: true,
+  resumo: true,
+  config: false,
+};
 
 /** Último estado da rota, salvo em localStorage. */
 interface RouteState {
@@ -140,6 +157,20 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   );
   const lockCount = Object.keys(locks).length;
   const [summaryHeight, setSummaryHeight] = useState(0);
+
+  // Preferências de aparência (tema, fonte e posição dos blocos).
+  const [storedSettings, setSettings] = useLocalStorageState<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const settings = useMemo(() => normalizeSettings(storedSettings), [storedSettings]);
+  const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
+  const theme = resolveTheme(settings.theme, systemDark);
+  const fontPx = FONT_PX[settings.fontSize];
+  useEffect(() => {
+    // O tema e a fonte valem para a página inteira, então ficam no <html>.
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.fontSize = `${fontPx}px`;
+  }, [theme, fontPx]);
+  const summaryInCorner = settings.summaryDock === "corner";
+  const panelLeft = settings.panelSide === "left";
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -148,14 +179,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   /** Área visível do mapa, usada como viés na busca por endereço. */
   const bboxRef = useRef<BBoxTuple | null>(null);
 
-  const [blocks, setBlocks] = useLocalStorageState(BLOCKS_KEY, BLOCKS_DEFAULT);
+  const [openBlocks, setOpenBlocks] = useLocalStorageState(BLOCKS_KEY, BLOCKS_DEFAULT);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const currentMinute = useCurrentMinute();
   const switchId = useId();
   const dateId = useId();
 
-  const isOpen = (id: BlockId) => blocks[id] ?? true;
-  const toggle = (id: BlockId) => setBlocks({ ...BLOCKS_DEFAULT, ...blocks, [id]: !isOpen(id) });
+  const isOpen = (id: BlockId) => openBlocks[id] ?? BLOCKS_DEFAULT[id];
+  const toggle = (id: BlockId) => setOpenBlocks({ ...BLOCKS_DEFAULT, ...openBlocks, [id]: !isOpen(id) });
 
   // O aviso some sozinho depois de alguns segundos.
   useEffect(() => {
@@ -478,6 +509,17 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return `Não existe caminho de carro ${where}. Balsas não contam; pontes e túneis, sim.`;
   })();
 
+  // Espaço do mapa coberto pelo HUD no desktop: o painel (20rem + margem) de um lado
+  // e, quando fica no canto, a altura do Resumo embaixo.
+  const desktopInsets = useMemo(() => {
+    const panel = isDesktop ? 20 * fontPx + 16 : 0;
+    return {
+      left: panelLeft ? panel : 0,
+      right: panelLeft ? 0 : panel,
+      bottom: isDesktop && summaryInCorner ? summaryHeight + 32 : 0,
+    };
+  }, [isDesktop, fontPx, panelLeft, summaryInCorner, summaryHeight]);
+
   // Textos de resumo.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
   const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
@@ -490,143 +532,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const savedMinutes = plan ? Math.round((typedSeconds - plan.totalSeconds) / 60) : 0;
   const dateValue = dateTime ?? (anchor ? toLocalInputValue(anchor) : "");
 
-  return (
-    <main className="relative h-dvh w-full overflow-hidden">
-      <h1 className="sr-only">Planejador de rotas</h1>
-
-      <MapView
-        points={points}
-        path={path}
-        streetLegs={streetLegs}
-        onLegClick={handleLegClick}
-        desktopBottomInset={isDesktop ? summaryHeight + 32 : 0}
-        layout={layout}
-        fallbackStyleUrl={fallbackStyleUrl}
-        onMapClick={(lat, lng) => openInfo(lat, lng)}
-        onMapContextMenu={handleContextMenu}
-        onPointClick={handlePointClick}
-        onBoundsChange={(bbox) => {
-          bboxRef.current = bbox;
-        }}
-        popupAt={info ? { lat: info.lat, lng: info.lng } : null}
-        onPopupClose={() => setInfo(null)}
-      >
-        {legDetails}
-        {info && info.leg === undefined && (
-          <PlacePopup
-            title={infoPlace ? infoPlace.label : (info.address ?? null)}
-            role={
-              !infoPlace
-                ? undefined
-                : infoPlace.id === start.id
-                  ? "Início da rota"
-                  : infoIsStop
-                    ? `Parada ${stops.findIndex((s) => s.id === infoPlace.id) + 1}`
-                    : "Fim da rota"
-            }
-            address={info.address}
-            lat={info.lat}
-            lng={info.lng}
-            onCopy={() => {
-              const text = `${info.lat.toFixed(6)}, ${info.lng.toFixed(6)}`;
-              void navigator.clipboard?.writeText(text).then(
-                () => notify("Coordenadas copiadas."),
-                () => notify("Não foi possível copiar."),
-              );
-            }}
-            actions={
-              infoPlace
-                ? []
-                : [
-                    {
-                      badge: String(Math.min(stops.length + 1, MAX_STOPS)),
-                      title: "Adicionar como parada",
-                      description:
-                        stops.length >= MAX_STOPS
-                          ? "Limite de 20 paradas atingido"
-                          : "Entra na rota e a ordem é recalculada",
-                      primary: true,
-                      disabled: stops.length >= MAX_STOPS,
-                      onClick: () => {
-                        const place = placeFromInfo(info);
-                        const problem = tryAddStop(place);
-                        if (problem) notify(problem);
-                        else {
-                          notify("Parada adicionada.", place.id);
-                          setInfo(null);
-                        }
-                      },
-                    },
-                    {
-                      badge: "A",
-                      title: "Definir como início",
-                      description: `Substitui ${start.label}`,
-                      onClick: () => {
-                        const problem = setFixed("start", placeFromInfo(info));
-                        if (problem) notify(problem);
-                        else setInfo(null);
-                      },
-                    },
-                    {
-                      badge: "B",
-                      title: "Definir como fim",
-                      description:
-                        !endSame && end ? `Substitui ${end.label}` : "A rota deixa de voltar ao início",
-                      onClick: () => {
-                        const problem = setFixed("end", placeFromInfo(info));
-                        if (problem) notify(problem);
-                        else setInfo(null);
-                      },
-                    },
-                  ]
-            }
-            footer={
-              infoPlace && infoIsStop ? (
-                <button
-                  type="button"
-                  className="focus-ring self-start rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
-                  onClick={() => {
-                    removeStop(infoPlace.id);
-                    setInfo(null);
-                  }}
-                >
-                  Remover parada
-                </button>
-              ) : undefined
-            }
-          />
-        )}
-      </MapView>
-
-      <aside
-        aria-label="Planejamento da rota"
-        className="fixed inset-x-0 bottom-0 z-10 flex max-h-[60dvh] flex-col rounded-t-2xl bg-zinc-100/95 shadow-[0_-4px_24px_rgba(0,0,0,0.2)] backdrop-blur md:pointer-events-none md:absolute md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:max-h-none md:w-80 md:rounded-none md:bg-transparent md:shadow-none md:backdrop-blur-none dark:bg-zinc-950/95 md:dark:bg-transparent"
-      >
-        <button
-          type="button"
-          aria-expanded={sheetOpen}
-          aria-controls="hud-conteudo"
-          onClick={() => setSheetOpen((open) => !open)}
-          className="focus-ring flex w-full shrink-0 flex-col items-center gap-1.5 rounded-t-2xl px-4 pb-3 pt-2 md:hidden"
-        >
-          <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-zinc-400 dark:bg-zinc-500" />
-          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold">
-            <span className="truncate">{handleSummary}</span>
-            <span className="rotate-180 text-zinc-500 dark:text-zinc-400">
-              <Chevron open={sheetOpen} />
-            </span>
-          </span>
-          <span className="sr-only">{sheetOpen ? "Recolher painel" : "Abrir painel"}</span>
-        </button>
-
-        <div
-          id="hud-conteudo"
-          inert={!isDesktop && !sheetOpen}
-          className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none md:grid-rows-[1fr] ${
-            sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-          }`}
-        >
-          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-3 md:p-0 md:pr-1">
+  // Blocos do painel. A ordem em que aparecem vem das configurações.
+  const blocks: Record<BlockId, ReactNode> = {
+    inicio: (
           <CollapsibleCard
             id="bloco-inicio"
             title="Início e fim"
@@ -724,7 +632,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               </fieldset>
             </div>
           </CollapsibleCard>
-
+    ),
+    paradas: (
           <CollapsibleCard
             id="bloco-paradas"
             title={`Paradas (${stops.length}/${MAX_STOPS})`}
@@ -776,15 +685,41 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               />
             </div>
           </CollapsibleCard>
-
+    ),
+    acoes: (
+          <CollapsibleCard
+            id="bloco-acoes"
+            title="Abrir e compartilhar"
+            summary="Google Maps, Waze, copiar"
+            open={isOpen("acoes")}
+            onToggle={() => toggle("acoes")}
+          >
+            <ActionsPanel
+              start={start}
+              stops={stops}
+              finalPlace={finalPlace}
+              roundTrip={endSame}
+              plan={plan}
+              isMobile={!isDesktop}
+              onNotify={notify}
+            />
+          </CollapsibleCard>
+    ),
+    resumo: (
           <CollapsibleCard
             id="bloco-resumo"
             title="Resumo"
             summary={`${totalText} · chega ${arriveText}`}
             open={isOpen("resumo")}
             onToggle={() => toggle("resumo")}
-            className="md:fixed md:bottom-8 md:left-4 md:z-10 md:w-80"
-            collapseTo={isDesktop ? "down" : "up"}
+            className={
+              !summaryInCorner
+                ? ""
+                : panelLeft
+                  ? "md:fixed md:bottom-8 md:right-4 md:z-10 md:w-80"
+                  : "md:fixed md:bottom-8 md:left-4 md:z-10 md:w-80"
+            }
+            collapseTo={isDesktop && summaryInCorner ? "down" : "up"}
             onHeightChange={setSummaryHeight}
           >
             <div className="flex flex-col gap-3 text-sm">
@@ -888,6 +823,163 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               </div>
             </div>
           </CollapsibleCard>
+    ),
+    config: (
+          <CollapsibleCard
+            id="bloco-config"
+            title="Configurações"
+            summary="Tema, fonte e blocos"
+            open={isOpen("config")}
+            onToggle={() => toggle("config")}
+          >
+            <SettingsPanel settings={settings} onChange={setSettings} />
+          </CollapsibleCard>
+    ),
+  };
+
+  return (
+    <main className="relative h-dvh w-full overflow-hidden">
+      <h1 className="sr-only">Planejador de rotas</h1>
+
+      <MapView
+        points={points}
+        path={path}
+        streetLegs={streetLegs}
+        onLegClick={handleLegClick}
+        desktopInsets={desktopInsets}
+        controlsSide={panelLeft ? "right" : "left"}
+        layout={layout}
+        fallbackStyleUrl={fallbackStyleUrl}
+        onMapClick={(lat, lng) => openInfo(lat, lng)}
+        onMapContextMenu={handleContextMenu}
+        onPointClick={handlePointClick}
+        onBoundsChange={(bbox) => {
+          bboxRef.current = bbox;
+        }}
+        popupAt={info ? { lat: info.lat, lng: info.lng } : null}
+        onPopupClose={() => setInfo(null)}
+      >
+        {legDetails}
+        {info && info.leg === undefined && (
+          <PlacePopup
+            title={infoPlace ? infoPlace.label : (info.address ?? null)}
+            role={
+              !infoPlace
+                ? undefined
+                : infoPlace.id === start.id
+                  ? "Início da rota"
+                  : infoIsStop
+                    ? `Parada ${stops.findIndex((s) => s.id === infoPlace.id) + 1}`
+                    : "Fim da rota"
+            }
+            address={info.address}
+            lat={info.lat}
+            lng={info.lng}
+            onCopy={() => {
+              const text = `${info.lat.toFixed(6)}, ${info.lng.toFixed(6)}`;
+              void navigator.clipboard?.writeText(text).then(
+                () => notify("Coordenadas copiadas."),
+                () => notify("Não foi possível copiar."),
+              );
+            }}
+            actions={
+              infoPlace
+                ? []
+                : [
+                    {
+                      badge: String(Math.min(stops.length + 1, MAX_STOPS)),
+                      title: "Adicionar como parada",
+                      description:
+                        stops.length >= MAX_STOPS
+                          ? "Limite de 20 paradas atingido"
+                          : "Entra na rota e a ordem é recalculada",
+                      primary: true,
+                      disabled: stops.length >= MAX_STOPS,
+                      onClick: () => {
+                        const place = placeFromInfo(info);
+                        const problem = tryAddStop(place);
+                        if (problem) notify(problem);
+                        else {
+                          notify("Parada adicionada.", place.id);
+                          setInfo(null);
+                        }
+                      },
+                    },
+                    {
+                      badge: "A",
+                      title: "Definir como início",
+                      description: `Substitui ${start.label}`,
+                      onClick: () => {
+                        const problem = setFixed("start", placeFromInfo(info));
+                        if (problem) notify(problem);
+                        else setInfo(null);
+                      },
+                    },
+                    {
+                      badge: "B",
+                      title: "Definir como fim",
+                      description:
+                        !endSame && end ? `Substitui ${end.label}` : "A rota deixa de voltar ao início",
+                      onClick: () => {
+                        const problem = setFixed("end", placeFromInfo(info));
+                        if (problem) notify(problem);
+                        else setInfo(null);
+                      },
+                    },
+                  ]
+            }
+            footer={
+              infoPlace && infoIsStop ? (
+                <button
+                  type="button"
+                  className="focus-ring self-start rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
+                  onClick={() => {
+                    removeStop(infoPlace.id);
+                    setInfo(null);
+                  }}
+                >
+                  Remover parada
+                </button>
+              ) : undefined
+            }
+          />
+        )}
+      </MapView>
+
+      <aside
+        aria-label="Planejamento da rota"
+        className={`fixed inset-x-0 bottom-0 z-10 flex max-h-[60dvh] flex-col rounded-t-2xl bg-zinc-100/95 shadow-[0_-4px_24px_rgba(0,0,0,0.2)] backdrop-blur md:pointer-events-none md:absolute md:inset-x-auto md:bottom-4 md:top-4 ${
+          panelLeft ? "md:left-4" : "md:right-4"
+        } md:max-h-none md:w-80 md:rounded-none md:bg-transparent md:shadow-none md:backdrop-blur-none dark:bg-zinc-950/95 md:dark:bg-transparent`}
+      >
+        <button
+          type="button"
+          aria-expanded={sheetOpen}
+          aria-controls="hud-conteudo"
+          onClick={() => setSheetOpen((open) => !open)}
+          className="focus-ring flex w-full shrink-0 flex-col items-center gap-1.5 rounded-t-2xl px-4 pb-3 pt-2 md:hidden"
+        >
+          <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold">
+            <span className="truncate">{handleSummary}</span>
+            <span className="rotate-180 text-zinc-500 dark:text-zinc-400">
+              <Chevron open={sheetOpen} />
+            </span>
+          </span>
+          <span className="sr-only">{sheetOpen ? "Recolher painel" : "Abrir painel"}</span>
+        </button>
+
+        <div
+          id="hud-conteudo"
+          inert={!isDesktop && !sheetOpen}
+          className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none md:grid-rows-[1fr] ${
+            sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
+        >
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-3 md:p-0 md:pr-1">
+            {settings.blockOrder.map((id) => (
+              <Fragment key={id}>{blocks[id]}</Fragment>
+            ))}
             <div aria-hidden="true" className="h-0 shrink-0 md:hidden" />
           </div>
         </div>

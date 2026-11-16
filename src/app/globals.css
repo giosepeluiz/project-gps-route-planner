@@ -1,9 +1,13 @@
 @import "tailwindcss";
 
+/* O tema vem do atributo data-theme no <html> (claro, escuro ou o do sistema, resolvido por script). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --background: #f4f4f5;
   --foreground: #18181b;
-  color-scheme: light dark;
+  --focus: #2563eb;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,11 +16,11 @@
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #09090b;
-    --foreground: #f4f4f5;
-  }
+:root[data-theme="dark"] {
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --focus: #60a5fa;
+  color-scheme: dark;
 }
 
 body {
@@ -31,12 +35,7 @@ body {
   outline: 2px solid transparent;
   outline-offset: 2px;
   &:focus-visible {
-    outline-color: #2563eb;
-  }
-  @media (prefers-color-scheme: dark) {
-    &:focus-visible {
-      outline-color: #60a5fa;
-    }
+    outline-color: var(--focus);
   }
 }
 
@@ -115,36 +114,34 @@ body {
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .maplibregl-map .maplibregl-popup-content {
-    background: #18181b;
-    box-shadow:
-      0 12px 32px rgba(0, 0, 0, 0.6),
-      0 0 0 1px #3f3f46;
-  }
-  .maplibregl-map .maplibregl-popup-close-button {
-    color: #a1a1aa;
-  }
-  .maplibregl-map .maplibregl-popup-close-button:hover {
-    background: #3f3f46;
-    color: #fafafa;
-  }
-  .maplibregl-map .maplibregl-popup-anchor-top .maplibregl-popup-tip,
-  .maplibregl-map .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
-  .maplibregl-map .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
-    border-bottom-color: #18181b;
-  }
-  .maplibregl-map .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
-  .maplibregl-map .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
-  .maplibregl-map .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
-    border-top-color: #18181b;
-  }
-  .maplibregl-map .maplibregl-popup-anchor-left .maplibregl-popup-tip {
-    border-right-color: #18181b;
-  }
-  .maplibregl-map .maplibregl-popup-anchor-right .maplibregl-popup-tip {
-    border-left-color: #18181b;
-  }
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-content {
+  background: #18181b;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.6),
+    0 0 0 1px #3f3f46;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-close-button {
+  color: #a1a1aa;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-close-button:hover {
+  background: #3f3f46;
+  color: #fafafa;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: #18181b;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: #18181b;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #18181b;
+}
+[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #18181b;
 }
 
 /* A atribuição fica sempre legível, também no tema escuro. */

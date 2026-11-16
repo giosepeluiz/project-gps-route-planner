@@ -31,8 +31,10 @@ interface MapViewProps {
   /** Clique em um trecho da linha colorida. */
   onLegClick: (index: number, lat: number, lng: number) => void;
   layout: MapLayout;
-  /** Altura (px) ocupada pelo bloco Resumo no canto inferior esquerdo, no desktop. */
-  desktopBottomInset: number;
+  /** Espaço (px) coberto pelo HUD em cada borda, no desktop. */
+  desktopInsets: { left: number; right: number; bottom: number };
+  /** Lado dos controles do mapa (zoom, avisos, atribuição): o oposto do painel. */
+  controlsSide: "left" | "right";
   fallbackStyleUrl: string | null;
   /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
@@ -62,7 +64,8 @@ export default function MapView({
   streetLegs,
   onLegClick,
   layout,
-  desktopBottomInset,
+  desktopInsets,
+  controlsSide,
   fallbackStyleUrl,
   onMapClick,
   onMapContextMenu,
@@ -101,7 +104,6 @@ export default function MapView({
   useEffect(() => {
     let cancelled = false;
     let map: MapLibreMap | null = null;
-    let detachMedia: (() => void) | null = null;
 
     void import("maplibre-gl").then((lib) => {
       if (cancelled || !containerRef.current) return;
@@ -118,30 +120,6 @@ export default function MapView({
         dragRotate: false,
       });
       mapRef.current = map;
-
-      // Atribuição sempre aberta. No celular vai para o topo, fora da gaveta.
-      const media = window.matchMedia(DESKTOP_QUERY);
-      let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
-      let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
-      const placeControls = () => {
-        if (!map) return;
-        if (attribution) map.removeControl(attribution);
-        if (zoom) map.removeControl(zoom);
-        zoom = null;
-        // Botões de zoom só no desktop; no celular o zoom é por gesto.
-        if (media.matches) {
-          zoom = new lib.NavigationControl({ showCompass: false });
-          map.addControl(zoom, "top-left");
-        }
-        attribution = new lib.AttributionControl({
-          compact: false,
-          customAttribution: MAP_ATTRIBUTION,
-        });
-        map.addControl(attribution, media.matches ? "bottom-left" : "top-left");
-      };
-      placeControls();
-      media.addEventListener("change", placeControls);
-      detachMedia = () => media.removeEventListener("change", placeControls);
 
       // Reenquadra a rota quando o tamanho do mapa muda (rotação, redimensionamento).
       map.on("resize", () => {
@@ -200,13 +178,50 @@ export default function MapView({
 
     return () => {
       cancelled = true;
-      detachMedia?.();
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       map?.remove();
       mapRef.current = null;
     };
   }, [fallbackStyleUrl]);
+
+  // Controles do mapa. A atribuição fica sempre aberta; no celular vai para o topo, fora da gaveta.
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!map || !lib || styleVersion === 0) return;
+
+    const media = window.matchMedia(DESKTOP_QUERY);
+    let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
+    let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
+    const clear = () => {
+      // Se o mapa já foi destruído (desmontagem), os controles foram junto.
+      if (mapRef.current !== map) return;
+      if (attribution) map.removeControl(attribution);
+      if (zoom) map.removeControl(zoom);
+      attribution = null;
+      zoom = null;
+    };
+    const place = () => {
+      clear();
+      // Botões de zoom só no desktop; no celular o zoom é por gesto.
+      if (media.matches) {
+        zoom = new lib.NavigationControl({ showCompass: false });
+        map.addControl(zoom, controlsSide === "left" ? "top-left" : "top-right");
+      }
+      attribution = new lib.AttributionControl({ compact: false, customAttribution: MAP_ATTRIBUTION });
+      map.addControl(
+        attribution,
+        !media.matches ? "top-left" : controlsSide === "left" ? "bottom-left" : "bottom-right",
+      );
+    };
+    place();
+    media.addEventListener("change", place);
+    return () => {
+      media.removeEventListener("change", place);
+      clear();
+    };
+  }, [controlsSide, styleVersion]);
 
   // Pins e linha da rota.
   useEffect(() => {
@@ -361,10 +376,14 @@ export default function MapView({
       return [lng, lat] as [number, number];
     });
     const height = map.getContainer().clientHeight;
-    const layoutBottom = desktopBottomInset + 24;
     const padding =
       layout === "desktop"
-        ? { top: 56, bottom: layoutBottom, left: 56, right: 392 }
+        ? {
+            top: 56,
+            bottom: Math.max(56, desktopInsets.bottom + 24),
+            left: 56 + desktopInsets.left,
+            right: 56 + desktopInsets.right,
+          }
         : {
             top: 72,
             left: 40,
@@ -397,7 +416,7 @@ export default function MapView({
     } catch (err) {
       console.warn("Não foi possível enquadrar a rota no mapa.", err);
     }
-  }, [boundsKey, layout, desktopBottomInset, styleVersion, size]);
+  }, [boundsKey, layout, desktopInsets.left, desktopInsets.right, desktopInsets.bottom, styleVersion, size]);
 
   return (
     <div className="absolute inset-0">
@@ -422,7 +441,11 @@ export default function MapView({
         </p>
       )}
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
-        <ul className="pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-12 md:top-2.5">
+        <ul
+          className={`pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:top-2.5 ${
+            controlsSide === "left" ? "md:left-12" : "md:left-auto md:right-12 md:items-end"
+          }`}
+        >
           {!streetLegs && (
             <li className="w-fit rounded-full bg-white/95 px-2.5 py-1 text-zinc-800 shadow dark:bg-zinc-900/95 dark:text-zinc-100">
               Traçado aproximado (sem rota pelas ruas)

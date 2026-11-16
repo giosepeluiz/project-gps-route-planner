@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import Grip, { gripButtonClass } from "./Grip";
+import { dragRowClass, useDragReorder } from "./useDragReorder";
 import { formatDuration, formatTime } from "@/lib/format";
 import { legColor } from "@/lib/leg-colors";
 import type { Locks } from "@/lib/locks";
@@ -19,17 +20,6 @@ interface StopListProps {
   onRemove: (id: string) => void;
 }
 
-interface Drag {
-  index: number;
-  startY: number;
-  dy: number;
-  /** Altura de uma linha da lista, com o espaçamento. */
-  rowHeight: number;
-}
-
-const GAP_PX = 4;
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
 export default function StopList({
   stops,
   legs,
@@ -39,91 +29,33 @@ export default function StopList({
   onToggleLock,
   onRemove,
 }: StopListProps) {
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const rowRefs = useRef(new Map<string, HTMLLIElement>());
-
-  const target = drag
-    ? clamp(drag.index + Math.round(drag.dy / drag.rowHeight), 0, stops.length - 1)
-    : null;
-
-  /** Deslocamento visual de cada linha enquanto outra é arrastada. */
-  const offsetOf = (i: number): number => {
-    if (!drag || target === null) return 0;
-    if (i === drag.index) return drag.dy;
-    if (drag.index < target && i > drag.index && i <= target) return -drag.rowHeight;
-    if (drag.index > target && i < drag.index && i >= target) return drag.rowHeight;
-    return 0;
-  };
-
-  const finish = (commit: boolean) => {
-    if (drag && commit && target !== null && target !== drag.index) onMove(drag.index, target);
-    setDrag(null);
-  };
+  const reorder = useDragReorder(stops.length, onMove);
 
   return (
-    <ol className="flex flex-col" style={{ gap: GAP_PX }}>
+    <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
       {stops.map((stop, i) => {
         const leg = legs?.[i];
         const locked = locks[stop.id] !== undefined;
-        const dragging = drag?.index === i;
+        const dragging = reorder.draggingIndex === i;
         return (
           <li
             key={stop.id}
-            ref={(element) => {
-              if (element) rowRefs.current.set(stop.id, element);
-              else rowRefs.current.delete(stop.id);
-            }}
-            style={{ transform: `translateY(${offsetOf(i)}px)` }}
-            className={`relative flex items-center gap-1.5 rounded-lg py-1.5 pl-0.5 pr-1 motion-reduce:transition-none ${
-              dragging
-                ? "z-10 bg-white shadow-lg ring-1 ring-zinc-300 dark:bg-zinc-800 dark:ring-zinc-600"
-                : `${drag ? "transition-transform duration-150" : "transition-colors duration-200"} hover:bg-zinc-100 dark:hover:bg-zinc-800/70`
-            }`}
+            ref={reorder.rowRef(i)}
+            style={{ transform: `translateY(${reorder.offsetOf(i)}px)` }}
+            className={`relative flex items-center gap-1.5 rounded-lg py-1.5 pl-0.5 pr-1 ${dragRowClass(
+              dragging,
+              reorder.draggingIndex !== null,
+            )}`}
           >
             {/* Alça: arrastar com o mouse ou o dedo; setas do teclado também movem. */}
             <button
               type="button"
               aria-label={`Arrastar ${stop.label} para reordenar. Com o teclado, use as setas para cima e para baixo.`}
               title="Arraste para reordenar"
-              className={`focus-ring grid h-8 w-5 shrink-0 touch-none place-items-center rounded text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 ${
-                dragging ? "cursor-grabbing" : "cursor-grab"
-              }`}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                const row = rowRefs.current.get(stop.id);
-                if (!row) return;
-                event.currentTarget.setPointerCapture(event.pointerId);
-                setDrag({
-                  index: i,
-                  startY: event.clientY,
-                  dy: 0,
-                  rowHeight: row.getBoundingClientRect().height + GAP_PX,
-                });
-              }}
-              onPointerMove={(event) => {
-                if (!dragging) return;
-                setDrag((current) => (current ? { ...current, dy: event.clientY - current.startY } : current));
-              }}
-              onPointerUp={() => finish(true)}
-              onPointerCancel={() => finish(false)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowUp" && i > 0) {
-                  event.preventDefault();
-                  onMove(i, i - 1);
-                } else if (event.key === "ArrowDown" && i < stops.length - 1) {
-                  event.preventDefault();
-                  onMove(i, i + 1);
-                }
-              }}
+              className={`${gripButtonClass} ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+              {...reorder.handleProps(i)}
             >
-              <svg aria-hidden="true" viewBox="0 0 12 20" className="h-4 w-3" fill="currentColor">
-                <circle cx="3" cy="4" r="1.5" />
-                <circle cx="9" cy="4" r="1.5" />
-                <circle cx="3" cy="10" r="1.5" />
-                <circle cx="9" cy="10" r="1.5" />
-                <circle cx="3" cy="16" r="1.5" />
-                <circle cx="9" cy="16" r="1.5" />
-              </svg>
+              <Grip />
             </button>
 
             <span
