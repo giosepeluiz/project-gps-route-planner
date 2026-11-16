@@ -8,8 +8,8 @@ interface RouteInput {
   stops: readonly Place[];
   end: Place | null;
   endSame: boolean;
-  /** Ordem manual travada: o servidor não reordena. */
-  locked: boolean;
+  /** Locais travados: id → posição na visita. */
+  locks: Record<string, number>;
   mode: TimeMode;
   /** Valor do campo datetime-local, ou null para "agora". */
   dateTime: string | null;
@@ -17,14 +17,14 @@ interface RouteInput {
 
 const point = (p: Place) => ({ id: p.id, lat: p.lat, lng: p.lng });
 
-export function planRequestBody({ start, stops, end, endSame, locked, mode, dateTime }: RouteInput) {
+export function planRequestBody({ start, stops, end, endSame, locks, mode, dateTime }: RouteInput) {
   const at = dateTime ? new Date(dateTime) : null;
   return {
     start: point(start),
     stops: stops.map(point),
     end: !endSame && end ? point(end) : null,
     roundTrip: endSame,
-    lockOrder: locked,
+    locks,
     mode,
     at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : null,
   };

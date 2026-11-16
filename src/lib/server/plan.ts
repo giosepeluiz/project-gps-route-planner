@@ -16,8 +16,8 @@ export interface PlanRequest {
   end: PlanPoint | null;
   /** true = volta ao início (ignora `end`). */
   roundTrip: boolean;
-  /** true = respeita a ordem recebida (ordem manual travada), sem reordenar. */
-  lockOrder?: boolean;
+  /** Locais travados: id da parada → posição na visita (0 = primeira parada). */
+  locks?: Record<string, number>;
   mode: TimeMode;
   /** Horário de saída ou de chegada. null = agora. */
   at: Date | null;
@@ -31,11 +31,11 @@ export interface PlanResponse {
   totalSeconds: number;
   /** Tempo da ordem digitada, com a mesma matriz. */
   typedSeconds: number;
-  /** Tempo da melhor ordem encontrada (igual a totalSeconds, salvo com a ordem travada). */
+  /** Tempo da melhor ordem sem nenhuma trava (igual a totalSeconds quando não há travas). */
   bestSeconds: number;
   exact: boolean;
-  /** true quando a ordem veio travada pelo usuário. */
-  locked: boolean;
+  /** Quantos locais travados foram respeitados. */
+  lockedCount: number;
   departAt: string;
   arriveAt: string;
   source: { name: string; label: string; trafficAware: boolean; estimated: boolean };
@@ -67,17 +67,28 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const stopIndexes = stops.map((_, i) => i + 1);
 
   let lastMatrix: MatrixResult | null = null;
-  const locked = request.lockOrder === true;
+  // Posição travada → índice da parada. Travas inválidas ou repetidas são ignoradas.
+  const fixed = new Map<number, number>();
+  stops.forEach((stop, i) => {
+    const position = request.locks?.[stop.id];
+    if (
+      position !== undefined &&
+      Number.isInteger(position) &&
+      position >= 0 &&
+      position < stops.length &&
+      !fixed.has(position)
+    ) {
+      fixed.set(position, i + 1);
+    }
+  });
   let bestSeconds = 0;
   const solveAt = async (departAt: Date): Promise<RouteSolution> => {
     lastMatrix = await deps.matrix.getMatrix(nodes, departAt);
     const problem = { matrix: lastMatrix.seconds, start: 0, stops: stopIndexes, end: endIndex };
     const best = solveRoute(problem);
     bestSeconds = best.cost;
-    // Ordem travada: os horários seguem a ordem recebida; a melhor fica só para comparação.
-    return locked
-      ? { order: stopIndexes, cost: routeCost(problem, stopIndexes), exact: best.exact }
-      : best;
+    // Com travas, a melhor ordem livre fica só para comparação.
+    return fixed.size > 0 ? solveRoute({ ...problem, fixed }) : best;
   };
 
   const at = request.at ?? new Date(now());
@@ -98,7 +109,9 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const problem = { matrix: matrix.seconds, start: 0, end: endIndex };
   const typedSeconds = routeCost(problem, stopIndexes);
   // Empate: mantém a ordem digitada, para a lista não mudar sem ganho.
-  const order = solution.cost >= typedSeconds ? stopIndexes : solution.order;
+  const typedRespectsLocks = [...fixed].every(([position, stop]) => stopIndexes[position] === stop);
+  const order =
+    solution.cost >= typedSeconds && typedRespectsLocks ? stopIndexes : solution.order;
 
   const sequence = [0, ...order, ...(endIndex === null ? [] : [endIndex])];
   const legSeconds = sequence.slice(1).map((to, i) => matrix.seconds[sequence[i]][to]);
@@ -122,7 +135,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     typedSeconds,
     bestSeconds,
     exact: solution.exact,
-    locked,
+    lockedCount: fixed.size,
     departAt: departAt.toISOString(),
     arriveAt: new Date(departAt.getTime() + totalSeconds * 1000).toISOString(),
     source: {

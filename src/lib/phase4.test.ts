@@ -504,20 +504,22 @@ describe("rota pelas ruas: OSRM demo e cadeia", () => {
 });
 
 describe("planejamento completo (POST /api/plan)", () => {
-  it("ordem travada: respeita a ordem recebida e informa a melhor para comparação", async () => {
+  it("local travado: fica na posição dele e os outros são otimizados em volta", async () => {
     const [B, Be, PN, CC] = pts;
     const plan = await planRoute(
-      { start: B, stops: [Be, PN, CC], end: null, roundTrip: true, lockOrder: true, mode: "depart", at: TUESDAY_9 },
+      // Belém travado como 1ª parada (a melhor ordem livre começa por CC ou PN).
+      { start: B, stops: [Be, PN, CC], end: null, roundTrip: true, locks: { Be: 0 }, mode: "depart", at: TUESDAY_9 },
       {
         matrix: createMatrixService({ providers: [fixtureProvider("tomtom")], cache: new MemoryCache(), now: () => NOW }),
         geometry: noGeometry,
         now: () => NOW,
       },
     );
+    // Com Belém em 1º: (Be, PN, CC) dá 9419 s e (Be, CC, PN) dá 9591 s.
     expect(plan.order).toEqual(["Be", "PN", "CC"]);
     expect(plan.totalSeconds).toBe(9419);
     expect(plan.bestSeconds).toBe(7984);
-    expect(plan.locked).toBe(true);
+    expect(plan.lockedCount).toBe(1);
   });
 
   const matrix = () =>
@@ -539,7 +541,7 @@ describe("planejamento completo (POST /api/plan)", () => {
     expect(new Date(plan.arriveAt).getTime()).toBe(TUESDAY_9.getTime() + 7984_000);
     expect(plan.streetLegs).toBeNull();
     expect(plan.bestSeconds).toBe(7984);
-    expect(plan.locked).toBe(false);
+    expect(plan.lockedCount).toBe(0);
     expect(plan.arrival).toBeNull();
   });
 
@@ -596,7 +598,7 @@ describe("planejamento completo (POST /api/plan)", () => {
       stops: [P.Be],
       end: P.PN,
       endSame: true,
-      locked: false,
+      locks: {},
       mode: "depart",
       dateTime: null,
     });
@@ -605,7 +607,7 @@ describe("planejamento completo (POST /api/plan)", () => {
       stops: [{ id: "Be", lat: P.Be.lat, lng: P.Be.lng }],
       end: null,
       roundTrip: true,
-      lockOrder: false,
+      locks: {},
       mode: "depart",
       at: null,
     });

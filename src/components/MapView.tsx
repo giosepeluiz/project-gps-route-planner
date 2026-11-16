@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import { legColor } from "@/lib/leg-colors";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
 type MapLibre = typeof import("maplibre-gl");
@@ -25,9 +26,9 @@ interface MapViewProps {
   points: MapPoint[];
   /** Retas entre os pontos, em [lng, lat]: a linha azul pontilhada. */
   path: [number, number][];
-  /** Rota pelas ruas, um trecho por item: a linha verde. null quando não há geometria. */
+  /** Rota pelas ruas, um trecho por item: a linha colorida. null quando não há geometria. */
   streetLegs: [number, number][][] | null;
-  /** Clique em um trecho da linha verde. */
+  /** Clique em um trecho da linha colorida. */
   onLegClick: (index: number, lat: number, lng: number) => void;
   layout: MapLayout;
   /** Altura (px) ocupada pelo bloco Resumo no canto inferior esquerdo, no desktop. */
@@ -53,7 +54,6 @@ const STRAIGHT_COLOR = "#2563eb";
 const STREET_SOURCE = "rota-ruas";
 const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
-const STREET_COLOR = "#15803d";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 export default function MapView({
@@ -172,7 +172,7 @@ export default function MapView({
       });
 
       map.on("click", (event) => {
-        // Clique na linha verde (com uma folga de 6 px) mostra os dados do trecho.
+        // Clique na linha colorida (com uma folga de 6 px) mostra os dados do trecho.
         if (map?.getLayer(STREET_LAYER)) {
           const { x, y } = event.point;
           const hits = map.queryRenderedFeatures(
@@ -247,12 +247,12 @@ export default function MapView({
       properties: {},
       geometry: { type: "LineString" as const, coordinates: path },
     };
-    // Linha verde: a rota pelas ruas, um trecho por feature (para o clique saber qual é).
+    // Linha colorida: a rota pelas ruas, um trecho por feature (para o clique saber qual é).
     const streets = {
       type: "FeatureCollection" as const,
       features: (streetLegs ?? []).map((coordinates, index) => ({
         type: "Feature" as const,
-        properties: { index },
+        properties: { index, color: legColor(index) },
         geometry: { type: "LineString" as const, coordinates },
       })),
     };
@@ -277,7 +277,8 @@ export default function MapView({
         type: "line",
         source: STREET_SOURCE,
         layout: round,
-        paint: { "line-color": STREET_COLOR, "line-width": 5 },
+        // Cada trecho tem a sua cor (nenhuma azul, que é a das retas).
+        paint: { "line-color": ["get", "color"], "line-width": 5 },
       });
       map.addLayer({
         id: STRAIGHT_LAYER,
@@ -286,7 +287,7 @@ export default function MapView({
         layout: round,
         paint: { "line-color": STRAIGHT_COLOR, "line-dasharray": [0.5, 2.5] },
       });
-      // A linha verde é clicável.
+      // A linha colorida é clicável.
       map.on("mouseenter", STREET_LAYER, () => {
         map.getCanvas().style.cursor = "pointer";
       });
@@ -309,14 +310,40 @@ export default function MapView({
     if (popupLat === undefined || popupLng === undefined) return;
 
     let closedByUs = false;
-    const popup = new lib.Popup({ offset: 18, maxWidth: "280px", focusAfterOpen: false })
+    const popup = new lib.Popup({ offset: 18, maxWidth: "320px", focusAfterOpen: false })
       .setLngLat([popupLng, popupLat])
       .setDOMContent(popupEl)
       .addTo(map);
     popup.on("close", () => {
       if (!closedByUs) handlePopupClose();
     });
+
+    // Se o balão abrir embaixo de um bloco do HUD, desloca o mapa o mínimo para ele aparecer inteiro.
+    const frame = window.requestAnimationFrame(() => {
+      const box = popup.getElement()?.getBoundingClientRect();
+      if (!box) return;
+      const margin = 12;
+      let best: [number, number] | null = null;
+      document.querySelectorAll<HTMLElement>("[data-map-overlay]").forEach((overlay) => {
+        const o = overlay.getBoundingClientRect();
+        const overlaps =
+          o.width > 0 && box.left < o.right && box.right > o.left && box.top < o.bottom && box.bottom > o.top;
+        if (!overlaps) return;
+        // Quatro saídas possíveis (esquerda, direita, cima, baixo): fica com a mais curta.
+        const moves: [number, number][] = [
+          [o.left - box.right - margin, 0],
+          [o.right - box.left + margin, 0],
+          [0, o.top - box.bottom - margin],
+          [0, o.bottom - box.top + margin],
+        ];
+        const shortest = moves.reduce((a, b) => (Math.hypot(...a) <= Math.hypot(...b) ? a : b));
+        if (!best || Math.hypot(...shortest) > Math.hypot(...best)) best = shortest;
+      });
+      if (best) map.panBy([-best[0], -best[1]], { duration: 300 });
+    });
+
     return () => {
+      window.cancelAnimationFrame(frame);
       closedByUs = true;
       popup.remove();
     };

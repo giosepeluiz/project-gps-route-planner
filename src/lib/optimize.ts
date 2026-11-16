@@ -23,6 +23,8 @@ export function optimizeStops(
   end: Place | null,
   legTime: LegTimeFn,
   options?: SolveOptions,
+  /** Locais travados: id da parada → posição na visita (0 = primeira parada). */
+  locks: Readonly<Record<string, number>> = {},
 ): OptimizedStops {
   // Índices: 0 = início, 1..n = paradas, n+1 = fim (quando diferente do início).
   const nodes: Place[] = [start, ...typedStops];
@@ -36,13 +38,27 @@ export function optimizeStops(
     nodes.map((to, j) => (i === j ? 0 : legTime(from, to).seconds)),
   );
   const stopIndexes = typedStops.map((_, i) => i + 1);
-  const problem = { matrix, start: 0, stops: stopIndexes, end: endIndex };
+  const fixed = new Map<number, number>();
+  typedStops.forEach((stop, i) => {
+    const position = locks[stop.id];
+    if (
+      position !== undefined &&
+      Number.isInteger(position) &&
+      position >= 0 &&
+      position < typedStops.length &&
+      !fixed.has(position)
+    ) {
+      fixed.set(position, i + 1);
+    }
+  });
+  const problem = { matrix, start: 0, stops: stopIndexes, end: endIndex, fixed };
 
   const typedSeconds = routeCost(problem, stopIndexes);
   const solution = solveRoute(problem, options);
+  const typedRespectsLocks = [...fixed].every(([position, stop]) => stopIndexes[position] === stop);
 
   // Empate: fica com a ordem digitada, para a lista não mudar sem ganho.
-  if (solution.cost >= typedSeconds) {
+  if (solution.cost >= typedSeconds && typedRespectsLocks) {
     return { stops: [...typedStops], seconds: typedSeconds, typedSeconds, exact: solution.exact };
   }
   return {

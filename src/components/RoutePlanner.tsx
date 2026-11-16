@@ -4,6 +4,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import CollapsibleCard, { Chevron } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
+import PlacePopup from "./PlacePopup";
+import StopList from "./StopList";
 import {
   formatDuration,
   formatKm,
@@ -14,6 +16,15 @@ import {
   toLocalInputValue,
 } from "@/lib/format";
 import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
+import {
+  fetchParsedPlaces,
+  fetchReview,
+  reviewRequestBody,
+  TIER_LABEL,
+  type ReviewOutcome,
+} from "@/lib/ai-client";
+import { legColor } from "@/lib/leg-colors";
+import { cleanLocks, moveStop, removeFromLocks, toggleLock } from "@/lib/locks";
 import { MOCK_START, MOCK_TYPED_STOPS } from "@/lib/mock-data";
 import { optimizeStops } from "@/lib/optimize";
 import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
@@ -42,8 +53,8 @@ interface RouteState {
   end: Place | null;
   /** Paradas na ordem em que foram digitadas. A ordem exibida vem do solver. */
   stops: Place[];
-  /** Ordem manual travada: o solver não reordena. */
-  locked?: boolean;
+  /** Locais travados: id → posição na visita (0 = primeira parada). */
+  locks?: Record<string, number>;
   timeMode: TimeMode;
 }
 
@@ -119,13 +130,15 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-const popupButton =
-  "focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-100";
-
 export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
   const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
   const { start, endSame, end, stops: typedStops, timeMode } = route;
-  const locked = route.locked === true;
+  // Travas válidas para a lista atual (ignora restos de paradas removidas).
+  const locks = useMemo(
+    () => cleanLocks(typedStops.map((s) => s.id), route.locks ?? {}),
+    [typedStops, route.locks],
+  );
+  const lockCount = Object.keys(locks).length;
   const [summaryHeight, setSummaryHeight] = useState(0);
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
@@ -159,8 +172,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Pedido ao servidor (matriz com trânsito + solver). Só muda quando a rota muda:
   // em "agora", o relógio andando NÃO dispara novas consultas (a cota é limitada).
   const requestBody = useMemo(
-    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locked, mode: timeMode, dateTime })),
-    [start, typedStops, end, endSame, locked, timeMode, dateTime],
+    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locks, mode: timeMode, dateTime })),
+    [start, typedStops, end, endSame, locks, timeMode, dateTime],
   );
   const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
 
@@ -185,22 +198,24 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // Enquanto o servidor não responde (ou se falhar), vale a estimativa local por distância.
   const local = useMemo(() => {
-    const best = optimizeStops(start, typedStops, finalPlace, estimateLegTime);
-    // Ordem travada: vale a ordem guardada; a melhor fica só para comparação.
-    return locked
-      ? { ...best, stops: [...typedStops], bestSeconds: best.seconds, seconds: best.typedSeconds }
-      : { ...best, bestSeconds: best.seconds };
-  }, [start, typedStops, finalPlace, locked]);
+    const constrained = optimizeStops(start, typedStops, finalPlace, estimateLegTime, undefined, locks);
+    // Com travas, a melhor ordem livre fica só para comparação.
+    const bestSeconds =
+      lockCount > 0
+        ? optimizeStops(start, typedStops, finalPlace, estimateLegTime).seconds
+        : constrained.seconds;
+    return { ...constrained, bestSeconds };
+  }, [start, typedStops, finalPlace, locks, lockCount]);
 
   // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
   const stops = useMemo(() => {
-    if (locked || !serverPlan) return local.stops;
+    if (!serverPlan) return local.stops;
     const byId = new Map(typedStops.map((s) => [s.id, s]));
     const ordered = serverPlan.order.map((id) => byId.get(id));
     return ordered.length === typedStops.length && ordered.every((s) => s !== undefined)
       ? (ordered as Place[])
       : local.stops;
-  }, [serverPlan, local, typedStops, locked]);
+  }, [serverPlan, local, typedStops]);
 
   const legTime = useMemo<LegTimeFn>(() => {
     if (!serverPlan) return estimateLegTime;
@@ -248,24 +263,23 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return problem;
   };
 
+  const displayedIds = stops.map((s) => s.id);
+
   const removeStop = (id: string) =>
     setRoute((prev) => ({
       ...prev,
       stops: prev.stops.filter((s) => s.id !== id),
+      locks: removeFromLocks(displayedIds, locks, id),
     }));
 
-  /** Move uma parada na lista. Reposicionar à mão trava a ordem, senão o solver desfaria. */
-  const moveStop = (index: number, delta: -1 | 1) => {
-    const target = index + delta;
-    if (target < 0 || target >= stops.length) return;
-    const next = [...stops];
-    [next[index], next[target]] = [next[target], next[index]];
-    setRoute((prev) => ({ ...prev, stops: next, locked: true }));
+  /** Arrastar e soltar: a parada solta fica travada naquela posição. */
+  const handleMove = (from: number, to: number) => {
+    const moved = moveStop(displayedIds, locks, from, to);
+    setRoute((prev) => ({ ...prev, locks: moved.locks }));
   };
 
-  /** Ao travar, a ordem que está na tela passa a ser a ordem guardada. */
-  const toggleLock = () =>
-    setRoute((prev) => (prev.locked ? { ...prev, locked: false } : { ...prev, stops, locked: true }));
+  const handleToggleLock = (id: string) =>
+    setRoute((prev) => ({ ...prev, locks: toggleLock(displayedIds, locks, id) }));
 
   const setFixed = (which: "start" | "end", place: Place): string | null => {
     let problem: string | null = null;
@@ -281,7 +295,29 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const submitStop = async (text: string): Promise<string | null> => {
     const draft = await resolvePlaceInput(text, bboxRef.current);
-    return draft ? tryAddStop(makePlace(draft)) : MSG_NOT_FOUND;
+    if (draft) return tryAddStop(makePlace(draft));
+
+    // Não achou: pode ser uma frase com vários locais. A IA só separa o texto em
+    // buscas; cada busca passa pela geocodificação normal.
+    const parsed = await fetchParsedPlaces(text);
+    const queries = parsed.places.filter((query) => query.toLowerCase() !== text.toLowerCase());
+    if (queries.length === 0) return MSG_NOT_FOUND;
+
+    const missing: string[] = [];
+    let added = 0;
+    for (const query of queries) {
+      const found = await resolvePlaceInput(query, bboxRef.current);
+      if (!found) {
+        missing.push(query);
+        continue;
+      }
+      const problem = tryAddStop(makePlace(found));
+      if (problem) return added > 0 ? `Adicionei ${added}. ${problem}` : problem;
+      added += 1;
+    }
+    if (added > 0) notify(`IA (${TIER_LABEL[parsed.tier].toLowerCase()}): ${pluralStops(added)} adicionada${added === 1 ? "" : "s"}.`);
+    if (missing.length === 0) return null;
+    return added > 0 ? `Não encontrei: ${missing.join("; ")}.` : MSG_NOT_FOUND;
   };
 
   const submitFixed = async (text: string, which: "start" | "end"): Promise<string | null> => {
@@ -379,25 +415,58 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     if (!street || !from || !to) return null;
     const planned = plan?.legs[info.leg];
     return (
-      <div className="flex min-w-48 flex-col gap-1 pr-3 text-sm text-zinc-900">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-600">Trecho {info.leg + 1}</p>
+      <div className="flex w-56 max-w-full flex-col gap-1 pr-4 text-sm text-zinc-900 dark:text-zinc-100">
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+          <span aria-hidden="true" className="h-2 w-5 rounded-full" style={{ backgroundColor: legColor(info.leg) }} />
+          Trecho {info.leg + 1}
+        </p>
         <p className="font-semibold">
           {from.label} → {to.label}
         </p>
-        <p className="text-base font-semibold text-green-800">
+        <p className="text-base font-semibold">
           {formatKm(street.meters)} · {formatDuration(street.seconds)}
         </p>
-        <p className="text-xs text-zinc-600">
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">
           Distância e tempo médio pelas ruas. Fonte: {serverPlan?.streetSource}.
         </p>
         {planned && !planned.estimated && Math.abs(planned.seconds - street.seconds) >= 60 && (
-          <p className="text-xs text-zinc-600">Com o trânsito previsto: {formatDuration(planned.seconds)}.</p>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">Com o trânsito previsto: {formatDuration(planned.seconds)}.</p>
         )}
       </div>
     );
   })();
 
   const layout: MapLayout = isDesktop ? "desktop" : sheetOpen ? "sheet-open" : "sheet-closed";
+
+  // Comentário da IA sobre a ordem final. Só rótulos e minutos saem daqui, e só
+  // quando o plano muda. Sem IA (ou com menos de 2 paradas) fica o algoritmo local.
+  const reviewBody = useMemo(() => {
+    if (!serverPlan || stops.length < 2) return null;
+    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    if (serverPlan.legSeconds.length !== sequence.length - 1) return null;
+    return JSON.stringify(
+      reviewRequestBody(sequence.map((p) => p.label), serverPlan.legSeconds, endSame, lockCount),
+    );
+  }, [serverPlan, start, stops, finalPlace, endSame, lockCount]);
+  const [aiRemote, setAiRemote] = useState<{ body: string; outcome: ReviewOutcome } | null>(null);
+
+  useEffect(() => {
+    if (!reviewBody) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetchReview(reviewBody, controller.signal).then((outcome) => {
+        if (!controller.signal.aborted) setAiRemote({ body: reviewBody, outcome });
+      });
+    }, 1500);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [reviewBody]);
+
+  const aiOutcome = reviewBody && aiRemote?.body === reviewBody ? aiRemote.outcome : null;
+  const aiLoading = reviewBody !== null && aiOutcome === null;
+  const aiTier = aiOutcome?.tier ?? "local";
 
   // Aviso de rota impossível (ex.: locais separados pelo mar).
   const noRouteMessage = (() => {
@@ -444,77 +513,78 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       >
         {legDetails}
         {info && info.leg === undefined && (
-          <div className="flex min-w-48 flex-col gap-2 pr-3 text-sm text-zinc-900">
-            <div>
-              <p className="font-semibold">
-                {infoPlace ? infoPlace.label : (info.address ?? "Local selecionado")}
-              </p>
-              {infoPlace && (
-                <p className="text-xs text-zinc-600">
-                  {infoPlace.id === start.id
-                    ? "Início da rota"
-                    : infoIsStop
-                      ? `Parada ${stops.findIndex((s) => s.id === infoPlace.id) + 1}`
-                      : "Fim da rota"}
-                </p>
-              )}
-              <p className="text-xs text-zinc-600" aria-live="polite">
-                {info.address === undefined
-                  ? "Buscando o endereço…"
-                  : info.address === null
-                    ? "Endereço não encontrado."
-                    : infoPlace && info.address !== infoPlace.label
-                      ? info.address
-                      : null}
-              </p>
-              <p className="font-mono text-xs text-zinc-600">{formatLatLng(info.lat, info.lng)}</p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {!infoPlace && (
-                <>
-                  <button
-                    type="button"
-                    className={`${popupButton} border-blue-600 bg-blue-600 text-white hover:bg-blue-700`}
-                    onClick={() => {
-                      const place = placeFromInfo(info);
-                      const problem = tryAddStop(place);
-                      if (problem) notify(problem);
-                      else {
-                        notify("Parada adicionada.", place.id);
-                        setInfo(null);
-                      }
-                    }}
-                  >
-                    Adicionar parada
-                  </button>
-                  <button
-                    type="button"
-                    className={popupButton}
-                    onClick={() => {
-                      const problem = setFixed("start", placeFromInfo(info));
-                      if (problem) notify(problem);
-                      else setInfo(null);
-                    }}
-                  >
-                    Usar como início
-                  </button>
-                  <button
-                    type="button"
-                    className={popupButton}
-                    onClick={() => {
-                      const problem = setFixed("end", placeFromInfo(info));
-                      if (problem) notify(problem);
-                      else setInfo(null);
-                    }}
-                  >
-                    Usar como fim
-                  </button>
-                </>
-              )}
-              {infoPlace && infoIsStop && (
+          <PlacePopup
+            title={infoPlace ? infoPlace.label : (info.address ?? null)}
+            role={
+              !infoPlace
+                ? undefined
+                : infoPlace.id === start.id
+                  ? "Início da rota"
+                  : infoIsStop
+                    ? `Parada ${stops.findIndex((s) => s.id === infoPlace.id) + 1}`
+                    : "Fim da rota"
+            }
+            address={info.address}
+            lat={info.lat}
+            lng={info.lng}
+            onCopy={() => {
+              const text = `${info.lat.toFixed(6)}, ${info.lng.toFixed(6)}`;
+              void navigator.clipboard?.writeText(text).then(
+                () => notify("Coordenadas copiadas."),
+                () => notify("Não foi possível copiar."),
+              );
+            }}
+            actions={
+              infoPlace
+                ? []
+                : [
+                    {
+                      badge: String(Math.min(stops.length + 1, MAX_STOPS)),
+                      title: "Adicionar como parada",
+                      description:
+                        stops.length >= MAX_STOPS
+                          ? "Limite de 20 paradas atingido"
+                          : "Entra na rota e a ordem é recalculada",
+                      primary: true,
+                      disabled: stops.length >= MAX_STOPS,
+                      onClick: () => {
+                        const place = placeFromInfo(info);
+                        const problem = tryAddStop(place);
+                        if (problem) notify(problem);
+                        else {
+                          notify("Parada adicionada.", place.id);
+                          setInfo(null);
+                        }
+                      },
+                    },
+                    {
+                      badge: "A",
+                      title: "Definir como início",
+                      description: `Substitui ${start.label}`,
+                      onClick: () => {
+                        const problem = setFixed("start", placeFromInfo(info));
+                        if (problem) notify(problem);
+                        else setInfo(null);
+                      },
+                    },
+                    {
+                      badge: "B",
+                      title: "Definir como fim",
+                      description:
+                        !endSame && end ? `Substitui ${end.label}` : "A rota deixa de voltar ao início",
+                      onClick: () => {
+                        const problem = setFixed("end", placeFromInfo(info));
+                        if (problem) notify(problem);
+                        else setInfo(null);
+                      },
+                    },
+                  ]
+            }
+            footer={
+              infoPlace && infoIsStop ? (
                 <button
                   type="button"
-                  className={popupButton}
+                  className="focus-ring self-start rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
                   onClick={() => {
                     removeStop(infoPlace.id);
                     setInfo(null);
@@ -522,9 +592,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 >
                   Remover parada
                 </button>
-              )}
-            </div>
-          </div>
+              ) : undefined
+            }
+          />
         )}
       </MapView>
 
@@ -669,79 +739,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </p>
               ) : (
                 <>
-                <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                    {locked ? "Ordem travada: não muda sozinha." : "Ordem otimizada automaticamente."}
+                    Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). Os
+                    destravados são otimizados em volta.
                   </p>
-                  <button
-                    type="button"
-                    aria-pressed={locked}
-                    onClick={toggleLock}
-                    className={`focus-ring flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none ${
-                      locked
-                        ? "border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
-                        : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="9" width="12" height="8" rx="2" />
-                      <path d={locked ? "M7 9V6a3 3 0 016 0v3" : "M7 9V6a3 3 0 015.6-1.5"} />
-                    </svg>
-                    {locked ? "Destravar" : "Travar ordem"}
-                  </button>
-                </div>
-                <ol className="flex flex-col gap-1">
-                  {stops.map((stop, i) => {
-                    const leg = plan?.legs[i];
-                    return (
-                      <li
-                        key={stop.id}
-                        className="flex items-center gap-1.5 rounded-lg px-1 py-1.5 transition-colors duration-200 hover:bg-zinc-100 motion-reduce:transition-none dark:hover:bg-zinc-800/70"
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-600 text-xs font-semibold text-white"
-                        >
-                          {i + 1}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{stop.label}</span>
-                          <span className="block text-xs text-zinc-600 dark:text-zinc-400">
-                            {leg
-                              ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · chega ${formatTime(leg.arriveAt)}`
-                              : "—"}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 flex-col">
-                          {([-1, 1] as const).map((delta) => (
-                            <button
-                              key={delta}
-                              type="button"
-                              onClick={() => moveStop(i, delta)}
-                              disabled={delta === -1 ? i === 0 : i === stops.length - 1}
-                              aria-label={`Mover ${stop.label} para ${delta === -1 ? "cima" : "baixo"}`}
-                              className="focus-ring grid h-4 w-6 place-items-center rounded text-zinc-600 hover:bg-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-700"
-                            >
-                              <svg aria-hidden="true" viewBox="0 0 20 20" className={`h-3.5 w-3.5 ${delta === 1 ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M5 12l5-5 5 5" />
-                              </svg>
-                            </button>
-                          ))}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeStop(stop.id)}
-                          aria-label={`Remover ${stop.label}`}
-                          className="focus-ring grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-600 hover:bg-zinc-200 hover:text-red-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                        >
-                          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                            <path d="M5 5l10 10M15 5L5 15" />
-                          </svg>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
+                  <StopList
+                    stops={stops}
+                    legs={plan?.legs}
+                    locks={locks}
+                    showLegColors={streetLegs !== null}
+                    onMove={handleMove}
+                    onToggleLock={handleToggleLock}
+                    onRemove={removeStop}
+                  />
                 </>
               )}
 
@@ -796,27 +806,27 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </div>
               </dl>
 
-              {locked ? (
+              <p>
+                Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
+                {savedMinutes > 0 ? (
+                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                    Economia de {savedMinutes} min.
+                  </strong>
+                ) : (
+                  "A ordem atual não é mais rápida que a digitada."
+                )}
+              </p>
+
+              {lockCount > 0 && plan && (
                 <p>
-                  Ordem travada por você.{" "}
-                  {plan && plan.totalSeconds - bestSeconds >= 60 ? (
+                  {lockCount === 1 ? "1 local travado." : `${lockCount} locais travados.`}{" "}
+                  {plan.totalSeconds - bestSeconds >= 60 ? (
                     <strong className="font-semibold text-amber-800 dark:text-amber-300">
-                      A melhor ordem levaria {formatDuration(bestSeconds)} (
+                      Sem travas, a rota levaria {formatDuration(bestSeconds)} (
                       {Math.round((plan.totalSeconds - bestSeconds) / 60)} min a menos).
                     </strong>
                   ) : (
-                    "Ela já é a melhor ordem."
-                  )}
-                </p>
-              ) : (
-                <p>
-                  Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
-                  {savedMinutes > 0 ? (
-                    <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
-                      Economia de {savedMinutes} min.
-                    </strong>
-                  ) : (
-                    "A ordem digitada já é a melhor."
+                    "Mesmo assim, esta é a ordem mais rápida."
                   )}
                 </p>
               )}
@@ -835,11 +845,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </li>
                 <li>
                   Ordem:{" "}
-                  {locked ? "travada (manual)" : orderExact ? "exata (a melhor possível)" : "aproximada"}.
+                  {orderExact ? "exata" : "aproximada"}
+                  {lockCount > 0 ? ", respeitando os locais travados" : orderExact ? " (a melhor possível)" : ""}.
                 </li>
                 {serverPlan?.checkedSeconds != null && (
                   <li>
-                    Pelas ruas (linha verde): {formatDuration(serverPlan.checkedSeconds)}. Clique na linha
+                    Pelas ruas (linha colorida): {formatDuration(serverPlan.checkedSeconds)}. Clique na linha
                     para ver cada trecho.
                   </li>
                 )}
@@ -848,10 +859,33 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 )}
               </ul>
 
-              <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <Badge>Local</Badge>
-                Algoritmo local (nenhuma IA respondeu)
-              </p>
+              <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-2.5 dark:border-zinc-700" aria-live="polite">
+                <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <Badge>{TIER_LABEL[aiTier]}</Badge>
+                  {aiLoading
+                    ? "Consultando a IA…"
+                    : aiOutcome?.review
+                      ? `Comentário da IA: ${aiOutcome.provider}`
+                      : stops.length < 2
+                        ? "Algoritmo local"
+                        : "Algoritmo local (nenhuma IA respondeu)"}
+                </p>
+                {aiOutcome?.review && (
+                  <>
+                    <p className="text-xs leading-relaxed">{aiOutcome.review.explanation}</p>
+                    {aiOutcome.review.backtracking && (
+                      <p className="rounded-lg bg-amber-100 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                        A IA viu um possível vai-e-volta nesta ordem.
+                      </p>
+                    )}
+                    {aiOutcome.review.suggestion && (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                        Sugestão da IA (não aplicada): {aiOutcome.review.suggestion}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </CollapsibleCard>
             <div aria-hidden="true" className="h-0 shrink-0 md:hidden" />

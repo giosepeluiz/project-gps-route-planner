@@ -1,4 +1,5 @@
 /** Instâncias únicas (por processo) dos serviços do servidor, montadas pelas variáveis de ambiente. */
+import { createAiService, createGemini, createGroq, type AiProvider, type AiService } from "./ai";
 import { createCache, type Cache } from "./cache";
 import { createGeocoder, createNominatim, createTomTom, type GeocodeProvider, type Geocoder } from "./geocode";
 import {
@@ -22,6 +23,7 @@ interface Services {
   resolveInput: ReturnType<typeof createResolver>;
   matrix: MatrixService;
   geometry: GeometryService;
+  ai: AiService;
 }
 
 let services: Services | null = null;
@@ -49,12 +51,26 @@ export function getServices(): Services {
   if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache));
   if (process.env.NODE_ENV === "development") geometries.push(createOsrmDemoGeometry(cache));
 
+  // IA: Gemini Flash (primária) → Groq/Llama (backup). Sem chaves, a lista fica vazia
+  // e a interface mostra "Algoritmo local". Os modelos mudam com frequência: por isso
+  // são configuráveis por variável de ambiente.
+  const aiProviders: AiProvider[] = [];
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const groqKey = process.env.GROQ_API_KEY?.trim();
+  if (geminiKey) {
+    aiProviders.push(createGemini(geminiKey, process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash"));
+  }
+  if (groqKey) {
+    aiProviders.push(createGroq(groqKey, process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile"));
+  }
+
   services = {
     cache,
     geocoder,
     resolveInput: createResolver({ geocoder, cache }),
     matrix: createMatrixService({ providers: matrixProviders, cache }),
     geometry: chainGeometry(geometries),
+    ai: createAiService(aiProviders),
   };
   return services;
 }

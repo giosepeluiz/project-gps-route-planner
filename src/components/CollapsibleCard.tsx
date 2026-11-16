@@ -71,6 +71,7 @@ export default function CollapsibleCard({
   return (
     <section
       ref={sectionRef}
+      data-map-overlay
       className={`pointer-events-auto rounded-xl border border-zinc-200 bg-white/95 shadow-lg backdrop-blur transition-shadow duration-300 hover:shadow-xl motion-reduce:transition-none dark:border-zinc-700 dark:bg-zinc-900/95 ${className}`}
     >
       <h2>

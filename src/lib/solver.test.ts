@@ -4,6 +4,7 @@ import { optimizeStops } from "./optimize";
 import {
   nearestNeighbor,
   planArrival,
+  respectsLocks,
   routeCost,
   solveExact,
   solveHeuristic,
@@ -11,6 +12,7 @@ import {
   timeSlot,
   type RouteProblem,
 } from "./solver";
+import { cleanLocks, moveStop, removeFromLocks, toggleLock } from "./locks";
 import { isApproximate, MAX_STOPS } from "./stops";
 import type { LegTimeFn, Place } from "./types";
 
@@ -208,6 +210,138 @@ describe("heurística (11 a 20 paradas)", () => {
     const started = performance.now();
     solveRoute(problem);
     expect(performance.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("locais travados por posição", () => {
+  /** Força bruta só com as ordens que respeitam as travas. */
+  function bruteForceLocked(problem: RouteProblem): number {
+    let best = Infinity;
+    const permute = (rest: number[], order: number[]) => {
+      if (rest.length === 0) {
+        if (respectsLocks(problem, order)) best = Math.min(best, routeCost(problem, order));
+        return;
+      }
+      for (let i = 0; i < rest.length; i++) {
+        permute([...rest.slice(0, i), ...rest.slice(i + 1)], [...order, rest[i]]);
+      }
+    };
+    permute([...problem.stops], []);
+    return best;
+  }
+
+  it("Held-Karp com travas é igual à força bruta restrita em 100 instâncias", () => {
+    const random = rng(99);
+    for (let instance = 0; instance < 100; instance++) {
+      const stopCount = 2 + Math.floor(random() * 6);
+      const stops = Array.from({ length: stopCount }, (_, i) => i + 1);
+      // Trava de 1 a 3 paradas em posições distintas.
+      const fixed = new Map<number, number>();
+      const lockCount = 1 + Math.floor(random() * Math.min(3, stopCount));
+      const free = [...stops];
+      const positions = stops.map((_, i) => i);
+      for (let k = 0; k < lockCount; k++) {
+        const stop = free.splice(Math.floor(random() * free.length), 1)[0];
+        const position = positions.splice(Math.floor(random() * positions.length), 1)[0];
+        fixed.set(position, stop);
+      }
+      const problem: RouteProblem = {
+        matrix: randomMatrix(stopCount + 1, random),
+        start: 0,
+        stops,
+        end: instance % 2 === 0 ? 0 : null,
+        fixed,
+      };
+      const solution = solveExact(problem);
+      expect(respectsLocks(problem, solution.order), `instância ${instance}`).toBe(true);
+      expect(solution.cost, `instância ${instance}`).toBe(bruteForceLocked(problem));
+    }
+  });
+
+  it("fixtures: Belém travado como 1ª parada", () => {
+    const problem: RouteProblem = {
+      matrix: fixtureMatrix("t0900"),
+      start: 0,
+      stops: [1, 2, 3],
+      end: 0,
+      fixed: new Map([[0, 1]]),
+    };
+    const solution = solveRoute(problem);
+    expect(solution.order[0]).toBe(1);
+    expect(solution.cost).toBe(bruteForceLocked(problem));
+    expect(solution.cost).toBeGreaterThan(7984);
+  });
+
+  it("todas travadas: a ordem é exatamente a pedida", () => {
+    const problem: RouteProblem = {
+      matrix: fixtureMatrix("t0900"),
+      start: 0,
+      stops: [1, 2, 3],
+      end: 0,
+      fixed: new Map([
+        [0, 2],
+        [1, 3],
+        [2, 1],
+      ]),
+    };
+    expect(solveRoute(problem).order).toEqual([2, 3, 1]);
+  });
+
+  it("heurística (11+ paradas) respeita as travas e não piora o vizinho mais próximo", () => {
+    const random = rng(123);
+    for (let repeat = 0; repeat < 8; repeat++) {
+      const stopCount = 11 + Math.floor(random() * 10);
+      const stops = Array.from({ length: stopCount }, (_, i) => i + 1);
+      const fixed = new Map<number, number>([
+        [0, stops[3]],
+        [stopCount - 1, stops[0]],
+        [5, stops[7]],
+      ]);
+      const problem: RouteProblem = { matrix: randomMatrix(stopCount + 1, random), start: 0, stops, end: 0, fixed };
+      const nearest = nearestNeighbor(problem);
+      expect(respectsLocks(problem, nearest)).toBe(true);
+      const solution = solveRoute(problem);
+      expect(respectsLocks(problem, solution.order)).toBe(true);
+      expect(solution.cost).toBeLessThanOrEqual(routeCost(problem, nearest));
+      expect([...solution.order].sort((a, b) => a - b)).toEqual(stops);
+    }
+  });
+
+  it("arrastar e soltar trava o local solto e mantém os outros travados onde aparecem", () => {
+    const ids = ["a", "b", "c", "d"];
+    // Arrasta "d" (posição 3) para o topo.
+    const first = moveStop(ids, {}, 3, 0);
+    expect(first.order).toEqual(["d", "a", "b", "c"]);
+    expect(first.locks).toEqual({ d: 0 });
+    // Com "b" já travado na posição 1, arrastar "a" para o fim empurra "b" para a posição 0.
+    const second = moveStop(ids, { b: 1 }, 0, 3);
+    expect(second.order).toEqual(["b", "c", "d", "a"]);
+    expect(second.locks).toEqual({ b: 0, a: 3 });
+    // Índices inválidos não mudam nada.
+    expect(moveStop(ids, { b: 1 }, 0, 9)).toEqual({ order: ids, locks: { b: 1 } });
+  });
+
+  it("cadeado por local, remoção e limpeza de travas", () => {
+    const ids = ["a", "b", "c"];
+    expect(toggleLock(ids, {}, "c")).toEqual({ c: 2 });
+    expect(toggleLock(ids, { c: 2, a: 0 }, "c")).toEqual({ a: 0 });
+    // Removendo "a", o que estava travado depois dele sobe uma posição.
+    expect(removeFromLocks(ids, { a: 0, c: 2 }, "a")).toEqual({ c: 1 });
+    expect(removeFromLocks(ids, { a: 0, c: 2 }, "c")).toEqual({ a: 0 });
+    // Travas de paradas que sumiram, fora da faixa ou repetidas são descartadas.
+    expect(cleanLocks(ids, { a: 0, z: 1, b: 7, c: 0 })).toEqual({ a: 0 });
+  });
+
+  it("optimizeStops respeita as travas por id", () => {
+    const P = FIXTURE_PLACES;
+    const legTime: LegTimeFn = (from, to) => ({
+      seconds: from.id === to.id ? 0 : fixtureSeconds("t0900", from.id, to.id)!,
+      estimated: false,
+    });
+    const result = optimizeStops(P.B, [P.Be, P.PN, P.CC], P.B, legTime, undefined, { PN: 0 });
+    expect(result.stops[0].id).toBe("PN");
+    // PN → Be → CC é a inversa da ótima, com o mesmo tempo nestes fixtures simétricos.
+    expect(result.seconds).toBe(7984);
   });
 });
 

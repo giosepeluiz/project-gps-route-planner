@@ -16,7 +16,7 @@ const Body = z.object({
   stops: z.array(Point).max(MAX_STOPS),
   end: Point.nullable(),
   roundTrip: z.boolean(),
-  lockOrder: z.boolean().optional(),
+  locks: z.record(z.string().max(64), z.number().int().min(0).max(MAX_STOPS)).optional(),
   mode: z.enum(["depart", "arrive"]),
   /** ISO 8601, ou null para "agora". */
   at: z.iso.datetime({ offset: true }).nullable(),

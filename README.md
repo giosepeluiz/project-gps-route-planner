@@ -10,7 +10,7 @@ Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de in
 | F2 | Leitura de locais (coordenadas, links, geocodificação) e `/api/resolve` | Pronta |
 | F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
 | F4 | Provedores de matriz e rota, com cache e fallback | Pronta |
-| F5 | Camada de IA com fallback | A fazer |
+| F5 | Camada de IA com fallback | Pronta |
 | F6 | Ações de saída, senha, rate limit e deploy na Vercel | A fazer |
 
 ## Tempos e rota
@@ -28,9 +28,9 @@ Cada provedor tem timeout de 8 s, 1 retry e pausa de 60 s após 3 falhas seguida
 ### Duas linhas no mapa
 
 - **Azul pontilhada:** retas ligando os pontos, sempre presente.
-- **Verde:** a rota pelas ruas (TomTom Calculate Route). Clicar nela mostra a distância em km e o tempo médio daquele trecho. Sem essa geometria, aparece o aviso "Traçado aproximado".
+- **Colorida:** a rota pelas ruas (TomTom Calculate Route), com uma cor por trecho (nenhuma azul); a mesma cor aparece ao lado de cada parada na lista. Clicar nela mostra a distância em km e o tempo médio daquele trecho. Sem essa geometria, aparece o aviso "Traçado aproximado".
 
-Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha verde vem do servidor demo público do OSRM, sem trânsito. A política dele não permite uso em produção, então no deploy a linha verde depende da chave da TomTom.
+Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha colorida vem do servidor demo público do OSRM, sem trânsito. A política dele não permite uso em produção, então no deploy a linha colorida depende da chave da TomTom.
 
 ### Sem travessia por mar
 
@@ -47,13 +47,24 @@ A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de
 
 - Até 10 paradas: solução exata (Held-Karp), com início e fim fixos.
 - De 11 a 20: heurística (vizinho mais próximo + 2-opt + Or-opt), com aviso de ordem aproximada.
-- **Ordem manual:** as setas de cada parada movem a posição na lista e travam a ordem; o botão "Travar ordem" faz o mesmo com a ordem que está na tela. Travada, a ordem não muda sozinha, e o Resumo mostra quanto a melhor ordem economizaria. "Destravar" devolve o controle ao algoritmo.
+- **Ordem manual, por local:** arraste uma parada pela alça para reposicioná-la; ela fica travada na posição em que foi solta (cadeado). O cadeado de cada parada trava ou destrava só aquele local. Os locais destravados continuam sendo otimizados em volta dos travados, e o Resumo mostra quanto a rota levaria sem as travas. Com o teclado, as setas para cima e para baixo na alça fazem o mesmo.
 - A matriz de tempos é tratada como assimétrica.
 - "Chegar até": a saída é a chegada menos a duração, recalculada em até 3 iterações quando muda de faixa de 15 minutos (entra em uso com os provedores de trânsito, na fase 4).
 
+## Camada de IA (opcional)
+
+A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
+
+- **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, o texto aparece como "Sugestão da IA (não aplicada)".
+- **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
+
+Cadeia: Gemini Flash (`GEMINI_API_KEY`, primária) → Groq/Llama (`GROQ_API_KEY`, backup) → sem IA. O selo no Resumo mostra quem respondeu: Primária, Backup ou Local ("Algoritmo local (nenhuma IA respondeu)"). As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
+
+Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
+
 ## Como usar o mapa
 
-- **Clique esquerdo** em qualquer ponto: mostra o endereço e as coordenadas, com botões para adicionar como parada, início ou fim.
+- **Clique esquerdo** em qualquer ponto: abre um balão com o endereço e as coordenadas (clicáveis para copiar) e pergunta o que fazer com o local: adicionar como parada, definir como início ou definir como fim.
 - **Clique direito** (ou toque longo no celular): adiciona um pin como parada, com "Desfazer".
 - **Clique em um pin**: mostra os dados daquele local.
 

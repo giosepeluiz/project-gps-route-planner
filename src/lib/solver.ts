@@ -19,6 +19,33 @@ export interface RouteProblem {
   stops: readonly number[];
   /** Índice do ponto final (pode ser igual a `start`, em ida e volta) ou null para terminar na última parada. */
   end: number | null;
+  /**
+   * Paradas travadas pelo usuário: posição na visita (0 = primeira parada) → índice da parada.
+   * As demais são otimizadas em volta delas.
+   */
+  fixed?: ReadonlyMap<number, number>;
+}
+
+/** Posição travada de cada parada (por índice da parada), a partir de `fixed`. */
+function lockedPositions(problem: Pick<RouteProblem, "stops" | "fixed">): Map<number, number> {
+  const byStop = new Map<number, number>();
+  problem.fixed?.forEach((stop, position) => {
+    if (position >= 0 && position < problem.stops.length && problem.stops.includes(stop)) {
+      byStop.set(stop, position);
+    }
+  });
+  return byStop;
+}
+
+/** A ordem respeita todas as travas? */
+export function respectsLocks(
+  problem: Pick<RouteProblem, "stops" | "fixed">,
+  order: readonly number[],
+): boolean {
+  for (const [stop, position] of lockedPositions(problem)) {
+    if (order[position] !== stop) return false;
+  }
+  return true;
 }
 
 export interface RouteSolution {
@@ -57,20 +84,39 @@ export function solveExact(problem: RouteProblem): RouteSolution {
   const n = stops.length;
   if (n === 0) return { order: [], cost: routeCost(problem, []), exact: true };
 
+  // Travas: a parada j só entra na posição dela, e a posição travada só aceita a parada dela.
+  const lockOf = lockedPositions(problem);
+  const ownerOf = new Map<number, number>();
+  lockOf.forEach((position, stop) => ownerOf.set(position, stop));
+  const allowed = (j: number, position: number) => {
+    const lock = lockOf.get(stops[j]);
+    if (lock !== undefined) return lock === position;
+    return !ownerOf.has(position);
+  };
+  const popcount = (mask: number) => {
+    let count = 0;
+    for (let m = mask; m; m &= m - 1) count++;
+    return count;
+  };
+
   const size = 1 << n;
   // best[mask * n + j]: menor tempo saindo do início, visitando `mask` e terminando na parada j.
   const best = new Float64Array(size * n).fill(Infinity);
   const parent = new Int8Array(size * n).fill(-1);
 
-  for (let j = 0; j < n; j++) best[(1 << j) * n + j] = matrix[start][stops[j]];
+  for (let j = 0; j < n; j++) {
+    if (allowed(j, 0)) best[(1 << j) * n + j] = matrix[start][stops[j]];
+  }
 
   for (let mask = 1; mask < size; mask++) {
     for (let j = 0; j < n; j++) {
       if (!(mask & (1 << j))) continue;
       const current = best[mask * n + j];
       if (current === Infinity) continue;
+      const position = popcount(mask);
       for (let k = 0; k < n; k++) {
         if (mask & (1 << k)) continue;
+        if (!allowed(k, position)) continue;
         const next = mask | (1 << k);
         const candidate = current + matrix[stops[j]][stops[k]];
         if (candidate < best[next * n + k]) {
@@ -108,17 +154,26 @@ export function solveExact(problem: RouteProblem): RouteSolution {
 /** Vizinho mais próximo: sempre vai para a parada mais perto da atual. */
 export function nearestNeighbor(problem: RouteProblem): number[] {
   const { matrix, start, stops } = problem;
-  const remaining = [...stops];
+  const lockOf = lockedPositions(problem);
+  const ownerOf = new Map<number, number>();
+  lockOf.forEach((position, stop) => ownerOf.set(position, stop));
+  // As travadas ficam fora da escolha: entram direto na posição delas.
+  const remaining = stops.filter((stop) => !lockOf.has(stop));
   const order: number[] = [];
   let current = start;
-  while (remaining.length > 0) {
-    let pick = 0;
-    for (let i = 1; i < remaining.length; i++) {
-      if (matrix[current][remaining[i]] < matrix[current][remaining[pick]]) pick = i;
+  for (let position = 0; position < stops.length; position++) {
+    const owner = ownerOf.get(position);
+    if (owner !== undefined) {
+      current = owner;
+    } else {
+      let pick = 0;
+      for (let i = 1; i < remaining.length; i++) {
+        if (matrix[current][remaining[i]] < matrix[current][remaining[pick]]) pick = i;
+      }
+      current = remaining[pick];
+      remaining.splice(pick, 1);
     }
-    current = remaining[pick];
     order.push(current);
-    remaining.splice(pick, 1);
   }
   return order;
 }
@@ -135,6 +190,7 @@ export function solveHeuristic(problem: RouteProblem, options: SolveOptions = {}
   let order = nearestNeighbor(problem);
   let cost = routeCost(problem, order);
   const n = order.length;
+  const hasLocks = lockedPositions(problem).size > 0;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     let improved = false;
@@ -143,6 +199,7 @@ export function solveHeuristic(problem: RouteProblem, options: SolveOptions = {}
     for (let i = 0; i < n - 1; i++) {
       for (let j = i + 1; j < n; j++) {
         const candidate = [...order.slice(0, i), ...order.slice(i, j + 1).reverse(), ...order.slice(j + 1)];
+        if (hasLocks && !respectsLocks(problem, candidate)) continue;
         const candidateCost = routeCost(problem, candidate);
         if (candidateCost < cost) {
           order = candidate;
@@ -160,6 +217,7 @@ export function solveHeuristic(problem: RouteProblem, options: SolveOptions = {}
         for (let position = 0; position <= rest.length; position++) {
           if (position === i) continue;
           const candidate = [...rest.slice(0, position), ...block, ...rest.slice(position)];
+          if (hasLocks && !respectsLocks(problem, candidate)) continue;
           const candidateCost = routeCost(problem, candidate);
           if (candidateCost < cost) {
             order = candidate;
