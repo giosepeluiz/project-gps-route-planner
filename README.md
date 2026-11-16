@@ -9,11 +9,24 @@ Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de in
 | F1 | Estrutura, mapa, layout responsivo e blocos colapsáveis (dados fictícios) | Pronta |
 | F2 | Leitura de locais (coordenadas, links, geocodificação) e `/api/resolve` | Pronta |
 | F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
-| F4 | Provedores de matriz e rota, com cache e fallback | A fazer |
+| F4 | Provedores de matriz e rota, com cache e fallback | Pronta |
 | F5 | Camada de IA com fallback | A fazer |
 | F6 | Ações de saída, senha, rate limit e deploy na Vercel | A fazer |
 
-Os tempos ainda vêm de dados fictícios (fixtures reais da TomTom); locais novos usam estimativa por distância. 
+## Tempos e rota
+
+O navegador envia os locais (só ids e coordenadas) para `POST /api/plan`, que monta a matriz de tempos, roda o solver e devolve a ordem, os trechos, a fonte dos dados e a linha da rota.
+
+Cadeia de provedores, sempre visível no bloco Resumo:
+
+1. **TomTom** (`TOMTOM_API_KEY`): Matrix Routing v2 com trânsito (ao vivo para saídas na próxima hora, histórico para as demais) e Calculate Route para desenhar a rota real e conferir o tempo.
+2. **OpenRouteService** (`ORS_API_KEY`, opcional): sem previsão de trânsito.
+3. **Estimativa por distância** (haversine × 1.4 ÷ 35 km/h): último recurso, sempre rotulada como estimativa. É o que aparece quando nenhuma chave está configurada.
+
+Cada provedor tem timeout de 8 s, 1 retry e pausa de 60 s após 3 falhas seguidas. Sem geometria, o mapa mostra retas tracejadas com o aviso "Traçado aproximado".
+
+**Cota da TomTom:** o plano gratuito tem 2.500 requisições de matriz por mês, e tudo indica que cada célula conta (uma rota com 20 paradas são 441 células). Para poupar: o cache é por par de locais (chave = coordenadas com 4 casas + dia da semana + faixa de 15 minutos + provedor), então uma parada nova só consulta os pares novos; e com o horário em "Agora" a rota não é recalculada sozinha com o passar do tempo, só quando algo muda.
+
 
 ## Ordem das paradas
 

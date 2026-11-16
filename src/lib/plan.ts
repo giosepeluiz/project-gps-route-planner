@@ -1,4 +1,11 @@
+import { estimateSeconds } from "./geo";
 import type { LegTimeFn, Place, Plan, PlanLeg, TimeMode } from "./types";
+
+/** Último recurso, usado no navegador enquanto o servidor não responde. */
+export const estimateLegTime: LegTimeFn = (from, to) =>
+  from.id === to.id
+    ? { seconds: 0, estimated: false }
+    : { seconds: estimateSeconds(from, to), estimated: true };
 
 /** Soma os tempos de uma sequência de locais (início, paradas e fim). */
 export function sequenceSeconds(sequence: readonly Place[], legTime: LegTimeFn): number {

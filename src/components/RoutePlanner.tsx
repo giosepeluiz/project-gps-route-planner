@@ -13,10 +13,12 @@ import {
   toLocalInputValue,
 } from "@/lib/format";
 import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
-import { MOCK_START, MOCK_TYPED_STOPS, mockLegTime } from "@/lib/mock-data";
+import { MOCK_START, MOCK_TYPED_STOPS } from "@/lib/mock-data";
 import { optimizeStops } from "@/lib/optimize";
 import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
-import { computePlan } from "@/lib/plan";
+import { computePlan, estimateLegTime } from "@/lib/plan";
+import { fetchPlan, planRequestBody } from "@/lib/plan-client";
+import type { PlanResponse } from "@/lib/server/plan";
 import {
   addStop,
   isApproximate,
@@ -26,7 +28,7 @@ import {
   MSG_DUPLICATE,
   MSG_NOT_FOUND,
 } from "@/lib/stops";
-import type { Place, TimeMode } from "@/lib/types";
+import type { LegTimeFn, Place, TimeMode } from "@/lib/types";
 
 type BlockId = "inicio" | "paradas" | "resumo";
 const BLOCKS_KEY = "rotas:blocos";
@@ -147,13 +149,65 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const finalPlace = endSame ? start : end;
 
-  // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
-  const optimized = useMemo(
-    () => optimizeStops(start, typedStops, finalPlace, mockLegTime),
+  // Pedido ao servidor (matriz com trânsito + solver). Só muda quando a rota muda:
+  // em "agora", o relógio andando NÃO dispara novas consultas (a cota é limitada).
+  const requestBody = useMemo(
+    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, mode: timeMode, dateTime })),
+    [start, typedStops, end, endSame, timeMode, dateTime],
+  );
+  const [remote, setRemote] = useState<{ body: string; plan: PlanResponse | null } | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetchPlan(requestBody, controller.signal).then((plan) => {
+        if (!controller.signal.aborted) setRemote({ body: requestBody, plan });
+      });
+    }, 500);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [requestBody]);
+
+  /** Resposta do servidor para a rota atual; null enquanto calcula ou se falhou. */
+  const serverPlan = remote?.body === requestBody ? remote.plan : null;
+  const planStatus: "loading" | "ok" | "failed" =
+    remote?.body !== requestBody ? "loading" : remote.plan ? "ok" : "failed";
+
+  // Enquanto o servidor não responde (ou se falhar), vale a estimativa local por distância.
+  const local = useMemo(
+    () => optimizeStops(start, typedStops, finalPlace, estimateLegTime),
     [start, typedStops, finalPlace],
   );
-  const stops = optimized.stops;
-  const typedSeconds = optimized.typedSeconds;
+
+  // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
+  const stops = useMemo(() => {
+    if (!serverPlan) return local.stops;
+    const byId = new Map(typedStops.map((s) => [s.id, s]));
+    const ordered = serverPlan.order.map((id) => byId.get(id));
+    return ordered.length === typedStops.length && ordered.every((s) => s !== undefined)
+      ? (ordered as Place[])
+      : local.stops;
+  }, [serverPlan, local, typedStops]);
+
+  const legTime = useMemo<LegTimeFn>(() => {
+    if (!serverPlan) return estimateLegTime;
+    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const known = new Map<string, number>();
+    serverPlan.legSeconds.forEach((seconds, i) => {
+      if (sequence[i + 1]) known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds);
+    });
+    return (from, to) => {
+      const seconds = known.get(`${from.id}>${to.id}`);
+      return seconds === undefined
+        ? estimateLegTime(from, to)
+        : { seconds, estimated: serverPlan.source.estimated };
+    };
+  }, [serverPlan, start, stops, finalPlace]);
+
+  const typedSeconds = serverPlan?.typedSeconds ?? local.typedSeconds;
+  const orderExact = serverPlan?.exact ?? local.exact;
 
   const anchor = useMemo(() => {
     if (dateTime) return new Date(dateTime);
@@ -163,8 +217,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const plan = useMemo(() => {
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
-    return computePlan(sequence, timeMode, anchor, mockLegTime);
-  }, [anchor, start, stops, finalPlace, timeMode]);
+    return computePlan(sequence, timeMode, anchor, legTime);
+  }, [anchor, start, stops, finalPlace, timeMode, legTime]);
 
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (place: Place): string | null => {
@@ -276,10 +330,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return list;
   }, [start, stops, endSame, end]);
 
+  // Geometria real quando o provedor devolve; senão, retas entre os pontos.
+  const geometry = serverPlan?.geometry ?? null;
   const path = useMemo<[number, number][]>(() => {
+    if (geometry) return geometry;
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
     return sequence.map((p) => [p.lng, p.lat]);
-  }, [start, stops, finalPlace]);
+  }, [geometry, start, stops, finalPlace]);
 
   const layout: MapLayout = isDesktop ? "desktop" : sheetOpen ? "sheet-open" : "sheet-closed";
 
@@ -302,7 +359,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       <MapView
         points={points}
         path={path}
-        approximate
+        approximate={!geometry}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
         onMapClick={(lat, lng) => openInfo(lat, lng)}
@@ -624,13 +681,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               </p>
 
               <ul className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
-                <li>
-                  Tempos: dados fictícios (os provedores de trânsito chegam na fase 4)
-                  {plan?.hasEstimates ? ", com estimativa por distância (≈) nos locais novos" : ""}.
+                <li aria-live="polite">
+                  Fonte:{" "}
+                  {planStatus === "ok" && serverPlan
+                    ? serverPlan.source.label
+                    : planStatus === "loading"
+                      ? "calculando… (estimativa por distância enquanto isso)"
+                      : "servidor indisponível; estimativa por distância, sem previsão de trânsito"}
+                  .
                 </li>
-                <li>
-                  Ordem: {optimized.exact ? "exata (a melhor possível)" : "aproximada"}.
-                </li>
+                <li>Ordem: {orderExact ? "exata (a melhor possível)" : "aproximada"}.</li>
+                {serverPlan?.checkedSeconds != null && (
+                  <li>Conferido na rota desenhada: {formatDuration(serverPlan.checkedSeconds)}.</li>
+                )}
+                {serverPlan?.arrival && !serverPlan.arrival.converged && (
+                  <li>O horário de saída ainda oscila com o trânsito; trate-o como aproximado.</li>
+                )}
               </ul>
 
               <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
