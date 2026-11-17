@@ -25,6 +25,7 @@ import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hoo
 import {
   fetchParsedPlaces,
   fetchReview,
+  judgeSuggestion,
   locksFromSuggestion,
   reviewRequestBody,
   TIER_LABEL,
@@ -582,7 +583,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
     if (serverPlan.legSeconds.length !== sequence.length - 1) return null;
     return JSON.stringify(
-      reviewRequestBody(sequence.map((p) => p.label), serverPlan.legSeconds, endSame, lockCount, stops.length),
+      reviewRequestBody(
+        sequence.map((p) => p.label),
+        serverPlan.legSeconds,
+        endSame,
+        lockCount,
+        stops.length,
+        serverPlan.exact,
+      ),
     );
   }, [serverPlan, start, stops, finalPlace, endSame, lockCount]);
   const [aiRemote, setAiRemote] = useState<{ body: string; outcome: ReviewOutcome } | null>(null);
@@ -604,6 +612,36 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const aiOutcome = reviewBody && aiRemote?.body === reviewBody ? aiRemote.outcome : null;
   const aiLoading = reviewBody !== null && aiOutcome === null;
   const aiTier = aiOutcome?.tier ?? "local";
+
+  // A IA só vê os nomes, não o mapa: antes de oferecer "Aceitar sugestão", a ordem
+  // sugerida é calculada com os mesmos tempos reais (tudo travado nela) e só vale
+  // se for mais rápida que a atual.
+  const suggestedStops = aiOutcome?.review?.suggestedStops ?? null;
+  const suggestionLocks = useMemo(
+    () => (suggestedStops ? locksFromSuggestion(stops.map((s) => s.id), suggestedStops) : null),
+    [suggestedStops, stops],
+  );
+  const checkBody = useMemo(
+    () =>
+      suggestionLocks
+        ? JSON.stringify(
+            planRequestBody({ start, stops: typedStops, end, endSame, locks: suggestionLocks, mode: timeMode, dateTime }),
+          )
+        : null,
+    [suggestionLocks, start, typedStops, end, endSame, timeMode, dateTime],
+  );
+  const [suggestionCheck, setSuggestionCheck] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
+  useEffect(() => {
+    if (!checkBody) return;
+    const controller = new AbortController();
+    void fetchPlan(checkBody, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setSuggestionCheck({ body: checkBody, outcome: result });
+    });
+    return () => controller.abort();
+  }, [checkBody]);
+  const checked = checkBody && suggestionCheck?.body === checkBody ? suggestionCheck.outcome : null;
+  const verdict =
+    checked?.kind === "ok" && serverPlan ? judgeSuggestion(serverPlan.totalSeconds, checked.plan.totalSeconds) : null;
 
   // Aviso de rota impossível (ex.: locais separados pelo mar).
   const noRouteMessage = (() => {
@@ -934,32 +972,50 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 {aiOutcome?.review && (
                   <>
                     <p className="text-compact leading-relaxed text-ink-2">{aiOutcome.review.explanation}</p>
-                    {aiOutcome.review.backtracking && (
-                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                        A IA viu um possível vai-e-volta nesta ordem.
+                    {/* Só a sugestão com ordem é conferível; ela aparece depois de passar pelos tempos reais. */}
+                    {suggestedStops && !checked && (
+                      <p className="text-xs text-muted">Conferindo a sugestão da IA com os tempos reais…</p>
+                    )}
+                    {suggestedStops && verdict?.faster && (
+                      <>
+                        {aiOutcome.review.backtracking && (
+                          <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                            A IA viu um vai-e-volta nesta ordem.
+                          </p>
+                        )}
+                        <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+                          <p className="text-xs leading-relaxed text-ink-2">
+                            <span className="font-semibold text-ink">Sugestão da IA:</span> {aiOutcome.review.suggestion}
+                          </p>
+                          <p className="text-2xs text-muted">
+                            Nova ordem: {suggestedStops.map((from) => stops[from]?.label).join(" → ")}
+                          </p>
+                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                            Conferido com os tempos reais: {formatDuration(-verdict.diffSeconds)} mais rápida.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => acceptSuggestion(suggestedStops)}
+                            className="focus-ring self-start rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-on-ink hover:bg-ink/85"
+                          >
+                            Aceitar sugestão
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {suggestedStops && verdict && !verdict.faster && (
+                      <p className="text-xs text-muted">
+                        A IA sugeriu outra ordem, mas pelos tempos reais ela{" "}
+                        {verdict.diffSeconds >= 60
+                          ? `levaria ${formatDuration(verdict.diffSeconds)} a mais`
+                          : "não seria mais rápida"}
+                        . Ficou a ordem atual.
                       </p>
                     )}
-                    {aiOutcome.review.suggestion && (
-                      <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
-                        <p className="text-xs leading-relaxed text-ink-2">
-                          <span className="font-semibold text-ink">Sugestão da IA:</span> {aiOutcome.review.suggestion}
-                        </p>
-                        {aiOutcome.review.suggestedStops && (
-                          <>
-                            <p className="text-2xs text-muted">
-                              Nova ordem:{" "}
-                              {aiOutcome.review.suggestedStops.map((from) => stops[from]?.label).join(" → ")}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => acceptSuggestion(aiOutcome.review!.suggestedStops!)}
-                              className="focus-ring self-start rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-on-ink hover:bg-ink/85"
-                            >
-                              Aceitar sugestão
-                            </button>
-                          </>
-                        )}
-                      </div>
+                    {suggestedStops && checked && checked.kind !== "ok" && (
+                      <p className="text-xs text-muted">
+                        A IA sugeriu outra ordem, mas não deu para conferir com os tempos reais. Ficou a ordem atual.
+                      </p>
                     )}
                   </>
                 )}

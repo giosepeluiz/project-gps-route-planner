@@ -13,6 +13,7 @@ const Body = z
     roundTrip: z.boolean(),
     lockedCount: z.number().int().min(0).max(MAX_STOPS),
     stopCount: z.number().int().min(0).max(MAX_STOPS).optional(),
+    exact: z.boolean().optional(),
   })
   .refine((body) => body.legMinutes.length === body.labels.length - 1);
 
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { ai, cache } = getServices();
-  const key = `ai:review:v2:${createHash("sha256").update(JSON.stringify(parsed.data)).digest("hex")}`;
+  const key = `ai:review:v3:${createHash("sha256").update(JSON.stringify(parsed.data)).digest("hex")}`;
   const headers = { "Cache-Control": "no-store" };
 
   const cached = await cache.get<object>(key);

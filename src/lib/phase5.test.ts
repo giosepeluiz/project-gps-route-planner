@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchParsedPlaces, fetchReview, LOCAL_REVIEW, locksFromSuggestion, reviewRequestBody } from "./ai-client";
+import {
+  fetchParsedPlaces,
+  fetchReview,
+  judgeSuggestion,
+  LOCAL_REVIEW,
+  locksFromSuggestion,
+  reviewRequestBody,
+} from "./ai-client";
 import { isCoordinateLabel } from "./place-input";
 import { MemoryCache } from "./server/cache";
 import { nominatimZone, zoneLabel } from "./server/geocode";
@@ -226,6 +233,38 @@ describe("aceitar a sugestão da IA", () => {
     const invalid = await reviewRoute(createAiService([bad]), { ...input, stopCount: 3 });
     expect(invalid?.data.suggestion).toBeTruthy();
     expect(invalid?.data.suggestedStops).toBeNull();
+  });
+
+  it("ordem exata e sem travas: a sugestão e o vai-e-volta são descartados, e a IA é avisada", async () => {
+    const answer = JSON.stringify({
+      explanation: "Visitar Fervença e depois Vale de Ana Gomes parece mais direto.",
+      backtracking: true,
+      suggestion: "Ir de Fervença direto para Vale de Ana Gomes.",
+      suggestedOrder: [2, 4, 3],
+    });
+    const gemini = fakeAi("Gemini", "primária", answer);
+    const result = await reviewRoute(createAiService([gemini]), { ...input, stopCount: 3, exact: true });
+    expect(result?.data).toMatchObject({ backtracking: false, suggestion: null, suggestedStops: null });
+    expect(gemini.seen[0].user).toContain("melhor possível");
+    // A regra das margens está nas instruções.
+    expect(gemini.seen[0].system).toContain("Tejo");
+    expect(gemini.seen[0].system).toContain("sem alternar");
+
+    // Com travas, a ordem atual pode não ser a melhor: aí a sugestão passa (e ainda é conferida no navegador).
+    const locked = await reviewRoute(createAiService([fakeAi("Gemini", "primária", answer)]), {
+      ...input,
+      stopCount: 3,
+      exact: true,
+      lockedCount: 1,
+    });
+    expect(locked?.data.suggestedStops).toEqual([0, 2, 1]);
+  });
+
+  it("a sugestão só vale se os tempos reais disserem que ela é mais rápida", () => {
+    // Como no caso de atravessar o Tejo duas vezes: 25 min a mais.
+    expect(judgeSuggestion(7200, 7200 + 25 * 60)).toEqual({ faster: false, diffSeconds: 1500 });
+    expect(judgeSuggestion(7200, 7200 - 30)).toMatchObject({ faster: false }); // ganho desprezível
+    expect(judgeSuggestion(7200, 7200 - 8 * 60)).toEqual({ faster: true, diffSeconds: -480 });
   });
 
   it("aceitar trava cada parada na posição sugerida", () => {

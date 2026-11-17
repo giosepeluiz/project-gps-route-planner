@@ -56,7 +56,11 @@ A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de
 
 A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
 
-- **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, mostra a sugestão e a nova ordem; o botão **Aceitar sugestão** trava cada parada na posição sugerida (dá para destravar pelo cadeado). A ordem sugerida só aparece se for uma troca válida das paradas atuais, e o Resumo continua mostrando quanto a rota levaria sem as travas.
+- **Comenta a ordem final** em 2 a 3 frases. Se discordar, pode sugerir outra ordem, que nunca é aplicada sozinha:
+  - A IA só vê os nomes, não o mapa. Por isso a ordem sugerida é calculada com os mesmos tempos reais (tudo travado nela) e o botão **Aceitar sugestão** só aparece se ela for pelo menos 1 minuto mais rápida. Se for mais lenta, o Resumo diz quanto a mais ela levaria e mantém a atual.
+  - Com até 10 paradas e sem travas, a ordem do algoritmo é exata (a mais rápida possível): a IA é avisada disso e qualquer sugestão ou aviso de vai-e-volta é descartado.
+  - Rios e estuários (como o Tejo) só se atravessam por ponte ou túnel, com trânsito lento: a IA é instruída a agrupar as paradas de cada margem e nunca sugerir mais travessias do que a ordem atual.
+  - Aceitar trava cada parada na posição sugerida (dá para destravar pelo cadeado).
 - **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
 
 Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária ou Backup (com o ícone de IA), ou Local ("Algoritmo local (nenhuma IA respondeu)"). O nome do modelo não aparece na tela. As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.

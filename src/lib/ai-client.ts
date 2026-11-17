@@ -35,6 +35,7 @@ export function reviewRequestBody(
   roundTrip: boolean,
   lockedCount: number,
   stopCount?: number,
+  exact?: boolean,
 ) {
   return {
     labels: labels.map((label) => label.slice(0, 120)),
@@ -42,7 +43,20 @@ export function reviewRequestBody(
     roundTrip,
     lockedCount,
     ...(stopCount === undefined ? {} : { stopCount }),
+    ...(exact === undefined ? {} : { exact }),
   };
+}
+
+/** Diferença mínima para uma sugestão da IA contar como mais rápida (s). */
+export const SUGGESTION_MIN_GAIN_S = 60;
+
+/**
+ * Resultado da conferência da sugestão com os tempos reais: só vale aceitar
+ * quando ela é mais rápida que a ordem atual.
+ */
+export function judgeSuggestion(currentSeconds: number, suggestedSeconds: number) {
+  const diff = Math.round(suggestedSeconds - currentSeconds);
+  return { faster: diff <= -SUGGESTION_MIN_GAIN_S, diffSeconds: diff };
 }
 
 /**
