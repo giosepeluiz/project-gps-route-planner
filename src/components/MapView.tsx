@@ -45,6 +45,8 @@ interface MapViewProps {
   fitVersion: number;
   /** Abre a tela de configurações (botão junto do zoom). */
   onOpenSettings: () => void;
+  /** Abre o menu de ajuda (botão "?"), ancorado no botão. */
+  onOpenHelp: (button: HTMLButtonElement) => void;
   fallbackStyleUrl: string | null;
   /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
@@ -68,23 +70,39 @@ const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
-/** Botão de configurações no mesmo visual dos controles do MapLibre. */
-function createSettingsControl(onClick: () => void) {
+interface CtrlButton {
+  title: string;
+  label: string;
+  /** SVG do ícone (traço, herdando a cor do texto). */
+  icon: string;
+  /** Recebe o próprio botão, para ancorar um menu nele. */
+  onClick: (button: HTMLButtonElement) => void;
+  hasPopup?: boolean;
+}
+
+const GEAR_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>';
+const HELP_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.25"/><path d="M7.9 7.6a2.2 2.2 0 014.25.75c0 1.5-2.15 1.9-2.15 3.15"/><circle cx="10" cy="14.2" r=".35" fill="currentColor"/></svg>';
+
+/** Grupo de botões no mesmo visual dos controles do MapLibre (configurações e ajuda). */
+function createButtonsControl(buttons: CtrlButton[]) {
   let container: HTMLDivElement | null = null;
   return {
     onAdd() {
       container = document.createElement("div");
       container.className = "maplibregl-ctrl maplibregl-ctrl-group";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "rotas-ctrl-settings";
-      button.title = "Configurações";
-      button.setAttribute("aria-label", "Abrir as configurações");
-      // Engrenagem simples, em traço, herdando a cor do texto.
-      button.innerHTML =
-        '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>';
-      button.addEventListener("click", onClick);
-      container.append(button);
+      for (const spec of buttons) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "rotas-ctrl-button";
+        button.title = spec.title;
+        button.setAttribute("aria-label", spec.label);
+        if (spec.hasPopup) button.setAttribute("aria-haspopup", "menu");
+        button.innerHTML = spec.icon;
+        button.addEventListener("click", () => spec.onClick(button));
+        container.append(button);
+      }
       return container;
     },
     onRemove() {
@@ -111,6 +129,7 @@ export default function MapView({
   columnInsets,
   fitVersion,
   onOpenSettings,
+  onOpenHelp,
   fallbackStyleUrl,
   onMapClick,
   onMapContextMenu,
@@ -141,6 +160,7 @@ export default function MapView({
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
   const handleOpenSettings = useEffectEvent(() => onOpenSettings());
+  const handleOpenHelp = useEffectEvent((button: HTMLButtonElement) => onOpenHelp(button));
   const handleBounds = useEffectEvent((map: MapLibreMap) => {
     const b = map.getBounds();
     onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
@@ -240,7 +260,16 @@ export default function MapView({
     if (!map || !lib || styleVersion === 0) return;
 
     const media = window.matchMedia(DESKTOP_QUERY);
-    const settings = createSettingsControl(() => handleOpenSettings());
+    const settings = createButtonsControl([
+      { title: "Configurações", label: "Abrir as configurações", icon: GEAR_ICON, onClick: () => handleOpenSettings() },
+      {
+        title: "Ajuda",
+        label: "Ajuda e informações",
+        icon: HELP_ICON,
+        hasPopup: true,
+        onClick: (button) => handleOpenHelp(button),
+      },
+    ]);
     let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
     let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
     let settingsAdded = false;

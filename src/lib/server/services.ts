@@ -9,6 +9,7 @@ import {
   type MatrixProvider,
   type MatrixService,
 } from "./matrix";
+import { apiLimitPerMinute } from "./rate-limit";
 import { createResolver } from "./resolve";
 import {
   chainGeometry,
@@ -27,6 +28,35 @@ interface Services {
 }
 
 let services: Services | null = null;
+
+/** O que está ligado neste servidor, para a tela Sobre. Nunca inclui as chaves. */
+export interface ServiceStatus {
+  tomtom: boolean;
+  openRouteService: boolean;
+  osrmDemo: boolean;
+  gemini: { enabled: boolean; model: string };
+  groq: { enabled: boolean; model: string };
+  sharedCache: boolean;
+  mapFallback: boolean;
+  rateLimitPerMinute: number;
+}
+
+export const geminiModel = () => process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
+export const groqModel = () => process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
+
+export function serviceStatus(): ServiceStatus {
+  const has = (name: string) => !!process.env[name]?.trim();
+  return {
+    tomtom: has("TOMTOM_API_KEY"),
+    openRouteService: has("ORS_API_KEY"),
+    osrmDemo: process.env.NODE_ENV === "development",
+    gemini: { enabled: has("GEMINI_API_KEY"), model: geminiModel() },
+    groq: { enabled: has("GROQ_API_KEY"), model: groqModel() },
+    sharedCache: has("UPSTASH_REDIS_REST_URL") && has("UPSTASH_REDIS_REST_TOKEN"),
+    mapFallback: has("MAP_FALLBACK_STYLE_URL") || has("MAPTILER_KEY"),
+    rateLimitPerMinute: apiLimitPerMinute(),
+  };
+}
 
 export function getServices(): Services {
   if (services) return services;
@@ -57,12 +87,8 @@ export function getServices(): Services {
   const aiProviders: AiProvider[] = [];
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
   const groqKey = process.env.GROQ_API_KEY?.trim();
-  if (geminiKey) {
-    aiProviders.push(createGemini(geminiKey, process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite"));
-  }
-  if (groqKey) {
-    aiProviders.push(createGroq(groqKey, process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b"));
-  }
+  if (geminiKey) aiProviders.push(createGemini(geminiKey, geminiModel()));
+  if (groqKey) aiProviders.push(createGroq(groqKey, groqModel()));
 
   services = {
     cache,

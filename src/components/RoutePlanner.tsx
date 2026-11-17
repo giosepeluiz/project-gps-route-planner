@@ -6,6 +6,8 @@ import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
+import AboutDialog from "./AboutDialog";
+import HelpMenu from "./HelpMenu";
 import SettingsDialog from "./SettingsDialog";
 import StopList from "./StopList";
 import { useBlockDrag } from "./useBlockDrag";
@@ -187,6 +189,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [storedSettings, setStoredSettings] = useLocalStorageState<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
   const settings = useMemo(() => normalizeSettings(storedSettings), [storedSettings]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  /** Botão "?" com o menu aberto. */
+  const [helpAnchor, setHelpAnchor] = useState<HTMLButtonElement | null>(null);
   /** Sobe quando os blocos mudam de lugar ou de tamanho de texto: o mapa reenquadra a rota. */
   const [fitVersion, setFitVersion] = useState(0);
   const setSettings = (next: Settings) => {
@@ -967,6 +972,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         columnInsets={columnInsets}
         fitVersion={fitVersion}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenHelp={(button) => setHelpAnchor((current) => (current ? null : button))}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
         onMapClick={(lat, lng) => openInfo(lat, lng)}
@@ -1117,6 +1123,17 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         onClose={() => setSettingsOpen(false)}
         settings={settings}
         onChange={setSettings}
+      />
+
+      {helpAnchor && (
+        <HelpMenu anchor={helpAnchor} onAbout={() => setAboutOpen(true)} onClose={() => setHelpAnchor(null)} />
+      )}
+      <AboutDialog
+        open={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        settings={settings}
+        theme={theme}
+        onNotify={notify}
       />
 
       {toast && (
