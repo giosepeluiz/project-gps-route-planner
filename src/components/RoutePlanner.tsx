@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
@@ -31,7 +31,7 @@ import {
 } from "@/lib/ai-client";
 import { legColor } from "@/lib/leg-colors";
 import { cleanLocks, moveStop, removeFromLocks, toggleLock } from "@/lib/locks";
-import { MOCK_START, MOCK_TYPED_STOPS } from "@/lib/mock-data";
+import { EMPTY_ROUTE, fixedPlacesOf, isRouteState, normalizeRoute, ROUTE_KEY, type RouteState } from "@/lib/route-state";
 import { optimizeStops } from "@/lib/optimize";
 import {
   areaLabel,
@@ -59,7 +59,7 @@ import {
 } from "@/lib/settings";
 import { addStop, isApproximate, isDuplicate, MAX_STOPS } from "@/lib/stops";
 import { MESSAGES } from "@/lib/messages";
-import { MAX_DWELL_MINUTES, type LegTimeFn, type Place, type TimeMode } from "@/lib/types";
+import { MAX_DWELL_MINUTES, type LegTimeFn, type Place } from "@/lib/types";
 
 const BLOCKS_KEY = "rotas:blocos";
 /** Blocos abertos por padrão. */
@@ -93,56 +93,6 @@ function Sparkles() {
   );
 }
 
-/** Último estado da rota, salvo em localStorage. */
-interface RouteState {
-  start: Place;
-  endSame: boolean;
-  end: Place | null;
-  /** Paradas na ordem em que foram digitadas. A ordem exibida vem do solver. */
-  stops: Place[];
-  /** Locais travados: id → posição na visita (0 = primeira parada). */
-  locks?: Record<string, number>;
-  /** Paradas já concluídas (ids): riscadas na lista e com o trecho cinza no mapa. */
-  done?: string[];
-  timeMode: TimeMode;
-}
-
-const ROUTE_KEY = "rotas:rota:v2";
-const ROUTE_DEFAULT: RouteState = {
-  start: MOCK_START,
-  endSame: true,
-  end: null,
-  stops: MOCK_TYPED_STOPS,
-  timeMode: "depart",
-};
-
-const isPlace = (value: unknown): value is Place => {
-  const p = value as Partial<Place> | null;
-  return (
-    !!p &&
-    typeof p.id === "string" &&
-    typeof p.label === "string" &&
-    typeof p.lat === "number" &&
-    typeof p.lng === "number" &&
-    Math.abs(p.lat) <= 90 &&
-    Math.abs(p.lng) <= 180
-  );
-};
-
-function isRouteState(value: unknown): boolean {
-  const r = value as Partial<RouteState> | null;
-  return (
-    !!r &&
-    isPlace(r.start) &&
-    typeof r.endSame === "boolean" &&
-    (r.end === null || isPlace(r.end)) &&
-    Array.isArray(r.stops) &&
-    r.stops.length <= MAX_STOPS &&
-    r.stops.every(isPlace) &&
-    (r.timeMode === "depart" || r.timeMode === "arrive")
-  );
-}
-
 interface Toast {
   id: number;
   text: string;
@@ -167,10 +117,6 @@ function makePlace(draft: PlaceDraft): Place {
   return { ...draft, id: crypto.randomUUID(), dwellMinutes: 0 };
 }
 
-function fixedPlacesOf(route: RouteState): Place[] {
-  return !route.endSame && route.end ? [route.start, route.end] : [route.start];
-}
-
 function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-px text-2xs font-semibold text-ink-2">
@@ -180,7 +126,15 @@ function Badge({ children }: { children: React.ReactNode }) {
 }
 
 export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
-  const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
+  // Rota guardada. Sem nada guardado (ou só com o exemplo antigo), começa vazia;
+  // o que a pessoa preencher é salvo no localStorage.
+  const [storedRoute, setStoredRoute] = useLocalStorageState<RouteState>(ROUTE_KEY, EMPTY_ROUTE, isRouteState);
+  const route = useMemo(() => normalizeRoute(storedRoute), [storedRoute]);
+  const setRoute = useCallback(
+    (next: RouteState | ((previous: RouteState) => RouteState)) =>
+      setStoredRoute((previous) => (typeof next === "function" ? next(normalizeRoute(previous)) : next)),
+    [setStoredRoute],
+  );
   const { start, endSame, end, stops: typedStops, timeMode } = route;
   // Travas válidas para a lista atual (ignora restos de paradas removidas).
   const locks = useMemo(
@@ -253,16 +207,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setToast((previous) => ({ id: (previous?.id ?? 0) + 1, text, undoStopId }));
 
   const finalPlace = endSame ? start : end;
+  /** Sequência da visita: início, paradas e fim (o que já existir). */
+  const sequenceOf = useCallback(
+    (list: readonly Place[]): Place[] => [...(start ? [start] : []), ...list, ...(finalPlace ? [finalPlace] : [])],
+    [start, finalPlace],
+  );
 
   // Pedido ao servidor (matriz com trânsito + solver). Só muda quando a rota muda:
   // em "agora", o relógio andando NÃO dispara novas consultas (a cota é limitada).
+  // Sem início ainda não há rota para calcular.
   const requestBody = useMemo(
-    () => JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locks, mode: timeMode, dateTime })),
+    () =>
+      start
+        ? JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locks, mode: timeMode, dateTime }))
+        : null,
     [start, typedStops, end, endSame, locks, timeMode, dateTime],
   );
   const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
 
   useEffect(() => {
+    if (!requestBody) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void fetchPlan(requestBody, controller.signal).then((outcome) => {
@@ -276,13 +240,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [requestBody]);
 
   /** Resposta do servidor para a rota atual; null enquanto calcula ou se falhou. */
-  const outcome = remote?.body === requestBody ? remote.outcome : null;
+  const outcome = requestBody && remote?.body === requestBody ? remote.outcome : null;
   const serverPlan: PlanResponse | null = outcome?.kind === "ok" ? outcome.plan : null;
   const planStatus: "loading" | "ok" | "failed" | "no-route" =
     !outcome ? "loading" : outcome.kind === "ok" ? "ok" : outcome.kind;
 
   // Enquanto o servidor não responde (ou se falhar), vale a estimativa local por distância.
   const local = useMemo(() => {
+    if (!start) return { stops: [...typedStops], seconds: 0, typedSeconds: 0, exact: true, bestSeconds: 0 };
     const constrained = optimizeStops(start, typedStops, finalPlace, estimateLegTime, undefined, locks);
     // Com travas, a melhor ordem livre fica só para comparação.
     const bestSeconds =
@@ -304,7 +269,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const legTime = useMemo<LegTimeFn>(() => {
     if (!serverPlan) return estimateLegTime;
-    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const sequence = sequenceOf(stops);
     const known = new Map<string, number>();
     serverPlan.legSeconds.forEach((seconds, i) => {
       if (sequence[i + 1]) known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds);
@@ -315,7 +280,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         ? estimateLegTime(from, to)
         : { seconds, estimated: serverPlan.source.estimated };
     };
-  }, [serverPlan, start, stops, finalPlace]);
+  }, [sequenceOf, serverPlan, stops]);
 
   const typedSeconds = serverPlan?.typedSeconds ?? local.typedSeconds;
   const orderExact = serverPlan?.exact ?? local.exact;
@@ -328,11 +293,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const plan = useMemo(() => {
     // Sem caminho de carro, não há tempos para mostrar.
-    if (planStatus === "no-route") return null;
+    // Sem início ainda não há rota; sem caminho de carro, não há tempos para mostrar.
+    if (!start || planStatus === "no-route") return null;
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
-    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const sequence = sequenceOf(stops);
     return computePlan(sequence, timeMode, anchor, legTime);
-  }, [anchor, start, stops, finalPlace, timeMode, legTime, planStatus]);
+  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus]);
 
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (newPlace: Place): string | null => {
@@ -370,7 +336,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // reconhecer na lista, no Resumo e no comentário da IA. Uma tentativa por local.
   const zoneTried = useRef(new Set<string>());
   useEffect(() => {
-    const places = [route.start, ...route.stops, ...(route.end ? [route.end] : [])];
+    const places = [route.start, ...route.stops, route.end].filter((p): p is Place => p !== null);
     for (const place of places) {
       if (zoneTried.current.has(place.id) || !isCoordinateLabel(place)) continue;
       zoneTried.current.add(place.id);
@@ -381,7 +347,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         const rename = (p: Place) => (p.id === place.id && p.label === original ? { ...p, label: zone } : p);
         setRoute((prev) => ({
           ...prev,
-          start: rename(prev.start),
+          start: prev.start ? rename(prev.start) : prev.start,
           end: prev.end ? rename(prev.end) : prev.end,
           stops: prev.stops.map(rename),
         }));
@@ -528,8 +494,11 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const handleLegClick = (leg: number, lat: number, lng: number) => setInfo({ lat, lng, leg, address: null });
 
+  /** Todos os locais da rota: início, paradas e fim. */
+  const routePlaces = [start, ...stops, end].filter((p): p is Place => p !== null);
+
   const handlePointClick = (id: string) => {
-    const place = [start, ...stops, ...(end ? [end] : [])].find((p) => p.id === id);
+    const place = routePlaces.find((p) => p.id === id);
     if (place) openInfo(place.lat, place.lng, place.id);
   };
 
@@ -544,14 +513,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
 
   const infoPlace = info?.placeId
-    ? [start, ...stops, ...(end ? [end] : [])].find((p) => p.id === info.placeId)
+    ? routePlaces.find((p) => p.id === info.placeId)
     : undefined;
   const infoIsStop = !!infoPlace && stops.some((s) => s.id === infoPlace.id);
 
   // Pins e linha do mapa.
   const points = useMemo<MapPoint[]>(() => {
     const list: MapPoint[] = [
-      { id: start.id, lat: start.lat, lng: start.lng, kind: "start", badge: "A", title: start.label },
+      ...(start
+        ? [{ id: start.id, lat: start.lat, lng: start.lng, kind: "start" as const, badge: "A", title: start.label }]
+        : []),
       ...stops.map<MapPoint>((s, i) => ({
         id: s.id,
         lat: s.lat,
@@ -569,9 +540,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // Linha azul: retas entre os pontos. Linha verde: a rota pelas ruas, quando o provedor devolve.
   const path = useMemo<[number, number][]>(() => {
-    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const sequence = sequenceOf(stops);
     return sequence.map((p) => [p.lng, p.lat]);
-  }, [start, stops, finalPlace]);
+  }, [sequenceOf, stops]);
   const streetLegs = useMemo(
     () => serverPlan?.streetLegs?.map((leg) => leg.coordinates) ?? null,
     [serverPlan],
@@ -581,7 +552,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const legDetails = (() => {
     if (info?.leg === undefined) return null;
     const street = serverPlan?.streetLegs?.[info.leg];
-    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    const sequence = sequenceOf(stops);
     const from = sequence[info.leg];
     const to = sequence[info.leg + 1];
     if (!street || !from || !to) return null;
@@ -611,8 +582,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Comentário da IA sobre a ordem final. Só rótulos e minutos saem daqui, e só
   // quando o plano muda. Sem IA (ou com menos de 2 paradas) fica o algoritmo local.
   const reviewBody = useMemo(() => {
-    if (!serverPlan || stops.length < 2) return null;
-    const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
+    if (!start || !serverPlan || stops.length < 2) return null;
+    const sequence = sequenceOf(stops);
     if (serverPlan.legSeconds.length !== sequence.length - 1) return null;
     return JSON.stringify(
       reviewRequestBody(
@@ -625,7 +596,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         locale,
       ),
     );
-  }, [serverPlan, start, stops, finalPlace, endSame, lockCount, locale]);
+  }, [sequenceOf, serverPlan, start, stops, endSame, lockCount, locale]);
   const [aiRemote, setAiRemote] = useState<{ body: string; outcome: ReviewOutcome } | null>(null);
 
   useEffect(() => {
@@ -656,7 +627,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   );
   const checkBody = useMemo(
     () =>
-      suggestionLocks
+      suggestionLocks && start
         ? JSON.stringify(
             planRequestBody({ start, stops: typedStops, end, endSame, locks: suggestionLocks, mode: timeMode, dateTime }),
           )
@@ -679,7 +650,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Aviso de rota impossível (ex.: locais separados pelo mar).
   const noRouteMessage = (() => {
     if (outcome?.kind !== "no-route") return null;
-    const all = [start, ...typedStops, ...(end ? [end] : [])];
+    const all = [start, ...typedStops, end].filter((p): p is Place => p !== null);
     const from = all.find((p) => p.id === outcome.fromId);
     const to = all.find((p) => p.id === outcome.toId);
     return t.stops.noRoute(from && to ? from.label : null, from && to ? to.label : null);
@@ -699,12 +670,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Textos de resumo. O total inclui a permanência nas paradas.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
   const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
-  const handleSummary = `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`;
-  const startEndSummary = endSame
-    ? t.startEnd.roundTrip(start.label)
-    : end
-      ? t.startEnd.toEnd(start.label, end.label)
-      : t.startEnd.endsAtLastStop(start.label);
+  const handleSummary = start
+    ? `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`
+    : t.empty.handle;
+  const startEndSummary = !start
+    ? t.empty.startSummary
+    : endSame
+      ? t.startEnd.roundTrip(start.label)
+      : end
+        ? t.startEnd.toEnd(start.label, end.label)
+        : t.startEnd.endsAtLastStop(start.label);
   const dwellTotal = plan?.dwellSeconds ?? 0;
   // A ordem só muda o tempo dirigindo; a permanência é a mesma em qualquer ordem.
   const savedMinutes = plan ? Math.round((typedSeconds - plan.driveSeconds) / 60) : 0;
@@ -724,7 +699,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             <div className="flex flex-col gap-3">
               <PlaceField
                 label={t.startEnd.start}
-                value={start.label}
+                value={start?.label ?? ""}
                 placeholder={t.startEnd.placeholder}
                 onSubmit={(text) => submitFixed(text, "start")}
                 suggest={suggestAddresses}
@@ -883,6 +858,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             onToggle={() => toggle("acoes")}
             {...options}
           >
+            {!start ? (
+              <p className="text-sm text-muted">{t.empty.actions}</p>
+            ) : (
             <ActionsPanel
               start={start}
               stops={stops}
@@ -893,6 +871,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               isMobile={!isDesktop}
               onNotify={notify}
             />
+            )}
           </CollapsibleCard>
     ),
     resumo: (options) => (
@@ -904,6 +883,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             onToggle={() => toggle("resumo")}
             {...options}
           >
+            {!start ? (
+              <p className="text-sm text-muted">{t.empty.summary}</p>
+            ) : (
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex items-end justify-between gap-3">
                 <div>
@@ -1049,6 +1031,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 )}
               </div>
             </div>
+            )}
           </CollapsibleCard>
     ),
   };
@@ -1157,7 +1140,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             role={
               !infoPlace
                 ? undefined
-                : infoPlace.id === start.id
+                : infoPlace.id === start?.id
                   ? t.popup.roleStart
                   : infoIsStop
                     ? t.popup.roleStop(stops.findIndex((s) => s.id === infoPlace.id) + 1)
@@ -1199,7 +1182,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     {
                       badge: "A",
                       title: t.popup.setStart,
-                      description: t.popup.replaces(start.label),
+                      description: start ? t.popup.replaces(start.label) : t.popup.startDesc,
                       onClick: () => {
                         const problem = setFixed("start", placeFromInfo(info));
                         if (problem) notify(problem);

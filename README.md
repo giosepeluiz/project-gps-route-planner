@@ -7,12 +7,12 @@
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
 [![Versão](https://img.shields.io/badge/versão-0.1.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
-[![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://project-gps-route-planner.vercel.app)
+[![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Licença MIT](https://img.shields.io/badge/licença-MIT-6ccb5f?style=for-the-badge)](LICENSE)
 
-**[🌐 Acessar](https://project-gps-route-planner.vercel.app)** · **[📖 Como usar](#-como-usar-passo-a-passo)** · **[⚙️ Como funciona](#️-como-funciona-por-dentro)** · **[🛠️ Desenvolvedores](#️-para-desenvolvedores)** · **[🤝 Contribuir](#-código-aberto-contribua)**
+**[🌐 Acessar](https://rotas.arqueirover.de)** · **[📖 Como usar](#-como-usar-passo-a-passo)** · **[⚙️ Como funciona](#️-como-funciona-por-dentro)** · **[🛠️ Desenvolvedores](#️-para-desenvolvedores)** · **[🤝 Contribuir](#-código-aberto-contribua)**
 
 <img src="docs/screenshots/01-principal.png" width="860" alt="Tela principal: rota de exemplo em Lisboa, com os trechos coloridos pelas ruas, a lista de paradas e o Resumo">
 
@@ -51,7 +51,7 @@ O **Planejador de rotas** nasceu para responder isso de um jeito direto: você c
 
 ## 🌐 Acesse
 
-O app roda no navegador, sem instalar nada: **[project-gps-route-planner.vercel.app](https://project-gps-route-planner.vercel.app)**.
+O app roda no navegador, sem instalar nada: **[rotas.arqueirover.de](https://rotas.arqueirover.de)**.
 
 No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adicionar à Tela de Início** (Safari): ele abre em tela cheia, com o próprio ícone. Os blocos ficam numa gaveta embaixo; toque nela para abrir.
 
@@ -60,7 +60,7 @@ No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adi
 </p>
 
 > [!NOTE]
-> A rota e as preferências ficam **só no seu navegador**. Nada é salvo num servidor, e uma rota montada no computador não aparece no celular.
+> Na primeira visita o app abre **vazio**, sem rota de exemplo. A rota e as preferências ficam **só no seu navegador**: o que você preencher volta na próxima visita. Nada é salvo num servidor, e uma rota montada no computador não aparece no celular.
 
 ## 📖 Como usar, passo a passo
 

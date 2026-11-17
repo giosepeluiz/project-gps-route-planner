@@ -5,6 +5,7 @@ import { dropTarget, freeRect, placeBlock, sheetOrder } from "./block-layout";
 import { LOCALES, resolveLocale } from "./i18n";
 import { overlayPadding } from "./map-padding";
 import { MESSAGES } from "./messages";
+import { EMPTY_ROUTE, fixedPlacesOf, isRouteState, isUntouchedExample, normalizeRoute } from "./route-state";
 import { computePlan } from "./plan";
 import {
   BLOCK_IDS,
@@ -164,6 +165,36 @@ describe("enquadramento da rota com os blocos", () => {
       { left: 2100, top: 0, right: 2400, bottom: 300 },
     ]);
     expect(pad).toEqual({ top: 48, left: 48, right: 48, bottom: 840 - 700 + 32 });
+  });
+});
+
+describe("rota guardada", () => {
+  const place = (id: string, label: string) => ({ id, label, lat: 38.7, lng: -9.1, source: "address" as const, confidence: 1, dwellMinutes: 0 });
+
+  it("a primeira visita começa vazia, sem rota de exemplo", () => {
+    expect(EMPTY_ROUTE).toMatchObject({ start: null, end: null, stops: [], endSame: true });
+    expect(isRouteState(EMPTY_ROUTE)).toBe(true);
+  });
+
+  it("quem ficou só com a rota de exemplo antiga salva também começa vazio", () => {
+    const example = { start: P.B, endSame: true, end: null, stops: [P.Be, P.PN, P.CC], timeMode: "depart" as const };
+    expect(isUntouchedExample(example)).toBe(true);
+    expect(normalizeRoute(example)).toEqual(EMPTY_ROUTE);
+  });
+
+  it("o que a pessoa preencheu é mantido, mesmo misturado com o exemplo", () => {
+    const own = { ...EMPTY_ROUTE, start: place("6f1c-uuid", "Casa"), stops: [place("a1b2-uuid", "Mercado")] };
+    expect(normalizeRoute(own)).toBe(own);
+    const mixed = { ...EMPTY_ROUTE, start: P.B, stops: [P.Be, place("a1b2-uuid", "Mercado")] };
+    expect(normalizeRoute(mixed)).toBe(mixed);
+  });
+
+  it("início e fim contam como já estando na rota", () => {
+    const start = place("s", "Casa");
+    const end = place("e", "Trabalho");
+    expect(fixedPlacesOf({ ...EMPTY_ROUTE, start, end, endSame: false })).toEqual([start, end]);
+    expect(fixedPlacesOf({ ...EMPTY_ROUTE, start, end, endSame: true })).toEqual([start]);
+    expect(fixedPlacesOf(EMPTY_ROUTE)).toEqual([]);
   });
 });
 

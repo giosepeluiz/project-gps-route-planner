@@ -11,6 +11,14 @@ const enGB: Messages = {
     closePanel: "Collapse panel",
   },
 
+  empty: {
+    handle: "Set the route's starting point",
+    startSummary: "Set the starting point",
+    summary:
+      "Set the start and add stops to see the total time, the best order and the times. You can type an address, paste coordinates or a link, or click the map.",
+    actions: "Set the start and at least one stop to open the route in another app.",
+  },
+
   common: {
     stops: (n) => (n === 1 ? "1 stop" : `${n} stops`),
     close: "Close",
@@ -162,6 +170,7 @@ const enGB: Messages = {
     setStart: "Set as start",
     setEnd: "Set as end",
     replaces: (label) => `Replaces ${label}`,
+    startDesc: "Where the route begins",
     endDesc: "The route no longer returns to the start",
     removeStop: "Remove stop",
   },

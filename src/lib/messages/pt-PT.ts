@@ -11,6 +11,14 @@ const ptPT: Messages = {
     closePanel: "Recolher painel",
   },
 
+  empty: {
+    handle: "Defina o início da rota",
+    startSummary: "Defina o ponto de partida",
+    summary:
+      "Defina o início e adicione paragens para ver o tempo total, a melhor ordem e os horários. Pode escrever uma morada, colar coordenadas ou um link, ou clicar no mapa.",
+    actions: "Defina o início e pelo menos uma paragem para abrir a rota noutra aplicação.",
+  },
+
   common: {
     stops: (n) => (n === 1 ? "1 paragem" : `${n} paragens`),
     close: "Fechar",
@@ -162,6 +170,7 @@ const ptPT: Messages = {
     setStart: "Definir como início",
     setEnd: "Definir como fim",
     replaces: (label) => `Substitui ${label}`,
+    startDesc: "Ponto de partida da rota",
     endDesc: "A rota deixa de voltar ao início",
     removeStop: "Remover paragem",
   },

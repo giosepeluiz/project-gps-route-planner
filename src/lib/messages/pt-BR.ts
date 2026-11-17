@@ -13,6 +13,15 @@ const ptBR = {
     closePanel: "Recolher painel",
   },
 
+  /** Primeira visita, antes de definir o início. */
+  empty: {
+    handle: "Defina o início da rota",
+    startSummary: "Defina o ponto de partida",
+    summary:
+      "Defina o início e adicione paradas para ver o tempo total, a melhor ordem e os horários. Dá para digitar um endereço, colar coordenadas ou um link, ou clicar no mapa.",
+    actions: "Defina o início e ao menos uma parada para abrir a rota em outro aplicativo.",
+  },
+
   common: {
     stops: (n: number): string => (n === 1 ? "1 parada" : `${n} paradas`),
     close: "Fechar",
@@ -167,6 +176,7 @@ const ptBR = {
     setStart: "Definir como início",
     setEnd: "Definir como fim",
     replaces: (label: string) => `Substitui ${label}`,
+    startDesc: "Ponto de partida da rota",
     endDesc: "A rota deixa de voltar ao início",
     removeStop: "Remover parada",
   },

@@ -11,6 +11,14 @@ const esES: Messages = {
     closePanel: "Recoger panel",
   },
 
+  empty: {
+    handle: "Fija el inicio de la ruta",
+    startSummary: "Fija el punto de partida",
+    summary:
+      "Fija el inicio y añade paradas para ver el tiempo total, el mejor orden y los horarios. Puedes escribir una dirección, pegar coordenadas o un enlace, o hacer clic en el mapa.",
+    actions: "Fija el inicio y al menos una parada para abrir la ruta en otra aplicación.",
+  },
+
   common: {
     stops: (n) => (n === 1 ? "1 parada" : `${n} paradas`),
     close: "Cerrar",
@@ -162,6 +170,7 @@ const esES: Messages = {
     setStart: "Fijar como inicio",
     setEnd: "Fijar como fin",
     replaces: (label) => `Sustituye a ${label}`,
+    startDesc: "Donde empieza la ruta",
     endDesc: "La ruta deja de volver al inicio",
     removeStop: "Quitar parada",
   },
