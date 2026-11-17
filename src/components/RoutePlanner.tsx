@@ -878,7 +878,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           <CollapsibleCard
             id="bloco-resumo"
             title={t.blocks.summary}
-            summary={`${totalText} · ${t.summary.arrivesAt(arriveText)}`}
+            summary={start ? `${totalText} · ${t.summary.arrivesAt(arriveText)}` : t.empty.handle}
             open={isOpen("resumo")}
             onToggle={() => toggle("resumo")}
             {...options}
