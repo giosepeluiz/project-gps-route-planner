@@ -88,7 +88,10 @@ const ptPT: Messages = {
 
   dwell: {
     none: "Nenhum",
-    other: "Outro valor",
+    other: "Outro…",
+    custom: "Tempo personalizado",
+    hours: "Horas",
+    minutesLabel: "Minutos",
     minutes: "min",
   },
 
@@ -98,6 +101,8 @@ const ptPT: Messages = {
   },
 
   summary: {
+    distance: "Distância total",
+    moreInfo: "Mais informações sobre o cálculo",
     totalRoundTrip: "Tempo total, ida e volta",
     total: "Tempo total",
     split: (drive, dwell) => `${drive} a conduzir + ${dwell} nas paragens`,
@@ -200,6 +205,60 @@ const ptPT: Messages = {
     back: "Regresso:",
     googleMaps: "Google Maps",
     part: (i, n) => `parte ${i} de ${n}`,
+  },
+
+  gps: {
+    use: "Usar a minha localização (GPS)",
+    locating: "A obter a localização…",
+    denied: "A localização foi bloqueada. Permita o acesso nas definições do navegador.",
+    failed: "Não foi possível obter a localização. Tente novamente ao ar livre.",
+    unsupported: "Este navegador não disponibiliza localização.",
+    here: "Está aqui",
+  },
+
+  trip: {
+    start: "Iniciar viagem",
+    pause: "Pausar viagem",
+    resume: "Retomar viagem",
+    end: "Terminar",
+    close: "Fechar",
+    running: "Viagem em curso",
+    paused: "Viagem em pausa",
+    arrived: (label: string) => `Chegou a ${label}`,
+    arrivedHint: "Ao retomar, esta paragem fica concluída e o acompanhamento segue para a próxima.",
+    finished: "Viagem concluída",
+    next: "Próxima",
+    eta: (time: string, duration: string, km: string) => `chega ${time} · ${duration} · ${km}`,
+    endEta: (time: string) => `Fim da rota previsto para as ${time}`,
+    waitingGps: "À espera do GPS…",
+    updating: "A atualizar a rota a partir da sua posição…",
+    gpsLost: "O GPS deixou de responder. A viagem foi posta em pausa.",
+    nothingLeft: "Não há paragens pendentes para acompanhar.",
+    warningTitle: "Antes de começar",
+    warningLead: "O planeador de rotas não é um GPS de navegação e não dá indicações de condução.",
+    warningBody:
+      "Por segurança, usabilidade e tranquilidade, conduza com o seu serviço de navegação preferido (Google Maps, Waze, Apple Mapas…). Aqui acompanha as paragens e os horários, que vão sendo atualizados pela sua posição.",
+    warningSafety: "Não mexa no telemóvel enquanto conduz.",
+    aware: "Ciente",
+  },
+
+  tour: {
+    skip: "Saltar tutorial",
+    next: "Seguinte",
+    done: "Concluir",
+    step: (i: number, n: number) => `${i} de ${n}`,
+    start:
+      "Comece pelo ponto de partida: escreva uma morada, cole coordenadas ou um link, ou toque no alvo para usar o GPS.",
+    stops:
+      "Adicione as paragens aqui ou com clique direito (toque longo) no mapa. A melhor ordem é calculada automaticamente; pode bloquear, concluir e definir o tempo em cada uma.",
+    summary:
+      "O Resumo mostra o tempo total, a distância, os horários e o comentário da IA. Daqui também inicia a viagem.",
+    actions: "Abra a rota no Google Maps, navegue até à próxima paragem na sua aplicação preferida ou partilhe.",
+    settings:
+      "Definições e Sobre: idioma, tema, tamanho do texto e permanência predefinida. Os blocos podem ser arrastados pelo título.",
+    help: "Ajuda",
+    restart: "Ver o tutorial novamente",
+    restartHint: "Dicas rápidas sobre cada parte do ecrã.",
   },
 
   map: {

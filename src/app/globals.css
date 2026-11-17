@@ -143,6 +143,32 @@ body {
   background: #1c1b19;
 }
 
+/* Posição atual (GPS) durante a viagem: ponto azul com um halo pulsando. */
+.pin-me {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 3px solid #ffffff;
+  background: #1a73e8;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  animation: pin-me-pulse 2s ease-out infinite;
+}
+
+@keyframes pin-me-pulse {
+  0% {
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 0 rgb(26 115 232 / 0.45);
+  }
+  100% {
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 16px rgb(26 115 232 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pin-me {
+    animation: none;
+  }
+}
+
 .pin:focus-visible {
   outline: 3px solid #f59e0b;
   outline-offset: 2px;

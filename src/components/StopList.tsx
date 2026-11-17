@@ -209,6 +209,7 @@ export default function StopList({
                 <DwellPicker
                   label={t.stops.dwellGroup(stop.label)}
                   value={dwellMin}
+                  autoFocus
                   onChange={(minutes) => onDwellChange(stop.id, minutes)}
                 />
               </div>

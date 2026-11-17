@@ -40,36 +40,64 @@ function External() {
   );
 }
 
-/** Ícone de cada app, nas cores da marca, só para reconhecer à primeira vista. */
+/**
+ * Ícone de cada app no formato de ícone de aplicativo (quadrado arredondado),
+ * todos do mesmo tamanho, só para reconhecer à primeira vista.
+ */
 function AppIcon({ id }: { id: NavigationApp["id"] }) {
+  const tile = "h-8 w-8 rounded-[9px] shadow-[0_1px_2px_rgb(0_0_0/0.18)]";
   if (id === "google") {
     return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
-        <path d="M12 2.5a6.5 6.5 0 00-6.5 6.5c0 4.8 6.5 12.5 6.5 12.5s6.5-7.7 6.5-12.5A6.5 6.5 0 0012 2.5z" fill="#ea4335" />
-        <path d="M5.9 6.9A6.5 6.5 0 0012 2.5v4a2.5 2.5 0 00-2.4 1.6z" fill="#4285f4" />
-        <path d="M5.5 9c0 1.6.7 3.4 1.7 5.2l3.4-4a2.5 2.5 0 01-1-2.1l-3.7-1.2A6.5 6.5 0 005.5 9z" fill="#fbbc04" />
-        <path d="M7.2 14.2c1.9 3.4 4.8 7.3 4.8 7.3V11.5a2.5 2.5 0 01-1.4-.4z" fill="#34a853" />
-        <circle cx="12" cy="9" r="2.5" fill="#fff" />
+      <svg aria-hidden="true" viewBox="0 0 32 32" className={tile}>
+        <defs>
+          <clipPath id="pino-google">
+            <path d="M16 5.5c-4.4 0-7.8 3.4-7.8 7.7 0 5.8 7.8 13.3 7.8 13.3s7.8-7.5 7.8-13.3c0-4.3-3.4-7.7-7.8-7.7z" />
+          </clipPath>
+        </defs>
+        <rect width="32" height="32" rx="9" fill="#ffffff" />
+        <rect x=".5" y=".5" width="31" height="31" rx="8.5" fill="none" stroke="#dadce0" />
+        <g clipPath="url(#pino-google)">
+          <rect x="0" y="0" width="16" height="13" fill="#1a73e8" />
+          <rect x="16" y="0" width="16" height="13" fill="#ea4335" />
+          <rect x="0" y="13" width="16" height="19" fill="#fbbc04" />
+          <rect x="16" y="13" width="16" height="19" fill="#34a853" />
+        </g>
+        <circle cx="16" cy="13.2" r="2.9" fill="#ffffff" />
       </svg>
     );
   }
   if (id === "waze") {
     return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
-        <path d="M12 3c-5 0-8.5 3.4-8.5 7.7 0 1.6.5 3 1.3 4.1-.2 1-.8 1.8-1.6 2.3 1.6.4 3 .1 4.2-.6 1.4.8 3 1.2 4.6 1.2 5 0 8.5-3.4 8.5-7.6S17 3 12 3z" fill="#33ccff" stroke="#1b1a18" strokeWidth="1.2" />
-        <circle cx="9.3" cy="9.6" r="1" fill="#1b1a18" />
-        <circle cx="14.7" cy="9.6" r="1" fill="#1b1a18" />
-        <path d="M9 12.6c1.6 1.6 4.4 1.6 6 0" fill="none" stroke="#1b1a18" strokeWidth="1.2" strokeLinecap="round" />
-        <circle cx="8" cy="19.6" r="1.6" fill="#1b1a18" />
-        <circle cx="15.5" cy="19.6" r="1.6" fill="#1b1a18" />
+      <svg aria-hidden="true" viewBox="0 0 32 32" className={tile}>
+        <rect width="32" height="32" rx="9" fill="#33ccff" />
+        <path
+          d="M16.5 7c-5.2 0-9 3.4-9 7.7 0 1.6.5 3 1.4 4.2-.3 1.1-.9 1.9-1.8 2.4 1.7.4 3.2.1 4.4-.7 1.5.9 3.2 1.3 5 1.3 5.2 0 9-3.4 9-7.5S21.7 7 16.5 7z"
+          fill="#ffffff"
+          stroke="#0b2a3c"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <circle cx="13.6" cy="13.2" r="1.1" fill="#0b2a3c" />
+        <circle cx="19.2" cy="13.2" r="1.1" fill="#0b2a3c" />
+        <path d="M13.2 16.4c1.7 1.6 4.6 1.6 6.3 0" fill="none" stroke="#0b2a3c" strokeWidth="1.3" strokeLinecap="round" />
+        <circle cx="12.4" cy="24.4" r="1.9" fill="#0b2a3c" />
+        <circle cx="20.6" cy="24.4" r="1.9" fill="#0b2a3c" />
       </svg>
     );
   }
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
-      <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="#e7f0e3" stroke="#c9d6c3" />
-      <path d="M2.5 14.5l9-4 10 5" fill="none" stroke="#f5c542" strokeWidth="2" />
-      <path d="M12 6.5l4.5 10.5-4.5-2.4-4.5 2.4z" fill="#0a84ff" />
+    <svg aria-hidden="true" viewBox="0 0 32 32" className={tile}>
+      <defs>
+        <linearGradient id="fundo-apple" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#f6f6f2" />
+          <stop offset="1" stopColor="#dcebd6" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#fundo-apple)" />
+      <path d="M-1 21.5L33 11" stroke="#ffffff" strokeWidth="3.2" />
+      <path d="M11 -1l6 34" stroke="#f7c948" strokeWidth="2.2" />
+      <circle cx="16" cy="16" r="7.2" fill="#0a84ff" stroke="#ffffff" strokeWidth="1.6" />
+      <path d="M16 11.6l3.4 8.2-3.4-1.9-3.4 1.9z" fill="#ffffff" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -159,7 +187,7 @@ export default function ActionsPanel({
                 rel="noopener noreferrer"
                 title={t.actions.navigateWith(app.name)}
                 aria-label={t.actions.navigateTo(next.label, app.name)}
-                className="focus-ring grid h-9 w-9 place-items-center rounded-lg transition-colors duration-150 hover:bg-hover motion-reduce:transition-none"
+                className="focus-ring grid h-10 w-10 place-items-center rounded-xl transition-[background-color,transform] duration-150 hover:bg-hover active:scale-95 motion-reduce:transition-none"
               >
                 <AppIcon id={app.id} />
               </a>

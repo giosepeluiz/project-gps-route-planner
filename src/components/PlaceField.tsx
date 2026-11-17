@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT } from "./I18nProvider";
 import type { AddressSuggestion } from "@/lib/place-input";
 
@@ -18,6 +18,8 @@ interface PlaceFieldProps {
   suggest?: (text: string, signal: AbortSignal) => Promise<AddressSuggestion[]>;
   /** Escolha de uma sugestão. Devolve uma mensagem de erro ou null se deu certo. */
   onPick?: (suggestion: AddressSuggestion) => Promise<string | null> | string | null;
+  /** Botão extra ao lado do campo (ex.: usar a localização do GPS). */
+  trailing?: ReactNode;
 }
 
 /** Espera a pessoa parar de digitar antes de pedir sugestões (poupa a cota). */
@@ -35,6 +37,7 @@ export default function PlaceField({
   onSubmit,
   suggest,
   onPick,
+  trailing,
 }: PlaceFieldProps) {
   const t = useT();
   const inputId = useId();
@@ -175,6 +178,7 @@ export default function PlaceField({
             +
           </button>
         )}
+        {trailing}
       </div>
 
       {/* A lista fica no fluxo (não flutuante) para não ser cortada pelo cartão do bloco. */}

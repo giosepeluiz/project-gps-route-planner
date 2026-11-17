@@ -88,7 +88,10 @@ const esES: Messages = {
 
   dwell: {
     none: "Ninguno",
-    other: "Otro valor",
+    other: "Otro…",
+    custom: "Tiempo personalizado",
+    hours: "Horas",
+    minutesLabel: "Minutos",
     minutes: "min",
   },
 
@@ -98,6 +101,8 @@ const esES: Messages = {
   },
 
   summary: {
+    distance: "Distancia total",
+    moreInfo: "Más información sobre el cálculo",
     totalRoundTrip: "Tiempo total, ida y vuelta",
     total: "Tiempo total",
     split: (drive, dwell) => `${drive} conduciendo + ${dwell} en las paradas`,
@@ -200,6 +205,60 @@ const esES: Messages = {
     back: "Vuelta:",
     googleMaps: "Google Maps",
     part: (i, n) => `parte ${i} de ${n}`,
+  },
+
+  gps: {
+    use: "Usar mi ubicación (GPS)",
+    locating: "Obteniendo la ubicación…",
+    denied: "La ubicación está bloqueada. Permite el acceso en los ajustes del navegador.",
+    failed: "No se pudo obtener la ubicación. Inténtalo de nuevo al aire libre.",
+    unsupported: "Este navegador no ofrece ubicación.",
+    here: "Estás aquí",
+  },
+
+  trip: {
+    start: "Iniciar viaje",
+    pause: "Pausar viaje",
+    resume: "Reanudar viaje",
+    end: "Terminar",
+    close: "Cerrar",
+    running: "Viaje en curso",
+    paused: "Viaje en pausa",
+    arrived: (label: string) => `Has llegado a ${label}`,
+    arrivedHint: "Al reanudar, esta parada queda completada y el seguimiento pasa a la siguiente.",
+    finished: "Viaje completado",
+    next: "Siguiente",
+    eta: (time: string, duration: string, km: string) => `llega ${time} · ${duration} · ${km}`,
+    endEta: (time: string) => `Fin de la ruta previsto a las ${time}`,
+    waitingGps: "Esperando al GPS…",
+    updating: "Actualizando la ruta desde tu posición…",
+    gpsLost: "El GPS dejó de responder. El viaje se ha pausado.",
+    nothingLeft: "No hay paradas pendientes que seguir.",
+    warningTitle: "Antes de empezar",
+    warningLead: "El planificador de rutas no es un GPS de navegación y no da indicaciones de conducción.",
+    warningBody:
+      "Por seguridad, comodidad y tranquilidad, conduce con tu servicio de navegación preferido (Google Maps, Waze, Apple Mapas…). Aquí sigues las paradas y los horarios, que se actualizan con tu posición.",
+    warningSafety: "No uses el móvil mientras conduces.",
+    aware: "Entendido",
+  },
+
+  tour: {
+    skip: "Saltar tutorial",
+    next: "Siguiente",
+    done: "Terminar",
+    step: (i: number, n: number) => `${i} de ${n}`,
+    start:
+      "Empieza por el punto de partida: escribe una dirección, pega coordenadas o un enlace, o toca la diana para usar el GPS.",
+    stops:
+      "Añade las paradas aquí o con clic derecho (pulsación larga) en el mapa. El mejor orden se calcula solo; puedes bloquear, completar y fijar el tiempo de cada una.",
+    summary:
+      "El Resumen muestra el tiempo total, la distancia, los horarios y el comentario de la IA. Desde aquí también inicias el viaje.",
+    actions: "Abre la ruta en Google Maps, navega hasta la siguiente parada con tu app favorita o compártela.",
+    settings:
+      "Ajustes y Acerca de: idioma, tema, tamaño del texto y permanencia por defecto. Los bloques se pueden arrastrar por el título.",
+    help: "Ayuda",
+    restart: "Ver el tutorial otra vez",
+    restartHint: "Consejos rápidos sobre cada parte de la pantalla.",
   },
 
   map: {

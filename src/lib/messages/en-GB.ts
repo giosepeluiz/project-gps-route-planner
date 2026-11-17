@@ -88,7 +88,10 @@ const enGB: Messages = {
 
   dwell: {
     none: "None",
-    other: "Other",
+    other: "Other…",
+    custom: "Custom time",
+    hours: "Hours",
+    minutesLabel: "Minutes",
     minutes: "min",
   },
 
@@ -98,6 +101,8 @@ const enGB: Messages = {
   },
 
   summary: {
+    distance: "Total distance",
+    moreInfo: "More about this calculation",
     totalRoundTrip: "Total time, round trip",
     total: "Total time",
     split: (drive, dwell) => `${drive} driving + ${dwell} at stops`,
@@ -200,6 +205,60 @@ const enGB: Messages = {
     back: "Return:",
     googleMaps: "Google Maps",
     part: (i, n) => `part ${i} of ${n}`,
+  },
+
+  gps: {
+    use: "Use my location (GPS)",
+    locating: "Getting your location…",
+    denied: "Location access is blocked. Allow it in your browser settings.",
+    failed: "Couldn't get your location. Try again outdoors.",
+    unsupported: "This browser doesn't provide location.",
+    here: "You are here",
+  },
+
+  trip: {
+    start: "Start trip",
+    pause: "Pause trip",
+    resume: "Resume trip",
+    end: "End",
+    close: "Close",
+    running: "Trip in progress",
+    paused: "Trip paused",
+    arrived: (label: string) => `You've arrived at ${label}`,
+    arrivedHint: "When you resume, this stop is marked as done and tracking moves on to the next one.",
+    finished: "Trip complete",
+    next: "Next",
+    eta: (time: string, duration: string, km: string) => `arrives ${time} · ${duration} · ${km}`,
+    endEta: (time: string) => `Route expected to end at ${time}`,
+    waitingGps: "Waiting for GPS…",
+    updating: "Updating the route from your position…",
+    gpsLost: "GPS stopped responding. The trip has been paused.",
+    nothingLeft: "There are no pending stops to track.",
+    warningTitle: "Before you start",
+    warningLead: "The route planner is not a navigation GPS and gives no driving directions.",
+    warningBody:
+      "For safety, ease of use and peace of mind, drive with your preferred navigation service (Google Maps, Waze, Apple Maps…). Here you follow your stops and times, updated from your position.",
+    warningSafety: "Don't use your phone while driving.",
+    aware: "Understood",
+  },
+
+  tour: {
+    skip: "Skip tutorial",
+    next: "Next",
+    done: "Finish",
+    step: (i: number, n: number) => `${i} of ${n}`,
+    start:
+      "Start with the starting point: type an address, paste coordinates or a link, or tap the target to use GPS.",
+    stops:
+      "Add stops here or by right-clicking (long-pressing) the map. The best order is worked out for you; you can lock, complete and set the time at each one.",
+    summary:
+      "The Summary shows total time, distance, times and the AI comment. You also start the trip from here.",
+    actions: "Open the route in Google Maps, navigate to the next stop in your favourite app or share it.",
+    settings:
+      "Settings and About: language, theme, text size and default stop time. Blocks can be dragged by their title.",
+    help: "Help",
+    restart: "Show the tutorial again",
+    restartHint: "Quick tips about each part of the screen.",
   },
 
   map: {

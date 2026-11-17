@@ -66,7 +66,7 @@ No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adi
 
 ### 1. Início, fim e horário
 
-1. No bloco **Início e fim**, digite o ponto de partida. Vale endereço, coordenadas (`38.7434, -9.1593`, `38°44'36"N 9°09'33"W`…) ou um link de mapa.
+1. No bloco **Início e fim**, digite o ponto de partida. Vale endereço, coordenadas (`38.7434, -9.1593`, `38°44'36"N 9°09'33"W`…) ou um link de mapa. O botão de **alvo** ao lado do campo usa a sua localização (GPS); vale também para o fim.
 2. Por padrão a rota volta ao início. Desligue **O local de fim é o mesmo do início** para escolher outro fim (ou nenhum: aí a rota termina na última parada).
 3. Escolha **Sair em** ou **Chegar até** e o horário. Em **Agora**, vale o trânsito ao vivo.
 
@@ -83,13 +83,15 @@ A lista se **reorganiza sozinha** na melhor ordem. Em cada parada:
 |---|---|
 | ⠿ **Alça** | Arraste para mudar a ordem; a parada fica travada onde você soltar |
 | **Número** | Toque para marcar como **concluída** (de novo para desfazer) |
-| 🕐 **Relógio** | Quanto tempo você fica ali: atalhos de 5 min a 2 h, ou qualquer valor |
+| 🕐 **Relógio** | Quanto tempo você fica ali: uma lista de 5 min a 2 h, ou **Outro…** para escolher horas e minutos |
 | 🔒 **Cadeado** | Trava ou destrava a parada na posição atual |
 | ✕ | Remove a parada |
 
 ### 3. Resumo
 
-O **Resumo** mostra o tempo total (direção + paradas), a saída e a chegada, quanto você economiza em relação à ordem digitada e de onde vêm os tempos. Com travas, ele diz quanto a rota levaria sem elas.
+O **Resumo** mostra o tempo total (direção + paradas), a saída, a chegada, a **distância total** e quanto você economiza em relação à ordem digitada. O ícone **ⓘ** explica de onde vêm os tempos e se a ordem é exata. Com travas, ele diz quanto a rota levaria sem elas.
+
+**▶ Iniciar viagem** acompanha a viagem pelo GPS do aparelho. Antes de começar, um aviso lembra que o planejador **não é um GPS de navegação**: conduza com o seu app de navegação preferido. Durante a viagem, o mapa segue a sua posição (ponto azul) e a rota que falta é recalculada a partir de onde você está, com a previsão de chegada na próxima parada e no fim. Dá para **⏸ pausar** e **⏹ encerrar**. Ao chegar numa parada, a viagem pausa sozinha; **▶ Retomar viagem** marca a parada como concluída e segue para a próxima. Para poupar a cota dos serviços, o recálculo acontece no máximo a cada 2 minutos (ou antes, se você andar mais de 3 km).
 
 Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confere com os tempos reais**: o botão **Aceitar sugestão** só aparece se a sugestão for mesmo mais rápida (com até 10 paradas e sem travas, a ordem já é a melhor possível e a IA nem sugere).
 
@@ -113,6 +115,7 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 
 - **⚙️ Configurações** (ao lado do zoom): idioma, tema, tamanho do texto, tempo padrão nas paradas novas e voltar os blocos ao lugar padrão.
 - **Blocos:** no computador, arraste cada bloco pelo título. Perto da borda esquerda ou direita ele gruda numa coluna; perto do topo ou da base, gruda na margem.
+- **Tutorial:** na primeira visita, balões azuis explicam cada parte da tela (com **Pular tutorial**). Para ver de novo: Configurações → Ajuda.
 - **❓ Sobre:** autoria, contatos, serviços e IAs em uso (com o estado de cada um) e as informações técnicas, com um botão para copiá-las.
 
 > 💾 **Tudo fica guardado no navegador:** a rota, as travas, as paradas concluídas, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos.

@@ -17,6 +17,8 @@ interface SettingsDialogProps {
   onClose: () => void;
   settings: Settings;
   onChange: (next: Settings) => void;
+  /** Fecha as configurações e mostra o tutorial de novo. */
+  onRestartTutorial: () => void;
 }
 
 interface Option<T extends string> {
@@ -91,7 +93,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** Tela de configurações: diálogo no centro (desktop) ou em tela cheia (celular). */
-export default function SettingsDialog({ open, onClose, settings, onChange }: SettingsDialogProps) {
+export default function SettingsDialog({ open, onClose, settings, onChange, onRestartTutorial }: SettingsDialogProps) {
   const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const languageId = useId();
@@ -189,6 +191,18 @@ export default function SettingsDialog({ open, onClose, settings, onChange }: Se
               className="focus-ring self-start rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium hover:bg-hover"
             >
               {t.settings.resetBlocks}
+            </button>
+          </Row>
+        </Section>
+
+        <Section title={t.tour.help}>
+          <Row title={t.tour.restart} hint={t.tour.restartHint}>
+            <button
+              type="button"
+              onClick={onRestartTutorial}
+              className="focus-ring self-start rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium hover:bg-hover"
+            >
+              {t.tour.restart}
             </button>
           </Row>
         </Section>

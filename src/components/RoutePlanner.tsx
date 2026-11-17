@@ -1,12 +1,26 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
+import InfoTip from "./InfoTip";
+import Tour, { type TourStep } from "./Tour";
+import TripWarningDialog from "./TripWarningDialog";
 import { I18nProvider, useResolvedLocale } from "./I18nProvider";
 import SettingsDialog from "./SettingsDialog";
 import StopList from "./StopList";
@@ -60,6 +74,15 @@ import {
 import { addStop, isApproximate, isDuplicate, MAX_STOPS } from "@/lib/stops";
 import { MESSAGES } from "@/lib/messages";
 import { MAX_DWELL_MINUTES, type LegTimeFn, type Place } from "@/lib/types";
+import {
+  hasArrived,
+  remainingRoute,
+  routeMeters,
+  shouldReplan,
+  tripTarget,
+  type Fix,
+  type TripStatus,
+} from "@/lib/trip";
 
 const BLOCKS_KEY = "rotas:blocos";
 /** Blocos abertos por padrão. */
@@ -92,6 +115,77 @@ function Sparkles() {
     </svg>
   );
 }
+
+const iconProps = {
+  "aria-hidden": true,
+  viewBox: "0 0 20 20",
+  className: "h-4 w-4 shrink-0",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+function PlayIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M6.5 4.5v11l9-5.5z" fill="currentColor" />
+    </svg>
+  );
+}
+function PauseIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M7 4.5v11M13 4.5v11" strokeWidth={2.6} />
+    </svg>
+  );
+}
+function StopIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+function FlagIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M5 17V3.5M5 4h9l-2 3 2 3H5" />
+    </svg>
+  );
+}
+/** Alvo do GPS ("usar minha localização"). */
+function LocateIcon({ busy }: { busy: boolean }) {
+  if (busy) {
+    return (
+      <svg {...iconProps} className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none">
+        <path d="M10 3a7 7 0 107 7" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...iconProps}>
+      <circle cx="10" cy="10" r="5.5" />
+      <circle cx="10" cy="10" r="1.6" fill="currentColor" />
+      <path d="M10 1.8v2.7M10 15.5v2.7M1.8 10h2.7M15.5 10h2.7" />
+    </svg>
+  );
+}
+
+/** Tutorial do primeiro uso: guardado como visto depois de concluir ou pular. */
+const TOUR_KEY = "rotas:tutorial:v1";
+
+/** Posição atual como local da rota (início da rota que falta, na viagem). */
+const herePlace = (point: { lat: number; lng: number }, label: string): Place => ({
+  id: "gps-aqui",
+  label,
+  lat: point.lat,
+  lng: point.lng,
+  source: "pin",
+  confidence: 1,
+  dwellMinutes: 0,
+});
 
 interface Toast {
   id: number;
@@ -147,6 +241,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [storedSettings, setStoredSettings] = useLocalStorageState<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
   const settings = useMemo(() => normalizeSettings(storedSettings), [storedSettings]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tourSeen, setTourSeen] = useLocalStorageState<boolean>(TOUR_KEY, false);
+  /** Sobe ao pedir o tutorial de novo, para ele recomeçar do primeiro passo. */
+  const [tourRun, setTourRun] = useState(0);
   const [aboutOpen, setAboutOpen] = useState(false);
   /** Sobe quando os blocos mudam de lugar ou de tamanho de texto: o mapa reenquadra a rota. */
   const [fitVersion, setFitVersion] = useState(0);
@@ -300,6 +397,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return computePlan(sequence, timeMode, anchor, legTime);
   }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus]);
 
+  /** Distância total da rota: pelas ruas, quando o provedor devolve; senão, estimada. */
+  const totalDistance = useMemo(
+    () => (start ? routeMeters(sequenceOf(stops), serverPlan?.streetLegs) : null),
+    [start, sequenceOf, stops, serverPlan],
+  );
+
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (newPlace: Place): string | null => {
     // Toda parada nova recebe a permanência padrão das configurações.
@@ -387,6 +490,131 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [stops, doneIds],
   );
 
+  // ---------- Viagem acompanhada pelo GPS ----------
+  const [trip, setTrip] = useState<{ status: TripStatus; arrivedId?: string } | null>(null);
+  const [tripWarning, setTripWarning] = useState(false);
+  /** Última leitura do GPS. */
+  const [fix, setFix] = useState<Fix | null>(null);
+  /** Posição usada no último recálculo (só muda de tempos em tempos, para poupar a cota). */
+  const [tripOrigin, setTripOrigin] = useState<Fix | null>(null);
+  const lastReplanRef = useRef<Fix | null>(null);
+  const target = start ? tripTarget(stops, doneIds, finalPlace) : null;
+  const pendingStops = useMemo(() => stops.filter((s) => !doneIds.has(s.id)), [stops, doneIds]);
+
+  const onFix = useEffectEvent((next: Fix) => {
+    setFix(next);
+    if (shouldReplan(lastReplanRef.current, next)) {
+      lastReplanRef.current = next;
+      setTripOrigin(next);
+    }
+    if (!target) {
+      setTrip({ status: "finished" });
+      return;
+    }
+    if (!hasArrived(next, target)) return;
+    // Chegou: numa parada, pausa até a pessoa retomar; no ponto final, a viagem acaba.
+    const isStop = stops.some((s) => s.id === target.id);
+    setTrip(isStop ? { status: "arrived", arrivedId: target.id } : { status: "finished" });
+  });
+  const onGpsError = useEffectEvent((error: GeolocationPositionError) => {
+    // Sem permissão não há o que acompanhar; falhas passageiras (túnel, sinal fraco) são ignoradas.
+    if (error.code !== error.PERMISSION_DENIED) return;
+    notify(t.gps.denied);
+    setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
+  });
+  const tripRunning = trip?.status === "running";
+  useEffect(() => {
+    if (!tripRunning) return;
+    const watch = navigator.geolocation.watchPosition(
+      (position) =>
+        onFix({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          at: position.timestamp,
+        }),
+      (error) => onGpsError(error),
+      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 30_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [tripRunning]);
+
+  // Rota que falta, saindo da posição atual: as paradas pendentes na ordem combinada e o fim.
+  const tripActive = trip !== null && trip.status !== "finished";
+  const tripRequest = useMemo(() => {
+    if (!tripActive || !tripOrigin) return null;
+    const route = remainingRoute(herePlace(tripOrigin, t.gps.here), pendingStops, finalPlace);
+    if (route.stops.length === 0 && !route.end) return null;
+    return {
+      body: JSON.stringify(planRequestBody({ ...route, mode: "depart", dateTime: null })),
+      sequence: [route.start, ...route.stops, ...(route.end ? [route.end] : [])],
+    };
+  }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here]);
+  const [tripRemote, setTripRemote] = useState<{
+    body: string;
+    sequence: Place[];
+    outcome: PlanOutcome;
+  } | null>(null);
+  useEffect(() => {
+    if (!tripRequest) return;
+    const controller = new AbortController();
+    void fetchPlan(tripRequest.body, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setTripRemote({ ...tripRequest, outcome: result });
+    });
+    return () => controller.abort();
+  }, [tripRequest]);
+
+  /** O que o mapa e o Resumo mostram durante a viagem (a última resposta boa, até chegar a nova). */
+  const tripView = useMemo(() => {
+    if (!tripActive || tripRemote?.outcome.kind !== "ok" || currentMinute === null) return null;
+    const tripPlan = tripRemote.outcome.plan;
+    const sequence = tripRemote.sequence;
+    if (tripPlan.legSeconds.length !== sequence.length - 1) return null;
+    const known = new Map<string, number>();
+    tripPlan.legSeconds.forEach((seconds, i) => known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds));
+    const legTimeFn: LegTimeFn = (from, to) => {
+      const seconds = known.get(`${from.id}>${to.id}`);
+      return seconds === undefined ? estimateLegTime(from, to) : { seconds, estimated: tripPlan.source.estimated };
+    };
+    return {
+      sequence,
+      server: tripPlan,
+      plan: computePlan(sequence, "depart", new Date(currentMinute * 60_000), legTimeFn),
+      // Cada trecho mantém a cor da parada a que chega (a mesma da lista).
+      colors: sequence.slice(1).map((p) => {
+        const i = stops.findIndex((s) => s.id === p.id);
+        return legColor(i === -1 ? stops.length : i);
+      }),
+    };
+  }, [tripActive, tripRemote, currentMinute, stops]);
+
+  const clearTrip = () => {
+    lastReplanRef.current = null;
+    setFix(null);
+    setTripOrigin(null);
+    setTripRemote(null);
+    setInfo(null);
+  };
+  const beginTrip = () => {
+    setTripWarning(false);
+    if (!("geolocation" in navigator)) {
+      notify(t.gps.unsupported);
+      return;
+    }
+    clearTrip();
+    setTrip({ status: "running" });
+  };
+  const resumeTrip = () => {
+    // Retomar depois de chegar: a parada fica concluída e o acompanhamento segue para a próxima.
+    if (trip?.status === "arrived" && trip.arrivedId && !doneIds.has(trip.arrivedId)) toggleDone(trip.arrivedId);
+    lastReplanRef.current = null;
+    setTrip({ status: "running" });
+  };
+  const endTrip = () => {
+    clearTrip();
+    setTrip(null);
+  };
+
   /** Aceita a ordem da IA: cada parada fica travada na posição sugerida (dá para destravar depois). */
   const acceptSuggestion = (suggestedStops: readonly number[]) => {
     const next = locksFromSuggestion(displayedIds, suggestedStops);
@@ -420,6 +648,50 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
     return problem;
   };
+
+  /** Início ou fim pela localização do aparelho; o rótulo vira o endereço quando chegar. */
+  const [locating, setLocating] = useState<"start" | "end" | null>(null);
+  const locateMe = (which: "start" | "end") => {
+    if (!("geolocation" in navigator)) {
+      notify(t.gps.unsupported);
+      return;
+    }
+    setLocating(which);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        const place = makePlace({ lat, lng, label: pinLabel(lat, lng), source: "pin", confidence: 1 });
+        setLocating(null);
+        const problem = setFixed(which, place);
+        if (problem) {
+          notify(problem);
+          return;
+        }
+        void reverseLabel({ lat, lng }).then((address) => {
+          if (!address) return;
+          const rename = (p: Place | null) => (p && p.id === place.id ? { ...p, label: address } : p);
+          setRoute((prev) => ({ ...prev, start: rename(prev.start), end: rename(prev.end) }));
+        });
+      },
+      (error) => {
+        setLocating(null);
+        notify(error.code === error.PERMISSION_DENIED ? t.gps.denied : t.gps.failed);
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 },
+    );
+  };
+  const gpsButton = (which: "start" | "end") => (
+    <button
+      type="button"
+      onClick={() => locateMe(which)}
+      disabled={locating !== null}
+      aria-label={locating === which ? t.gps.locating : t.gps.use}
+      title={t.gps.use}
+      className="focus-ring grid w-[2.6rem] shrink-0 self-stretch place-items-center rounded-lg border border-line text-ink-2 transition-colors duration-150 hover:border-line-strong hover:bg-hover hover:text-accent disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none"
+    >
+      <LocateIcon busy={locating === which} />
+    </button>
+  );
 
   const submitStop = async (text: string): Promise<string | null> => {
     const draft = await resolvePlaceInput(text, bboxRef.current);
@@ -548,19 +820,39 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [serverPlan],
   );
 
+  // O mapa mostra a rota planejada ou, na viagem, a rota que falta a partir da posição atual.
+  const view = useMemo(
+    () =>
+      tripView ?? {
+        sequence: sequenceOf(stops),
+        server: serverPlan,
+        plan,
+        colors: (serverPlan?.streetLegs ?? []).map((_, i) => legColor(i)),
+      },
+    [tripView, sequenceOf, stops, serverPlan, plan],
+  );
+  const mapPath = useMemo<[number, number][]>(
+    () => (tripView ? tripView.sequence.map((p) => [p.lng, p.lat]) : path),
+    [tripView, path],
+  );
+  const mapStreetLegs = useMemo(
+    () => (tripView ? (tripView.server.streetLegs?.map((leg) => leg.coordinates) ?? null) : streetLegs),
+    [tripView, streetLegs],
+  );
+
   // Conteúdo do balão quando o clique foi em um trecho da linha verde.
   const legDetails = (() => {
     if (info?.leg === undefined) return null;
-    const street = serverPlan?.streetLegs?.[info.leg];
-    const sequence = sequenceOf(stops);
+    const street = view.server?.streetLegs?.[info.leg];
+    const sequence = view.sequence;
     const from = sequence[info.leg];
     const to = sequence[info.leg + 1];
     if (!street || !from || !to) return null;
-    const planned = plan?.legs[info.leg];
+    const planned = view.plan?.legs[info.leg];
     return (
       <div className="flex w-56 max-w-full flex-col gap-1 pr-4 text-sm text-ink">
         <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-          <span aria-hidden="true" className="h-2 w-5 rounded-full" style={{ backgroundColor: legColor(info.leg) }} />
+          <span aria-hidden="true" className="h-2 w-5 rounded-full" style={{ backgroundColor: view.colors[info.leg] ?? legColor(info.leg) }} />
           {t.leg.title(info.leg + 1)}
         </p>
         <p className="font-semibold">
@@ -569,7 +861,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         <p className="text-base font-semibold">
           {formatKm(street.meters)} · {formatDuration(street.seconds)}
         </p>
-        <p className="text-xs text-muted">{t.leg.note(serverPlan?.streetSource ?? "")}</p>
+        <p className="text-xs text-muted">{t.leg.note(view.server?.streetSource ?? "")}</p>
         {planned && !planned.estimated && Math.abs(planned.seconds - street.seconds) >= 60 && (
           <p className="text-xs text-muted">{t.leg.traffic(formatDuration(planned.seconds))}</p>
         )}
@@ -670,9 +962,127 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Textos de resumo. O total inclui a permanência nas paradas.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
   const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
-  const handleSummary = start
-    ? `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`
-    : t.empty.handle;
+  const tripLeg = tripView?.plan?.legs[0];
+  const handleSummary = !start
+    ? t.empty.handle
+    : trip && target && tripLeg
+      ? `${t.trip.next}: ${target.label} · ${formatTime(tripLeg.arriveAt)}`
+      : `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`;
+  const distanceText = totalDistance ? `${totalDistance.estimated ? "≈ " : ""}${formatKm(totalDistance.meters)}` : "—";
+
+  // Painel da viagem, no Resumo.
+  const tripPanel = (() => {
+    const buttonBase =
+      "focus-ring flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-compact font-semibold transition-colors duration-150 motion-reduce:transition-none";
+    const primary = `${buttonBase} bg-accent text-white hover:bg-accent/90 dark:text-[#10131c]`;
+    const secondary = `${buttonBase} border border-line-strong text-ink-2 hover:bg-hover hover:text-ink`;
+    if (!trip) {
+      return (
+        <button
+          type="button"
+          onClick={() => setTripWarning(true)}
+          disabled={!plan || !target}
+          className={`${primary} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <PlayIcon />
+          {t.trip.start}
+        </button>
+      );
+    }
+    const arrivedPlace = trip.arrivedId ? stops.find((s) => s.id === trip.arrivedId) : undefined;
+    const title =
+      trip.status === "running"
+        ? t.trip.running
+        : trip.status === "paused"
+          ? t.trip.paused
+          : trip.status === "arrived"
+            ? t.trip.arrived(arrivedPlace?.label ?? t.stops.fallbackName)
+            : t.trip.finished;
+    const firstStreet = tripView?.server.streetLegs?.slice(0, 1);
+    const legMeters =
+      tripView && tripView.sequence.length > 1
+        ? routeMeters(tripView.sequence.slice(0, 2), firstStreet)
+        : null;
+    return (
+      <div className="flex flex-col gap-2.5 rounded-lg border border-accent/35 bg-accent/5 p-3" aria-live="polite">
+        <p className="flex items-center gap-2 text-xs font-semibold text-ink">
+          {trip.status === "finished" ? (
+            <span className="text-emerald-600 dark:text-emerald-400">
+              <FlagIcon />
+            </span>
+          ) : (
+            <span
+              aria-hidden="true"
+              className={`h-2 w-2 shrink-0 rounded-full ${
+                trip.status === "running"
+                  ? "animate-pulse bg-emerald-500 motion-reduce:animate-none"
+                  : trip.status === "arrived"
+                    ? "bg-accent"
+                    : "bg-amber-500"
+              }`}
+            />
+          )}
+          {title}
+        </p>
+        {(trip.status === "running" || trip.status === "paused") && target && (
+          <div className="flex flex-col gap-0.5">
+            <p className="truncate text-compact text-ink">
+              <span className="text-muted">{t.trip.next}:</span> <span className="font-medium">{target.label}</span>
+            </p>
+            <p className="text-xs text-muted">
+              {tripLeg && legMeters
+                ? t.trip.eta(
+                    formatTime(tripLeg.arriveAt),
+                    formatDuration(tripLeg.seconds),
+                    `${legMeters.estimated ? "≈ " : ""}${formatKm(legMeters.meters)}`,
+                  )
+                : fix
+                  ? t.trip.updating
+                  : t.trip.waitingGps}
+            </p>
+            {tripView?.plan && tripView.sequence.length > 2 && (
+              <p className="text-xs text-muted">
+                {t.trip.endEta(formatTimeWithDay(tripView.plan.arriveAt, tripView.plan.departAt))}
+              </p>
+            )}
+          </div>
+        )}
+        {trip.status === "arrived" && <p className="text-xs text-muted">{t.trip.arrivedHint}</p>}
+        <div className="flex flex-wrap gap-2">
+          {trip.status === "running" && (
+            <button type="button" onClick={() => setTrip({ status: "paused" })} className={`${secondary} flex-1`}>
+              <PauseIcon />
+              {t.trip.pause}
+            </button>
+          )}
+          {(trip.status === "paused" || trip.status === "arrived") && (
+            <button type="button" onClick={resumeTrip} className={`${primary} flex-1`}>
+              <PlayIcon />
+              {t.trip.resume}
+            </button>
+          )}
+          {trip.status === "finished" ? (
+            <button type="button" onClick={endTrip} className={`${secondary} flex-1`}>
+              {t.trip.close}
+            </button>
+          ) : (
+            <button type="button" onClick={endTrip} className={secondary} aria-label={t.trip.end} title={t.trip.end}>
+              <StopIcon />
+              {t.trip.end}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  })();
+
+  const tourSteps: TourStep[] = [
+    { target: "#bloco-inicio", text: t.tour.start },
+    { target: "#bloco-paradas", text: t.tour.stops },
+    { target: "#bloco-resumo", text: t.tour.summary },
+    { target: "#bloco-acoes", text: t.tour.actions },
+    { target: ".rotas-ctrl-button", text: t.tour.settings, prefer: ["left", "bottom"] },
+  ];
   const startEndSummary = !start
     ? t.empty.startSummary
     : endSame
@@ -704,6 +1114,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 onSubmit={(text) => submitFixed(text, "start")}
                 suggest={suggestAddresses}
                 onPick={(s) => setFixed("start", placeFromSuggestion(s))}
+                trailing={gpsButton("start")}
               />
 
               <div className="flex items-center justify-between gap-3">
@@ -738,6 +1149,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   onSubmit={(text) => submitFixed(text, "end")}
                   suggest={suggestAddresses}
                   onPick={(s) => setFixed("end", placeFromSuggestion(s))}
+                  trailing={gpsButton("end")}
                 />
               )}
 
@@ -916,18 +1328,48 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   <dt className="text-2xs font-medium text-muted">{t.summary.arrival}</dt>
                   <dd className="text-md font-semibold text-ink">{arriveText}</dd>
                 </div>
+                <div className="col-span-2 border-t border-line px-3 py-2">
+                  <dt className="text-2xs font-medium text-muted">{t.summary.distance}</dt>
+                  <dd className="text-md font-semibold text-ink">{distanceText}</dd>
+                </div>
               </dl>
 
-              <p className="text-compact text-ink-2">
-                {t.summary.typed(formatDuration(typedSeconds + dwellTotal))}{" "}
-                {savedMinutes > 0 ? (
-                  <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                    {t.summary.saved(savedMinutes)}
-                  </span>
-                ) : (
-                  t.summary.notFaster
-                )}
-              </p>
+              {tripPanel}
+
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-compact text-ink-2">
+                  {t.summary.typed(formatDuration(typedSeconds + dwellTotal))}{" "}
+                  {savedMinutes > 0 ? (
+                    <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                      {t.summary.saved(savedMinutes)}
+                    </span>
+                  ) : (
+                    t.summary.notFaster
+                  )}
+                </p>
+                <InfoTip label={t.summary.moreInfo}>
+                  <ul className="flex flex-col gap-1">
+                    <li>
+                      {t.summary.source}:{" "}
+                      {planStatus === "ok" && serverPlan
+                        ? (t.summary.sourceNames[serverPlan.source.name] ?? serverPlan.source.label)
+                        : planStatus === "no-route"
+                          ? t.summary.sourceNoRoute
+                          : planStatus === "loading"
+                            ? t.summary.sourceLoading
+                            : t.summary.sourceFailed}
+                      .
+                    </li>
+                    <li>
+                      {t.summary.order}: {orderExact ? t.summary.exact : t.summary.approximate}
+                      {lockCount > 0 ? t.summary.respectingLocks : orderExact ? t.summary.best : ""}.
+                    </li>
+                    {serverPlan?.checkedSeconds != null && (
+                      <li>{t.summary.streets(formatDuration(serverPlan.checkedSeconds))}</li>
+                    )}
+                  </ul>
+                </InfoTip>
+              </div>
 
               {lockCount > 0 && plan && (
                 <p className="text-compact text-ink-2">
@@ -942,46 +1384,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </p>
               )}
 
-              <ul className="flex flex-col gap-1 text-xs text-muted">
-                <li aria-live="polite">
-                  {t.summary.source}:{" "}
-                  {planStatus === "ok" && serverPlan
-                    ? (t.summary.sourceNames[serverPlan.source.name] ?? serverPlan.source.label)
-                    : planStatus === "no-route"
-                      ? t.summary.sourceNoRoute
-                      : planStatus === "loading"
-                        ? t.summary.sourceLoading
-                      : t.summary.sourceFailed}
-                  .
-                </li>
-                <li>
-                  {t.summary.order}:{" "}
-                  {orderExact ? t.summary.exact : t.summary.approximate}
-                  {lockCount > 0 ? t.summary.respectingLocks : orderExact ? t.summary.best : ""}.
-                </li>
-                {serverPlan?.checkedSeconds != null && (
-                  <li>
-                    {t.summary.streets(formatDuration(serverPlan.checkedSeconds))}
-                  </li>
-                )}
-                {serverPlan?.arrival && !serverPlan.arrival.converged && (
-                  <li>{t.summary.unstable}</li>
-                )}
-              </ul>
+              {serverPlan?.arrival && !serverPlan.arrival.converged && (
+                <p className="text-xs text-muted">{t.summary.unstable}</p>
+              )}
 
               <div className="flex flex-col gap-1.5 border-t border-line pt-3" aria-live="polite">
                 <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
                   <Badge>
                     {(aiTier !== "local" || aiLoading) && <Sparkles />}
-                    {aiLoading ? t.ai.badgeLoading : t.ai.tiers[aiTier]}
+                    {aiLoading
+                      ? t.ai.loading
+                      : aiOutcome?.review
+                        ? t.ai.comment
+                        : stops.length < 2
+                          ? t.ai.localOnly
+                          : t.ai.noAi}
                   </Badge>
-                  {aiLoading
-                    ? t.ai.loading
-                    : aiOutcome?.review
-                      ? t.ai.comment
-                      : stops.length < 2
-                        ? t.ai.localOnly
-                        : t.ai.noAi}
                 </p>
                 {aiOutcome?.review && (
                   <>
@@ -1113,11 +1531,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
       <MapView
         points={points}
-        path={path}
-        streetLegs={streetLegs}
+        path={mapPath}
+        streetLegs={mapStreetLegs}
         onLegClick={handleLegClick}
         selectedLeg={info?.leg ?? null}
-        doneLegs={doneLegs}
+        doneLegs={tripView ? [] : doneLegs}
+        legColors={view.colors}
+        me={trip && fix ? fix : null}
+        follow={tripRunning}
         columnInsets={columnInsets}
         fitVersion={fitVersion}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1272,7 +1693,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         onClose={() => setSettingsOpen(false)}
         settings={settings}
         onChange={setSettings}
+        onRestartTutorial={() => {
+          setSettingsOpen(false);
+          setTourRun((n) => n + 1);
+          setTourSeen(false);
+        }}
       />
+
+      <TripWarningDialog open={tripWarning} onAccept={beginTrip} onCancel={() => setTripWarning(false)} />
+
+      {!tourSeen && (
+        <Tour
+          key={tourRun}
+          steps={tourSteps}
+          onStep={(i) => {
+            // No celular os blocos ficam na gaveta: abre para o passo aparecer.
+            if (!isDesktop) setSheetOpen(i < tourSteps.length - 1);
+          }}
+          onClose={() => setTourSeen(true)}
+        />
+      )}
 
       <AboutDialog
         open={aboutOpen}

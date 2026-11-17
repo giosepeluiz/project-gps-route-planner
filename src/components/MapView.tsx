@@ -36,6 +36,12 @@ interface MapViewProps {
   selectedLeg: number | null;
   /** Trechos já concluídos (índices): aparecem em cinza. */
   doneLegs: readonly number[];
+  /** Cor de cada trecho (na viagem, os trechos que faltam mantêm a cor da parada). */
+  legColors?: readonly string[];
+  /** Posição atual pelo GPS (durante a viagem), ou null. */
+  me?: { lat: number; lng: number } | null;
+  /** Com a viagem em andamento, o mapa acompanha a posição atual. */
+  follow?: boolean;
   layout: MapLayout;
   /**
    * Largura (px) das colunas de blocos grudadas em cada borda, no desktop. Os
@@ -125,6 +131,32 @@ function measuredPadding(container: HTMLElement) {
   return overlayPadding(container.getBoundingClientRect(), overlays);
 }
 
+/** Margens do espaço livre do mapa (fora do HUD), limitadas a 60% em cada eixo. */
+function routePadding(map: MapLibreMap, layout: MapLayout) {
+  const height = map.getContainer().clientHeight;
+  const padding =
+    layout === "desktop"
+      ? measuredPadding(map.getContainer())
+      : {
+          top: 72,
+          left: 40,
+          right: 40,
+          bottom: layout === "sheet-open" ? Math.round(height * 0.6) + 24 : 112,
+        };
+  // Em telas pequenas o HUD pode cobrir quase tudo: limita as margens a 60% do
+  // mapa, senão o enquadramento não tem solução (e o MapLibre lança erro).
+  const width = map.getContainer().clientWidth;
+  const horizontal = padding.left + padding.right;
+  const vertical = padding.top + padding.bottom;
+  const scaleX = horizontal > width * 0.6 ? (width * 0.6) / horizontal : 1;
+  const scaleY = vertical > height * 0.6 ? (height * 0.6) / vertical : 1;
+  padding.left *= scaleX;
+  padding.right *= scaleX;
+  padding.top *= scaleY;
+  padding.bottom *= scaleY;
+  return padding;
+}
+
 export default function MapView({
   points,
   path,
@@ -132,6 +164,9 @@ export default function MapView({
   onLegClick,
   selectedLeg,
   doneLegs,
+  legColors,
+  me = null,
+  follow = false,
   layout,
   columnInsets,
   fitVersion,
@@ -150,6 +185,7 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const libRef = useRef<MapLibre | null>(null);
   const markersRef = useRef<Marker[]>([]);
+  const meMarkerRef = useRef<Marker | null>(null);
   /** Muda a cada estilo carregado, para redesenhar a rota depois de uma troca de estilo. */
   const [styleVersion, setStyleVersion] = useState(0);
   const [size, setSize] = useState("");
@@ -254,6 +290,8 @@ export default function MapView({
       cancelled = true;
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
+      meMarkerRef.current?.remove();
+      meMarkerRef.current = null;
       map?.remove();
       mapRef.current = null;
     };
@@ -318,6 +356,7 @@ export default function MapView({
   }, [styleVersion, t]);
 
   const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
+  const colorKey = legColors?.join(",") ?? "";
 
   // Pins e linha da rota.
   useEffect(() => {
@@ -325,6 +364,7 @@ export default function MapView({
     const lib = libRef.current;
     if (!map || !lib || styleVersion === 0) return;
     const doneSet = new Set(doneKey ? doneKey.split(",").map(Number) : []);
+    const colors = colorKey ? colorKey.split(",") : [];
 
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = points.map((point) => {
@@ -365,7 +405,7 @@ export default function MapView({
       features: (streetLegs ?? []).map((coordinates, index) => ({
         type: "Feature" as const,
         // Trecho concluído fica cinza; os outros, cada um na sua cor.
-        properties: { index, color: doneSet.has(index) ? DONE_LEG_COLOR : legColor(index) },
+        properties: { index, color: doneSet.has(index) ? DONE_LEG_COLOR : (colors[index] ?? legColor(index)) },
         geometry: { type: "LineString" as const, coordinates },
       })),
     };
@@ -411,7 +451,38 @@ export default function MapView({
     // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
     map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
     map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
-  }, [points, path, streetLegs, doneKey, styleVersion, t]);
+  }, [points, path, streetLegs, doneKey, colorKey, styleVersion, t]);
+
+  // Ponto azul da posição atual (viagem). Com "seguir", o mapa centraliza nele.
+  const meLat = me?.lat;
+  const meLng = me?.lng;
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!map || !lib || styleVersion === 0) return;
+    if (meLat === undefined || meLng === undefined) {
+      meMarkerRef.current?.remove();
+      meMarkerRef.current = null;
+      return;
+    }
+    if (!meMarkerRef.current) {
+      const element = document.createElement("div");
+      element.className = "pin-me";
+      element.title = t.gps.here;
+      element.setAttribute("aria-label", t.gps.here);
+      meMarkerRef.current = new lib.Marker({ element }).setLngLat([meLng, meLat]).addTo(map);
+    } else {
+      meMarkerRef.current.setLngLat([meLng, meLat]);
+    }
+    if (follow) {
+      map.easeTo({
+        center: [meLng, meLat],
+        zoom: Math.max(map.getZoom(), 14),
+        padding: routePadding(map, layout),
+        duration: 600,
+      });
+    }
+  }, [meLat, meLng, follow, layout, styleVersion, t]);
 
   // Trecho clicado em destaque: os outros ficam semitransparentes e ele passa por cima.
   useEffect(() => {
@@ -484,28 +555,7 @@ export default function MapView({
       const [lat, lng] = pair.split(",").map(Number);
       return [lng, lat] as [number, number];
     });
-    const height = map.getContainer().clientHeight;
-    const padding =
-      layout === "desktop"
-        ? measuredPadding(map.getContainer())
-        : {
-            top: 72,
-            left: 40,
-            right: 40,
-            bottom: layout === "sheet-open" ? Math.round(height * 0.6) + 24 : 112,
-          };
-
-    // Em telas pequenas o HUD pode cobrir quase tudo: limita as margens a 60% do
-    // mapa, senão o enquadramento não tem solução (e o MapLibre lança erro).
-    const width = map.getContainer().clientWidth;
-    const horizontal = padding.left + padding.right;
-    const vertical = padding.top + padding.bottom;
-    const scaleX = horizontal > width * 0.6 ? (width * 0.6) / horizontal : 1;
-    const scaleY = vertical > height * 0.6 ? (height * 0.6) / vertical : 1;
-    padding.left *= scaleX;
-    padding.right *= scaleX;
-    padding.top *= scaleY;
-    padding.bottom *= scaleY;
+    const padding = routePadding(map, layout);
 
     if (coords.length === 1) {
       map.easeTo({ center: coords[0], zoom: Math.max(map.getZoom(), 13), padding, duration: 400 });

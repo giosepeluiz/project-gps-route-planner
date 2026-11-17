@@ -107,6 +107,7 @@ export default function CollapsibleCard({
         sectionRef.current = element;
         blockRef?.(element);
       }}
+      id={id}
       style={style}
       // Só o cartão solto conta como obstáculo para o balão do mapa; a seção já está dentro do painel.
       data-map-overlay={card ? "" : undefined}
