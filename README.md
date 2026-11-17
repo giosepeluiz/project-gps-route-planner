@@ -14,6 +14,8 @@
 
 **[🌐 Acessar](https://project-gps-route-planner.vercel.app)** · **[📖 Como usar](#-como-usar-passo-a-passo)** · **[⚙️ Como funciona](#️-como-funciona-por-dentro)** · **[🛠️ Desenvolvedores](#️-para-desenvolvedores)** · **[🤝 Contribuir](#-código-aberto-contribua)**
 
+<img src="docs/screenshots/01-principal.png" width="860" alt="Tela principal: rota de exemplo em Lisboa, com os trechos coloridos pelas ruas, a lista de paradas e o Resumo">
+
 </div>
 
 > 🇬🇧 **English summary:** *Route planner* finds the best order for a car trip with up to 20 stops, using real traffic times (TomTom), road routes that never cross the sea by ferry (bridges and tunnels are fine), and how long you stay at each stop. Drag stops to lock them in place, mark them as done along the way, and open turn-by-turn navigation in Google Maps, Waze or Apple Maps. An optional AI (Gemini, with Groq as backup) comments on the order, and any suggestion is checked against real travel times before it's offered. Available in Brazilian and European Portuguese, British English and Spanish. Built with Next.js and MapLibre, no Google Maps APIs. Open source under the MIT license.
@@ -51,7 +53,11 @@ O **Planejador de rotas** nasceu para responder isso de um jeito direto: você c
 
 O app roda no navegador, sem instalar nada: **[project-gps-route-planner.vercel.app](https://project-gps-route-planner.vercel.app)**.
 
-No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adicionar à Tela de Início** (Safari): ele abre em tela cheia, com o próprio ícone.
+No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adicionar à Tela de Início** (Safari): ele abre em tela cheia, com o próprio ícone. Os blocos ficam numa gaveta embaixo; toque nela para abrir.
+
+<p align="center">
+<img src="docs/screenshots/02-celular.png" width="300" alt="No celular: o mapa ocupa a tela e o resumo da rota fica na gaveta embaixo">
+</p>
 
 > [!NOTE]
 > A rota e as preferências ficam **só no seu navegador**. Nada é salvo num servidor, e uma rota montada no computador não aparece no celular.
