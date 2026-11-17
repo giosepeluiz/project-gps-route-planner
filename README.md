@@ -34,7 +34,7 @@ Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha colo
 
 ### Sem travessia por mar
 
-Carro não atravessa o mar: o traçado de cada trecho na TomTom pede para evitar balsas (`avoid=ferries`) e as seções de balsa (`sectionType=ferry`). Como o `avoid` da TomTom é só uma preferência, uma rota que ainda venha com seção de balsa é recusada. Pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. A matriz de tempos (Matrix v2) não aceita evitar balsas, então essa trava fica no traçado. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
+Carro não atravessa o mar: o traçado de cada trecho na TomTom pede para evitar balsas (`avoid=ferries`) e as seções de balsa (`sectionType=ferry`). Como o `avoid` da TomTom é só uma preferência, uma rota que ainda venha com seção de balsa é recusada. Pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. A matriz de tempos (Matrix v2) não aceita evitar balsas, então essa trava fica no traçado. Quando a matriz com trânsito ao vivo responde "sem rota" (acontece com interdições momentâneas, como numa praça fechada), o pedido é repetido com o trânsito histórico antes de concluir que não há caminho. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
 
 Limites: a estimativa por distância sozinha não sabe onde há mar, então esse bloqueio depende de um provedor de rotas responder. O servidor demo do OSRM (desenvolvimento) não aceita excluir balsas; nele, o bloqueio vale para pontos sem estrada por perto ou sem ligação por terra.
 
@@ -56,12 +56,17 @@ A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de
 
 A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
 
-- **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, o texto aparece como "Sugestão da IA (não aplicada)".
+- **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, mostra a sugestão e a nova ordem; o botão **Aceitar sugestão** trava cada parada na posição sugerida (dá para destravar pelo cadeado). A ordem sugerida só aparece se for uma troca válida das paradas atuais, e o Resumo continua mostrando quanto a rota levaria sem as travas.
 - **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
 
 Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária ou Backup (com o ícone de IA), ou Local ("Algoritmo local (nenhuma IA respondeu)"). O nome do modelo não aparece na tela. As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
 
 Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
+
+## Busca de endereços
+
+- **Sugestões enquanto digita:** a partir de 3 letras, depois de uma pausa curta, os campos de endereço mostram sugestões da busca da TomTom (`typeahead`), com preferência pela área visível do mapa. Setas e Enter escolhem; a sugestão já traz as coordenadas, sem nova busca. O Nominatim não entra aqui porque a política de uso dele proíbe autocompletar. Cada pedido gasta cota da TomTom; as respostas ficam um dia em cache. Sem chave da TomTom, não há sugestões e o Enter continua funcionando.
+- **Nome da zona:** um local digitado como coordenadas (ou link com coordenadas) recebe o nome do bairro ou da freguesia e a cidade (ex.: "Campo Pequeno, Lisboa"), pelo Nominatim e, de reserva, pela TomTom. Vale para a lista, o Resumo e o comentário da IA; as coordenadas continuam no balão do mapa.
 
 ## Abrir e compartilhar
 

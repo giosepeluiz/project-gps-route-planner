@@ -120,9 +120,14 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
     ["IA reserva", status ? `Groq ${status.groq.model}${status.groq.enabled ? "" : " (sem chave)"}` : "…"],
     ["Tema", theme === "dark" ? "Escuro" : "Claro"],
     ["Tamanho do texto", `${FONT_NAMES[settings.fontSize]} (${FONT_PX[settings.fontSize]} px)`],
-    ["Idioma do navegador", typeof navigator === "undefined" ? "?" : navigator.language],
-    ["Tela", typeof window === "undefined" ? "?" : `${window.innerWidth} × ${window.innerHeight} (densidade ${window.devicePixelRatio})`],
-    ["Navegador", typeof navigator === "undefined" ? "?" : navigator.userAgent],
+    // Dados do navegador só com a tela aberta: no HTML do servidor eles não existem (e não podem divergir).
+    ...(open
+      ? ([
+          ["Idioma do navegador", navigator.language],
+          ["Tela", `${window.innerWidth} × ${window.innerHeight} (densidade ${window.devicePixelRatio})`],
+          ["Navegador", navigator.userAgent],
+        ] as [string, string][])
+      : []),
   ];
 
   const copyTechnical = () => {

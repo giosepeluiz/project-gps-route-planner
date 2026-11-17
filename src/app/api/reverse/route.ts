@@ -8,8 +8,9 @@ const Query = z.object({
 });
 
 /**
- * GET /api/reverse?lat=…&lng=…
- * Responde { label, provider } com o endereço do ponto, ou { label: null }.
+ * GET /api/reverse?lat=…&lng=…[&kind=area]
+ * Responde { label, provider } com o endereço do ponto (ou, com kind=area, o
+ * nome da zona: bairro/freguesia e cidade), ou { label: null }.
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -18,7 +19,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Coordenadas inválidas." }, { status: 400 });
   }
 
-  const found = await getServices().geocoder.reverse(parsed.data);
+  const { geocoder } = getServices();
+  const found = params.get("kind") === "area" ? await geocoder.area(parsed.data) : await geocoder.reverse(parsed.data);
   return NextResponse.json(found ?? { label: null, provider: null }, {
     headers: { "Cache-Control": "private, max-age=86400" },
   });

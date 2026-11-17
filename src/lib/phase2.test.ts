@@ -244,6 +244,11 @@ function fakeProvider(name: string, behavior: "ok" | "empty" | "error"): Geocode
       if (behavior === "error") throw new Error(`${name} fora do ar`);
       return behavior === "empty" ? null : `Endereço via ${name}`;
     },
+    async area() {
+      provider.calls += 1;
+      if (behavior === "error") throw new Error(`${name} fora do ar`);
+      return behavior === "empty" ? null : `Zona via ${name}`;
+    },
   };
   return provider;
 }

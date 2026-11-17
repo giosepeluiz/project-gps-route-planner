@@ -139,15 +139,30 @@ export function createTomTomMatrix(
       const meters = emptyBlock(origins.length, destinations.length);
       const rowsPerRequest = Math.max(1, Math.floor(maxCells / destinations.length));
 
+      const noRoute = (data: TomTomMatrixResponse) =>
+        (data.data ?? []).some((cell) => cell.detailedError?.innerError?.code === "NO_ROUTE_FOUND");
+
       for (let from = 0; from < origins.length; from += rowsPerRequest) {
         const chunk = origins.slice(from, from + rowsPerRequest);
-        const data = (await postJson(
-          fetchFn,
-          url,
-          { origins: chunk.map(toPoint), destinations: destinations.map(toPoint), options },
-          {},
-          signal,
-        )) as TomTomMatrixResponse;
+        const ask = (opts: typeof options) =>
+          postJson(
+            fetchFn,
+            url,
+            { origins: chunk.map(toPoint), destinations: destinations.map(toPoint), options: opts },
+            {},
+            signal,
+          ) as Promise<TomTomMatrixResponse>;
+        let data = await ask(options);
+        // Com trânsito ao vivo, uma interdição momentânea (evento, obra) faz a TomTom
+        // dizer NO_ROUTE_FOUND até de um ponto para ele mesmo. Antes de concluir que
+        // não há caminho de carro, confere com o trânsito histórico do mesmo horário.
+        if (live && noRoute(data)) {
+          data = await ask({
+            ...options,
+            departAt: new Date(Math.max(departAt.getTime(), now() + 60_000)).toISOString(),
+            traffic: "historical",
+          });
+        }
         for (const cell of data.data ?? []) {
           if (cell.detailedError?.innerError?.code === "NO_ROUTE_FOUND") {
             throw new NoRouteError(chunk[cell.originIndex], destinations[cell.destinationIndex]);

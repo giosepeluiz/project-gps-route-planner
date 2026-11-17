@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchParsedPlaces, fetchReview, LOCAL_REVIEW, reviewRequestBody } from "./ai-client";
+import { fetchParsedPlaces, fetchReview, LOCAL_REVIEW, locksFromSuggestion, reviewRequestBody } from "./ai-client";
+import { isCoordinateLabel } from "./place-input";
+import { MemoryCache } from "./server/cache";
+import { nominatimZone, zoneLabel } from "./server/geocode";
+import { createTomTomSuggest, toSuggestion } from "./server/suggest";
 import {
+  checkSuggestedOrder,
   createAiService,
   createGemini,
   createGroq,
@@ -184,6 +189,109 @@ describe("provedores de IA (formato das requisições)", () => {
         { role: "user", content: "usuário" },
       ],
     });
+  });
+});
+
+describe("aceitar a sugestão da IA", () => {
+  it("a ordem sugerida só vale se for uma permutação das paradas, diferente da atual", () => {
+    // Lista: 1 = início, 2..4 = paradas, 5 = volta.
+    expect(checkSuggestedOrder([4, 2, 3], 3)).toEqual([2, 0, 1]);
+    expect(checkSuggestedOrder([2, 3, 4], 3)).toBeNull(); // igual à atual
+    expect(checkSuggestedOrder([2, 2, 4], 3)).toBeNull(); // repetida
+    expect(checkSuggestedOrder([1, 3, 4], 3)).toBeNull(); // mexe no início
+    expect(checkSuggestedOrder([5, 3, 4], 3)).toBeNull(); // mexe no fim
+    expect(checkSuggestedOrder([3, 2], 3)).toBeNull(); // faltando
+    expect(checkSuggestedOrder(null, 3)).toBeNull();
+    // Com o início e o fim nas pontas (como o Gemini às vezes responde), vale só o miolo.
+    expect(checkSuggestedOrder([1, 4, 5, 3, 2, 6, 7], 5)).toEqual([2, 3, 1, 0, 4]);
+    expect(checkSuggestedOrder([1, 4, 3, 2], 3)).toEqual([2, 1, 0]); // rota que termina na última parada
+  });
+
+  it("a revisão devolve as posições conferidas e pede a ordem no formato certo", async () => {
+    const answer = JSON.stringify({
+      explanation: "A rota vai e volta entre as margens do Tejo sem necessidade.",
+      backtracking: true,
+      suggestion: "Visitar o Parque das Nações antes de Belém.",
+      suggestedOrder: [2, 4, 3],
+    });
+    const gemini = fakeAi("Gemini", "primária", answer);
+    const result = await reviewRoute(createAiService([gemini]), { ...input, stopCount: 3 });
+    expect(result?.data.suggestedStops).toEqual([0, 2, 1]);
+    expect(result?.data).not.toHaveProperty("suggestedOrder");
+    expect(gemini.seen[0].user).toContain("números 2 a 4");
+    expect(gemini.seen[0].system).toContain("suggestedOrder");
+
+    // Ordem inválida: o texto fica, o botão não aparece.
+    const bad = fakeAi("Gemini", "primária", JSON.stringify({ ...JSON.parse(answer), suggestedOrder: [9, 9, 9] }));
+    const invalid = await reviewRoute(createAiService([bad]), { ...input, stopCount: 3 });
+    expect(invalid?.data.suggestion).toBeTruthy();
+    expect(invalid?.data.suggestedStops).toBeNull();
+  });
+
+  it("aceitar trava cada parada na posição sugerida", () => {
+    expect(locksFromSuggestion(["a", "b", "c"], [2, 0, 1])).toEqual({ c: 0, a: 1, b: 2 });
+    expect(locksFromSuggestion(["a", "b"], [2, 0, 1])).toBeNull();
+  });
+});
+
+describe("nome da zona e sugestões de endereço", () => {
+  it("zona: bairro (ou lugarejo) e cidade, sem repetir", () => {
+    expect(nominatimZone({ suburb: "Campo Pequeno", city_district: "Avenidas Novas", city: "Lisboa" })).toBe(
+      "Campo Pequeno, Lisboa",
+    );
+    expect(nominatimZone({ hamlet: "Fervença", town: "Terrugem", municipality: "Sintra" })).toBe("Fervença, Terrugem");
+    expect(nominatimZone({ city_district: "Gâmbia-Pontes-Alto da Guerra", city: "Setúbal" })).toBe(
+      "Gâmbia-Pontes-Alto da Guerra, Setúbal",
+    );
+    expect(zoneLabel("Lisboa", "Lisboa")).toBe("Lisboa");
+    expect(zoneLabel(null, null)).toBeNull();
+  });
+
+  it("rótulo só de coordenadas é reconhecido para ganhar o nome da zona", () => {
+    expect(isCoordinateLabel({ lat: 38.7434, lng: -9.1593, label: "38.7434, -9.1593" })).toBe(true);
+    expect(isCoordinateLabel({ lat: 38.7434, lng: -9.1593, label: "Campo Pequeno, Lisboa" })).toBe(false);
+  });
+
+  it("sugestão da TomTom vira nome + linha de apoio", () => {
+    expect(
+      toSuggestion({
+        type: "Street",
+        address: { freeformAddress: "Rua Augusta, 1100 Lisboa", municipalitySubdivision: "Santa Maria Maior" },
+        position: { lat: 38.713086, lon: -9.13864 },
+      }),
+    ).toEqual({ lat: 38.713086, lng: -9.13864, label: "Rua Augusta", detail: "Santa Maria Maior, 1100 Lisboa" });
+    expect(
+      toSuggestion({
+        type: "POI",
+        poi: { name: "Arco da Rua Augusta" },
+        address: { freeformAddress: "Rua Augusta, 1100 Lisboa", municipalitySubdivision: "Santa Maria Maior" },
+        position: { lat: 38.7084, lon: -9.1368 },
+      })?.label,
+    ).toBe("Arco da Rua Augusta");
+    expect(toSuggestion({ address: { freeformAddress: "x" }, position: {} })).toBeNull();
+  });
+
+  it("sugestões: cache, mínimo de 3 letras e falha vira lista vazia", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return Response.json({
+        results: [
+          { type: "Street", address: { freeformAddress: "Rua Augusta, 1100 Lisboa" }, position: { lat: 38.7, lon: -9.1 } },
+          { type: "Street", address: { freeformAddress: "Rua Augusta, 1100 Lisboa" }, position: { lat: 38.7, lon: -9.1 } },
+        ],
+      });
+    }) as unknown as typeof fetch;
+    const service = createTomTomSuggest("CHAVE", new MemoryCache(), fetchFn);
+    expect(await service.suggest("ru", null)).toEqual([]);
+    expect(await service.suggest("rua augusta", null)).toHaveLength(1); // repetida sai
+    await service.suggest("Rua  Augusta", null);
+    expect(calls).toBe(1);
+
+    const warn = quiet();
+    const down = createTomTomSuggest("CHAVE", new MemoryCache(), (async () => new Response("", { status: 403 })) as unknown as typeof fetch);
+    expect(await down.suggest("rua augusta", null)).toEqual([]);
+    warn.mockRestore();
   });
 });
 

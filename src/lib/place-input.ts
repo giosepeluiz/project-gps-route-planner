@@ -90,6 +90,50 @@ export async function resolvePlaceInput(
   };
 }
 
+/** Sugestão do autocompletar (vem de /api/suggest). */
+export interface AddressSuggestion extends LatLng {
+  label: string;
+  detail: string;
+}
+
+/**
+ * Sugestões de endereço para o texto digitado. Só pede quando o texto parece
+ * um endereço (não coordenadas nem link) e tem pelo menos 3 letras.
+ */
+export async function fetchSuggestions(
+  text: string,
+  near: LatLng | null,
+  signal?: AbortSignal,
+  fetchFn: FetchFn = fetch,
+): Promise<AddressSuggestion[]> {
+  const query = text.trim();
+  if (query.length < 3 || classifyInput(query).kind !== "address") return [];
+  const params = new URLSearchParams({ q: query.slice(0, 120) });
+  if (near) params.set("near", `${near.lat.toFixed(3)},${near.lng.toFixed(3)}`);
+  try {
+    const res = await fetchFn(`/api/suggest?${params}`, { signal });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { suggestions?: AddressSuggestion[] };
+    return Array.isArray(data.suggestions) ? data.suggestions : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Nome da zona (bairro ou freguesia, e a cidade) de um ponto, ou null. */
+export async function areaLabel(point: LatLng, fetchFn: FetchFn = fetch): Promise<string | null> {
+  const found = await getJson<{ label: string | null }>(
+    fetchFn,
+    `/api/reverse?kind=area&lat=${point.lat.toFixed(6)}&lng=${point.lng.toFixed(6)}`,
+  );
+  return found?.label ?? null;
+}
+
+/** true quando o rótulo é só a coordenada (local digitado como coordenadas ou link). */
+export function isCoordinateLabel(place: LatLng & { label: string }): boolean {
+  return place.label === formatLatLng(place.lat, place.lng) || parseCoordinates(place.label) !== null;
+}
+
 /** Endereço de um ponto do mapa, ou null. */
 export async function reverseLabel(point: LatLng, fetchFn: FetchFn = fetch): Promise<string | null> {
   const found = await getJson<{ label: string | null }>(

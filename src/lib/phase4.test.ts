@@ -375,6 +375,30 @@ describe("sem travessia por mar", () => {
     expect((error as NoRouteError).to).toBe(pts[1]);
   });
 
+  it("TomTom: NO_ROUTE_FOUND com trânsito ao vivo é conferido com o histórico antes de valer", async () => {
+    const asked: string[] = [];
+    const fetchFn = (async (_u: string, init: RequestInit) => {
+      const { traffic } = JSON.parse(init.body as string).options;
+      asked.push(traffic);
+      // Ao vivo: interdição momentânea. Histórico: caminho normal.
+      return Response.json({
+        data: [
+          traffic === "live"
+            ? { originIndex: 0, destinationIndex: 0, detailedError: { innerError: { code: "NO_ROUTE_FOUND" } } }
+            : { originIndex: 0, destinationIndex: 0, routeSummary: { travelTimeInSeconds: 900, lengthInMeters: 9000 } },
+        ],
+      });
+    }) as typeof fetch;
+    const result = await createTomTomMatrix("CHAVE", fetchFn, () => NOW).getCells(
+      [pts[0]],
+      [pts[1]],
+      new Date(NOW),
+      AbortSignal.timeout(1000),
+    );
+    expect(asked).toEqual(["live", "historical"]);
+    expect(result.seconds[0][0]).toBe(900);
+  });
+
   it("OpenRouteService: célula nula vira 'sem caminho'", async () => {
     const fetchFn = (async () => Response.json({ durations: [[null]] })) as unknown as typeof fetch;
     await expect(

@@ -30,6 +30,37 @@ export interface GeocodeProvider {
   name: string;
   search(query: string, bbox: BBox | null, signal: AbortSignal): Promise<GeocodeResult | null>;
   reverse(point: LatLng, signal: AbortSignal): Promise<string | null>;
+  /** Nome da zona (bairro ou freguesia, e a cidade) de um ponto. */
+  area(point: LatLng, signal: AbortSignal): Promise<string | null>;
+}
+
+/** "Zona, Cidade", sem repetir quando os dois são iguais. */
+export function zoneLabel(zone: string | null | undefined, city: string | null | undefined): string | null {
+  const z = zone?.trim();
+  const c = city?.trim();
+  if (z && c && z.toLowerCase() !== c.toLowerCase()) return `${z}, ${c}`;
+  return z || c || null;
+}
+
+interface NominatimAddress {
+  suburb?: string;
+  quarter?: string;
+  neighbourhood?: string;
+  hamlet?: string;
+  village?: string;
+  city_district?: string;
+  town?: string;
+  city?: string;
+  municipality?: string;
+}
+
+/** Bairro (ou lugarejo, ou freguesia) e cidade, a partir do endereço do Nominatim. */
+export function nominatimZone(address: NominatimAddress | undefined): string | null {
+  if (!address) return null;
+  const zone =
+    address.suburb ?? address.quarter ?? address.neighbourhood ?? address.hamlet ?? address.village ?? address.city_district;
+  const city = address.city ?? address.town ?? address.municipality;
+  return zoneLabel(zone, city);
 }
 
 type FetchFn = typeof fetch;
@@ -110,6 +141,22 @@ export function createNominatim(
       if (!data || data.error || !data.display_name) return null;
       return shortLabel(data.display_name, data.name);
     },
+
+    async area(point, signal) {
+      // zoom 14 = nível de bairro; o reverse já traz os detalhes do endereço.
+      const params = new URLSearchParams({
+        format: "jsonv2",
+        lat: String(point.lat),
+        lon: String(point.lng),
+        zoom: "14",
+        addressdetails: "1",
+      });
+      const data = (await queue.run(() =>
+        getJson(fetchFn, `${base}/reverse?${params}`, { headers, signal }),
+      )) as { address?: NominatimAddress; error?: string };
+      if (!data || data.error) return null;
+      return nominatimZone(data.address);
+    },
   };
 }
 
@@ -122,7 +169,9 @@ interface TomTomSearch {
 }
 
 interface TomTomReverse {
-  addresses?: { address?: { freeformAddress?: string } }[];
+  addresses?: {
+    address?: { freeformAddress?: string; municipalitySubdivision?: string; municipality?: string };
+  }[];
 }
 
 export function createTomTom(apiKey: string, fetchFn: FetchFn = fetch): GeocodeProvider {
@@ -164,12 +213,26 @@ export function createTomTom(apiKey: string, fetchFn: FetchFn = fetch): GeocodeP
       const address = data.addresses?.[0]?.address?.freeformAddress;
       return address ? shortLabel(address) : null;
     },
+
+    async area(point, signal) {
+      const params = new URLSearchParams({ key: apiKey, language: "pt-BR", radius: "200" });
+      const data = (await getJson(
+        fetchFn,
+        `${base}/reverseGeocode/${point.lat},${point.lng}.json?${params}`,
+        { signal },
+      )) as TomTomReverse;
+      const address = data.addresses?.[0]?.address;
+      // municipalitySubdivision é a freguesia (Portugal) ou o bairro (Brasil).
+      return zoneLabel(address?.municipalitySubdivision, address?.municipality);
+    },
   };
 }
 
 export interface Geocoder {
   search(query: string, bbox?: BBox | null): Promise<GeocodeResult | null>;
   reverse(point: LatLng): Promise<{ label: string; provider: string } | null>;
+  /** Nome da zona (bairro/freguesia, cidade) de um ponto. */
+  area(point: LatLng): Promise<{ label: string; provider: string } | null>;
 }
 
 export interface GeocoderOptions {
@@ -225,25 +288,32 @@ export function createGeocoder({
       return null;
     },
 
-    async reverse(point) {
-      const key = `rev:v1:${point.lat.toFixed(5)},${point.lng.toFixed(5)}`;
-      const cached = await cache.get<{ label: string; provider: string }>(key);
-      if (cached) return cached;
-
-      for (const provider of providers) {
-        const breaker = breakers.get(provider.name)!;
-        try {
-          const label = await withPolicy(breaker, (signal) => provider.reverse(point, signal), policy);
-          if (label) {
-            const value = { label, provider: provider.name };
-            await cache.set(key, value, GEOCODE_TTL_S);
-            return value;
-          }
-        } catch (err) {
-          console.warn(`Geocodificação reversa: ${provider.name} falhou, tentando o próximo.`, err);
-        }
-      }
-      return null;
-    },
+    reverse: (point) => reverseLike("rev:v1", point, (provider, signal) => provider.reverse(point, signal)),
+    area: (point) => reverseLike("area:v1", point, (provider, signal) => provider.area(point, signal)),
   };
+
+  async function reverseLike(
+    prefix: string,
+    point: LatLng,
+    ask: (provider: GeocodeProvider, signal: AbortSignal) => Promise<string | null>,
+  ): Promise<{ label: string; provider: string } | null> {
+    const key = `${prefix}:${point.lat.toFixed(5)},${point.lng.toFixed(5)}`;
+    const cached = await cache.get<{ label: string; provider: string }>(key);
+    if (cached) return cached;
+
+    for (const provider of providers) {
+      const breaker = breakers.get(provider.name)!;
+      try {
+        const label = await withPolicy(breaker, (signal) => ask(provider, signal), policy);
+        if (label) {
+          const value = { label, provider: provider.name };
+          await cache.set(key, value, GEOCODE_TTL_S);
+          return value;
+        }
+      } catch (err) {
+        console.warn(`Geocodificação reversa (${prefix}): ${provider.name} falhou, tentando o próximo.`, err);
+      }
+    }
+    return null;
+  }
 }

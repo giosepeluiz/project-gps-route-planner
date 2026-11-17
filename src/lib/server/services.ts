@@ -11,6 +11,7 @@ import {
 } from "./matrix";
 import { apiLimitPerMinute } from "./rate-limit";
 import { createResolver } from "./resolve";
+import { createTomTomSuggest, noSuggest, type SuggestService } from "./suggest";
 import {
   chainGeometry,
   createOsrmDemoGeometry,
@@ -25,6 +26,7 @@ interface Services {
   matrix: MatrixService;
   geometry: GeometryService;
   ai: AiService;
+  suggest: SuggestService;
 }
 
 let services: Services | null = null;
@@ -97,6 +99,8 @@ export function getServices(): Services {
     matrix: createMatrixService({ providers: matrixProviders, cache }),
     geometry: chainGeometry(geometries),
     ai: createAiService(aiProviders),
+    // Autocompletar só com a TomTom (o Nominatim não permite autocompletar).
+    suggest: tomtomKey ? createTomTomSuggest(tomtomKey, cache) : noSuggest,
   };
   return services;
 }

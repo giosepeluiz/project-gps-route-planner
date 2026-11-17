@@ -25,6 +25,7 @@ import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hoo
 import {
   fetchParsedPlaces,
   fetchReview,
+  locksFromSuggestion,
   reviewRequestBody,
   TIER_LABEL,
   type ReviewOutcome,
@@ -33,7 +34,16 @@ import { legColor } from "@/lib/leg-colors";
 import { cleanLocks, moveStop, removeFromLocks, toggleLock } from "@/lib/locks";
 import { MOCK_START, MOCK_TYPED_STOPS } from "@/lib/mock-data";
 import { optimizeStops } from "@/lib/optimize";
-import { resolvePlaceInput, reverseLabel, type BBoxTuple, type PlaceDraft } from "@/lib/place-input";
+import {
+  areaLabel,
+  fetchSuggestions,
+  isCoordinateLabel,
+  type AddressSuggestion,
+  resolvePlaceInput,
+  reverseLabel,
+  type BBoxTuple,
+  type PlaceDraft,
+} from "@/lib/place-input";
 import { computePlan, estimateLegTime } from "@/lib/plan";
 import { fetchPlan, planRequestBody, type PlanOutcome } from "@/lib/plan-client";
 import type { PlanResponse } from "@/lib/server/plan";
@@ -236,7 +246,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [toast]);
 
   const notify = (text: string, undoStopId?: string) =>
-    setToast({ id: Date.now(), text, undoStopId });
+    // O id muda a cada aviso, para a animação e o tempo de exibição recomeçarem.
+    setToast((previous) => ({ id: (previous?.id ?? 0) + 1, text, undoStopId }));
 
   const finalPlace = endSame ? start : end;
 
@@ -351,6 +362,41 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setRoute((prev) => ({ ...prev, locks: moved.locks }));
   };
 
+  // Local digitado como coordenadas (ou link com coordenadas): troca o rótulo
+  // pelo nome da zona (bairro ou freguesia, e a cidade), para ficar fácil de
+  // reconhecer na lista, no Resumo e no comentário da IA. Uma tentativa por local.
+  const zoneTried = useRef(new Set<string>());
+  useEffect(() => {
+    const places = [route.start, ...route.stops, ...(route.end ? [route.end] : [])];
+    for (const place of places) {
+      if (zoneTried.current.has(place.id) || !isCoordinateLabel(place)) continue;
+      zoneTried.current.add(place.id);
+      const original = place.label;
+      void areaLabel(place).then((zone) => {
+        if (!zone) return;
+        // Só troca se o rótulo ainda for a coordenada (o usuário pode ter mudado o local).
+        const rename = (p: Place) => (p.id === place.id && p.label === original ? { ...p, label: zone } : p);
+        setRoute((prev) => ({
+          ...prev,
+          start: rename(prev.start),
+          end: prev.end ? rename(prev.end) : prev.end,
+          stops: prev.stops.map(rename),
+        }));
+      });
+    }
+  }, [route.start, route.stops, route.end, setRoute]);
+
+  /** Aceita a ordem da IA: cada parada fica travada na posição sugerida (dá para destravar depois). */
+  const acceptSuggestion = (suggestedStops: readonly number[]) => {
+    const next = locksFromSuggestion(displayedIds, suggestedStops);
+    if (!next) {
+      notify("A sugestão não vale mais para esta lista de paradas.");
+      return;
+    }
+    setRoute((prev) => ({ ...prev, locks: next }));
+    notify(`Sugestão aceita: ${pluralStops(displayedIds.length)} travadas na ordem da IA.`);
+  };
+
   const setDwell = (id: string, minutes: number) =>
     setRoute((prev) => ({
       ...prev,
@@ -400,6 +446,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     if (missing.length === 0) return null;
     return added > 0 ? `Não encontrei: ${missing.join("; ")}.` : MSG_NOT_FOUND;
   };
+
+  /** Autocompletar: sugestões perto da área visível do mapa. */
+  const suggestAddresses = (text: string, signal: AbortSignal) => {
+    const box = bboxRef.current;
+    const near = box ? { lat: (box[1] + box[3]) / 2, lng: (box[0] + box[2]) / 2 } : null;
+    return fetchSuggestions(text, near, signal);
+  };
+  /** Local escolhido numa sugestão: já vem com as coordenadas, sem nova busca. */
+  const placeFromSuggestion = (s: AddressSuggestion) =>
+    makePlace({ lat: s.lat, lng: s.lng, label: s.label, source: "address", confidence: 1 });
 
   const submitFixed = async (text: string, which: "start" | "end"): Promise<string | null> => {
     const draft = await resolvePlaceInput(text, bboxRef.current);
@@ -526,7 +582,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
     if (serverPlan.legSeconds.length !== sequence.length - 1) return null;
     return JSON.stringify(
-      reviewRequestBody(sequence.map((p) => p.label), serverPlan.legSeconds, endSame, lockCount),
+      reviewRequestBody(sequence.map((p) => p.label), serverPlan.legSeconds, endSame, lockCount, stops.length),
     );
   }, [serverPlan, start, stops, finalPlace, endSame, lockCount]);
   const [aiRemote, setAiRemote] = useState<{ body: string; outcome: ReviewOutcome } | null>(null);
@@ -601,6 +657,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 value={start.label}
                 placeholder="Endereço, coordenadas ou link"
                 onSubmit={(text) => submitFixed(text, "start")}
+                suggest={suggestAddresses}
+                onPick={(s) => setFixed("start", placeFromSuggestion(s))}
               />
 
               <div className="flex items-center justify-between gap-3">
@@ -633,6 +691,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   value={end?.label ?? ""}
                   placeholder="Opcional: endereço, coordenadas ou link"
                   onSubmit={(text) => submitFixed(text, "end")}
+                  suggest={suggestAddresses}
+                  onPick={(s) => setFixed("end", placeFromSuggestion(s))}
                 />
               )}
 
@@ -737,6 +797,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 placeholder="Endereço, coordenadas ou link"
                 addMode
                 onSubmit={submitStop}
+                suggest={suggestAddresses}
+                onPick={(s) => tryAddStop(placeFromSuggestion(s))}
               />
             </div>
           </CollapsibleCard>
@@ -878,9 +940,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                       </p>
                     )}
                     {aiOutcome.review.suggestion && (
-                      <p className="text-xs text-muted">
-                        Sugestão da IA (não aplicada): {aiOutcome.review.suggestion}
-                      </p>
+                      <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+                        <p className="text-xs leading-relaxed text-ink-2">
+                          <span className="font-semibold text-ink">Sugestão da IA:</span> {aiOutcome.review.suggestion}
+                        </p>
+                        {aiOutcome.review.suggestedStops && (
+                          <>
+                            <p className="text-2xs text-muted">
+                              Nova ordem:{" "}
+                              {aiOutcome.review.suggestedStops.map((from) => stops[from]?.label).join(" → ")}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => acceptSuggestion(aiOutcome.review!.suggestedStops!)}
+                              className="focus-ring self-start rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-on-ink hover:bg-ink/85"
+                            >
+                              Aceitar sugestão
+                            </button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </>
                 )}
