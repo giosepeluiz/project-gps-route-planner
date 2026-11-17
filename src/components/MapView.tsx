@@ -3,8 +3,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
-import { legColor } from "@/lib/leg-colors";
+import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import { DONE_LEG_COLOR, legColor } from "@/lib/leg-colors";
 import { overlayPadding } from "@/lib/map-padding";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
@@ -31,6 +31,10 @@ interface MapViewProps {
   streetLegs: [number, number][][] | null;
   /** Clique em um trecho da linha colorida. */
   onLegClick: (index: number, lat: number, lng: number) => void;
+  /** Trecho com o balão aberto: fica em destaque e os outros, semitransparentes. */
+  selectedLeg: number | null;
+  /** Trechos já concluídos (índices): aparecem em cinza. */
+  doneLegs: readonly number[];
   layout: MapLayout;
   /**
    * Largura (px) das colunas de blocos grudadas em cada borda, no desktop. Os
@@ -45,8 +49,8 @@ interface MapViewProps {
   fitVersion: number;
   /** Abre a tela de configurações (botão junto do zoom). */
   onOpenSettings: () => void;
-  /** Abre o menu de ajuda (botão "?"), ancorado no botão. */
-  onOpenHelp: (button: HTMLButtonElement) => void;
+  /** Abre a tela Sobre (botão "?"). */
+  onOpenAbout: () => void;
   fallbackStyleUrl: string | null;
   /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
@@ -75,9 +79,9 @@ interface CtrlButton {
   label: string;
   /** SVG do ícone (traço, herdando a cor do texto). */
   icon: string;
-  /** Recebe o próprio botão, para ancorar um menu nele. */
-  onClick: (button: HTMLButtonElement) => void;
-  hasPopup?: boolean;
+  onClick: () => void;
+  /** Abre um diálogo (anunciado pelos leitores de tela). */
+  opensDialog?: boolean;
 }
 
 const GEAR_ICON =
@@ -98,9 +102,9 @@ function createButtonsControl(buttons: CtrlButton[]) {
         button.className = "rotas-ctrl-button";
         button.title = spec.title;
         button.setAttribute("aria-label", spec.label);
-        if (spec.hasPopup) button.setAttribute("aria-haspopup", "menu");
+        if (spec.opensDialog) button.setAttribute("aria-haspopup", "dialog");
         button.innerHTML = spec.icon;
-        button.addEventListener("click", () => spec.onClick(button));
+        button.addEventListener("click", () => spec.onClick());
         container.append(button);
       }
       return container;
@@ -125,11 +129,13 @@ export default function MapView({
   path,
   streetLegs,
   onLegClick,
+  selectedLeg,
+  doneLegs,
   layout,
   columnInsets,
   fitVersion,
   onOpenSettings,
-  onOpenHelp,
+  onOpenAbout,
   fallbackStyleUrl,
   onMapClick,
   onMapContextMenu,
@@ -160,7 +166,7 @@ export default function MapView({
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
   const handleOpenSettings = useEffectEvent(() => onOpenSettings());
-  const handleOpenHelp = useEffectEvent((button: HTMLButtonElement) => onOpenHelp(button));
+  const handleOpenAbout = useEffectEvent(() => onOpenAbout());
   const handleBounds = useEffectEvent((map: MapLibreMap) => {
     const b = map.getBounds();
     onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
@@ -261,13 +267,19 @@ export default function MapView({
 
     const media = window.matchMedia(DESKTOP_QUERY);
     const settings = createButtonsControl([
-      { title: "Configurações", label: "Abrir as configurações", icon: GEAR_ICON, onClick: () => handleOpenSettings() },
       {
-        title: "Ajuda",
-        label: "Ajuda e informações",
+        title: "Configurações",
+        label: "Abrir as configurações",
+        icon: GEAR_ICON,
+        opensDialog: true,
+        onClick: () => handleOpenSettings(),
+      },
+      {
+        title: "Sobre",
+        label: "Sobre o planejador de rotas",
         icon: HELP_ICON,
-        hasPopup: true,
-        onClick: (button) => handleOpenHelp(button),
+        opensDialog: true,
+        onClick: () => handleOpenAbout(),
       },
     ]);
     let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
@@ -303,11 +315,14 @@ export default function MapView({
     };
   }, [styleVersion]);
 
+  const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
+
   // Pins e linha da rota.
   useEffect(() => {
     const map = mapRef.current;
     const lib = libRef.current;
     if (!map || !lib || styleVersion === 0) return;
+    const doneSet = new Set(doneKey ? doneKey.split(",").map(Number) : []);
 
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = points.map((point) => {
@@ -347,7 +362,8 @@ export default function MapView({
       type: "FeatureCollection" as const,
       features: (streetLegs ?? []).map((coordinates, index) => ({
         type: "Feature" as const,
-        properties: { index, color: legColor(index) },
+        // Trecho concluído fica cinza; os outros, cada um na sua cor.
+        properties: { index, color: doneSet.has(index) ? DONE_LEG_COLOR : legColor(index) },
         geometry: { type: "LineString" as const, coordinates },
       })),
     };
@@ -393,7 +409,18 @@ export default function MapView({
     // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
     map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
     map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
-  }, [points, path, streetLegs, styleVersion]);
+  }, [points, path, streetLegs, doneKey, styleVersion]);
+
+  // Trecho clicado em destaque: os outros ficam semitransparentes e ele passa por cima.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || styleVersion === 0 || !map.getLayer(STREET_LAYER)) return;
+    const isSelected: ExpressionSpecification = ["==", ["get", "index"], selectedLeg ?? -1];
+    map.setPaintProperty(STREET_LAYER, "line-opacity", selectedLeg === null ? 1 : ["case", isSelected, 1, 0.25]);
+    map.setPaintProperty(STREET_CASING, "line-opacity", selectedLeg === null ? 0.9 : ["case", isSelected, 0.95, 0.2]);
+    map.setLayoutProperty(STREET_LAYER, "line-sort-key", ["case", isSelected, 1, 0]);
+    map.setLayoutProperty(STREET_CASING, "line-sort-key", ["case", isSelected, 1, 0]);
+  }, [selectedLeg, streetLegs, styleVersion]);
 
   // Balão de informação.
   const popupLat = popupAt?.lat;

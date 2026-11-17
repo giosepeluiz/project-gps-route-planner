@@ -5,8 +5,9 @@ import {
   GOOGLE_WAYPOINTS_DESKTOP,
   GOOGLE_WAYPOINTS_MOBILE,
   googleMapsLinks,
+  navigationLinks,
   routeText,
-  wazeLink,
+  type NavigationApp,
 } from "@/lib/export";
 import type { Place, Plan } from "@/lib/types";
 
@@ -14,6 +15,8 @@ interface ActionsPanelProps {
   start: Place;
   /** Paradas na ordem da visita. */
   stops: readonly Place[];
+  /** Paradas já concluídas: a próxima parada pula essas. */
+  doneIds: ReadonlySet<string>;
   /** Ponto final (o próprio início em ida e volta) ou null. */
   finalPlace: Place | null;
   roundTrip: boolean;
@@ -36,9 +39,44 @@ function External() {
   );
 }
 
+/** Ícone de cada app, nas cores da marca, só para reconhecer à primeira vista. */
+function AppIcon({ id }: { id: NavigationApp["id"] }) {
+  if (id === "google") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
+        <path d="M12 2.5a6.5 6.5 0 00-6.5 6.5c0 4.8 6.5 12.5 6.5 12.5s6.5-7.7 6.5-12.5A6.5 6.5 0 0012 2.5z" fill="#ea4335" />
+        <path d="M5.9 6.9A6.5 6.5 0 0012 2.5v4a2.5 2.5 0 00-2.4 1.6z" fill="#4285f4" />
+        <path d="M5.5 9c0 1.6.7 3.4 1.7 5.2l3.4-4a2.5 2.5 0 01-1-2.1l-3.7-1.2A6.5 6.5 0 005.5 9z" fill="#fbbc04" />
+        <path d="M7.2 14.2c1.9 3.4 4.8 7.3 4.8 7.3V11.5a2.5 2.5 0 01-1.4-.4z" fill="#34a853" />
+        <circle cx="12" cy="9" r="2.5" fill="#fff" />
+      </svg>
+    );
+  }
+  if (id === "waze") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
+        <path d="M12 3c-5 0-8.5 3.4-8.5 7.7 0 1.6.5 3 1.3 4.1-.2 1-.8 1.8-1.6 2.3 1.6.4 3 .1 4.2-.6 1.4.8 3 1.2 4.6 1.2 5 0 8.5-3.4 8.5-7.6S17 3 12 3z" fill="#33ccff" stroke="#1b1a18" strokeWidth="1.2" />
+        <circle cx="9.3" cy="9.6" r="1" fill="#1b1a18" />
+        <circle cx="14.7" cy="9.6" r="1" fill="#1b1a18" />
+        <path d="M9 12.6c1.6 1.6 4.4 1.6 6 0" fill="none" stroke="#1b1a18" strokeWidth="1.2" strokeLinecap="round" />
+        <circle cx="8" cy="19.6" r="1.6" fill="#1b1a18" />
+        <circle cx="15.5" cy="19.6" r="1.6" fill="#1b1a18" />
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6">
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="#e7f0e3" stroke="#c9d6c3" />
+      <path d="M2.5 14.5l9-4 10 5" fill="none" stroke="#f5c542" strokeWidth="2" />
+      <path d="M12 6.5l4.5 10.5-4.5-2.4-4.5 2.4z" fill="#0a84ff" />
+    </svg>
+  );
+}
+
 export default function ActionsPanel({
   start,
   stops,
+  doneIds,
   finalPlace,
   roundTrip,
   plan,
@@ -48,8 +86,12 @@ export default function ActionsPanel({
   const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
   const maxWaypoints = isMobile ? GOOGLE_WAYPOINTS_MOBILE : GOOGLE_WAYPOINTS_DESKTOP;
   const links = googleMapsLinks(sequence, maxWaypoints);
-  // Próxima parada: a primeira da rota (ou o fim, se não houver paradas).
-  const next = stops[0] ?? (finalPlace && finalPlace.id !== start.id ? finalPlace : null);
+  // Próxima parada: a primeira ainda não concluída; com todas feitas, o fim (ou a volta ao início).
+  const pending = stops.find((s) => !doneIds.has(s.id));
+  const allDone = stops.length > 0 && !pending;
+  const next =
+    pending ?? (finalPlace && (finalPlace.id !== start.id || allDone) ? finalPlace : null);
+  const nextIsReturn = !pending && next?.id === start.id;
   const text = plan ? routeText(start, plan, stops.length, roundTrip, links) : null;
   // Só existe no navegador (e nem em todos): no servidor vale false.
   const canShare = useSyncExternalStore(
@@ -108,15 +150,27 @@ export default function ActionsPanel({
       )}
 
       {next && (
-        <a href={wazeLink(next)} target="_blank" rel="noopener noreferrer" className={linkClass}>
-          <span className="min-w-0">
-            Navegar no Waze
-            <span className="block truncate text-xs font-normal text-muted">
-              Próxima parada: {next.label}
-            </span>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-line-strong px-2.5 py-2">
+          <span className="min-w-0 text-sm font-medium">
+            {nextIsReturn ? "Navegar de volta" : "Navegar até a próxima"}
+            <span className="block truncate text-xs font-normal text-muted">{next.label}</span>
           </span>
-          <External />
-        </a>
+          <span className="flex shrink-0 gap-1">
+            {navigationLinks(next).map((app) => (
+              <a
+                key={app.id}
+                href={app.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Navegar com ${app.name}`}
+                aria-label={`Navegar até ${next.label} com ${app.name}`}
+                className="focus-ring grid h-9 w-9 place-items-center rounded-lg transition-colors duration-150 hover:bg-hover motion-reduce:transition-none"
+              >
+                <AppIcon id={app.id} />
+              </a>
+            ))}
+          </span>
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-2">

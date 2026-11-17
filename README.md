@@ -75,7 +75,16 @@ Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (
 ## Abrir e compartilhar
 
 - **Abrir no Google Maps:** link de rota na ordem otimizada. O Google aceita até 9 paradas por link (3 nos navegadores de celular); acima disso a rota é dividida em partes encadeadas.
-- **Navegar no Waze:** abre a navegação até a próxima parada (o Waze aceita um destino por link).
+- **Navegar até a próxima:** ícones do Google Maps, do Waze e do Apple Maps abrem a navegação de carro até a próxima parada ainda não concluída (com todas concluídas, até o fim ou de volta ao início). O bloco começa sempre recolhido.
+
+## Durante a viagem
+
+- **Concluir uma parada:** toque no número dela na lista. O nome fica riscado e cinza, o trecho que chega nela fica cinza no mapa, e a parada é travada na posição, para a ordem não mudar embaixo do que já foi feito. Tocar de novo desfaz.
+- **Ver um trecho:** ao clicar num trecho colorido, ele fica em destaque e os outros ficam semitransparentes enquanto o balão estiver aberto.
+
+## Sobre
+
+O botão "?", ao lado da engrenagem, abre a tela Sobre: autoria, contatos, serviços e IAs usados (com o estado de cada um), privacidade e informações técnicas. Até a versão 1.0 o app é beta, e o Sobre indica isso.
 - **Copiar rota** em texto e **Compartilhar** (onde o navegador oferece compartilhamento).
 
 ## Configurações

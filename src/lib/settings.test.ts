@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GOOGLE_WAYPOINTS_MOBILE, googleMapsLinks, routeText, wazeLink } from "./export";
+import { GOOGLE_WAYPOINTS_MOBILE, googleMapsLinks, navigationLinks, routeText, wazeLink } from "./export";
 import { FIXTURE_PLACES as P, mockLegTime } from "./mock-data";
 import { dropTarget, freeRect, placeBlock, sheetOrder } from "./block-layout";
 import { overlayPadding } from "./map-padding";
@@ -254,6 +254,21 @@ describe("ações de saída", () => {
 
   it("Waze: um destino por link", () => {
     expect(wazeLink(P.Be)).toBe("https://waze.com/ul?ll=38.696750,-9.214720&navigate=yes");
+  });
+
+  it("navegar até a próxima parada: Google Maps, Waze e Apple Maps, de carro", () => {
+    const apps = navigationLinks(P.Be);
+    expect(apps.map((a) => a.id)).toEqual(["google", "waze", "apple"]);
+    const google = new URL(apps[0].href);
+    expect(google.origin + google.pathname).toBe("https://www.google.com/maps/dir/");
+    expect(Object.fromEntries(google.searchParams)).toEqual({
+      api: "1",
+      destination: "38.696750,-9.214720",
+      travelmode: "driving",
+      dir_action: "navigate",
+    });
+    expect(apps[1].href).toBe(wazeLink(P.Be));
+    expect(apps[2].href).toBe("https://maps.apple.com/?daddr=38.696750,-9.214720&dirflg=d");
   });
 
   it("rota em texto", () => {

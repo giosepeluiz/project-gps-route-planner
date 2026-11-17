@@ -27,6 +27,10 @@ const CONTACTS = [
 
 const FONT_NAMES: Record<Settings["fontSize"], string> = { sm: "Pequeno", md: "Médio", lg: "Grande", xl: "Enorme" };
 
+/** Até a versão 1.0 o app é beta. */
+export const IS_BETA = Number(pkg.version.split(".")[0]) < 1;
+const VERSION_LABEL = `${pkg.version}${IS_BETA ? " (beta)" : ""}`;
+
 /** Versão sem o ^ / ~ do package.json. */
 const ver = (range: string | undefined) => (range ?? "?").replace(/^[\^~]/, "");
 
@@ -101,7 +105,7 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
   const devDeps = pkg.devDependencies as Record<string, string>;
 
   const technical: [string, string][] = [
-    ["Aplicativo", `Planejador de rotas ${pkg.version}`],
+    ["Aplicativo", `Planejador de rotas ${VERSION_LABEL}`],
     ["Framework", `Next.js ${ver(deps.next)} (App Router) · React ${ver(deps.react)}`],
     ["Mapa", `MapLibre GL JS ${ver(deps["maplibre-gl"])} · estilo OpenFreeMap Liberty`],
     ["Interface", `Tailwind CSS ${ver(devDeps.tailwindcss)} · TypeScript ${ver(devDeps.typescript)}`],
@@ -132,7 +136,7 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
 
   const copyTechnical = () => {
     const text = [
-      `Planejador de rotas ${pkg.version}`,
+      `Planejador de rotas ${VERSION_LABEL}`,
       ...technical.slice(1).map(([key, value]) => `${key}: ${value}`),
       `Desenvolvido por ${AUTHOR}, com colaboração do ${COLLABORATION}.`,
     ].join("\n");
@@ -178,10 +182,23 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
             </svg>
           </span>
           <div>
-            <p className="text-lg font-semibold leading-tight">Planejador de rotas</p>
-            <p className="text-xs text-muted">Versão {pkg.version}</p>
+            <p className="flex items-center gap-2 text-lg font-semibold leading-tight">
+              Planejador de rotas
+              {IS_BETA && (
+                <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  Beta
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-muted">Versão {VERSION_LABEL}</p>
           </div>
         </div>
+        {IS_BETA && (
+          <p className="mx-5 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            Versão beta até a 1.0: tudo funciona, mas ainda pode mudar e ter falhas. Avise pelos contatos abaixo se
+            algo não sair como esperado.
+          </p>
+        )}
         <p className="px-5 pt-3 text-sm leading-relaxed text-ink-2">
           Planeja a melhor sequência de paradas de carro, com tempos reais de trânsito, traçado pelas ruas e
           tempo de permanência em cada parada. A ordem vem sempre do algoritmo; a IA só comenta e sugere.

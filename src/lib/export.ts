@@ -51,6 +51,32 @@ export function wazeLink(place: LatLng): string {
  * A rota em texto, para copiar ou compartilhar.
  * @param stopCount quantas paradas a rota tem; um trecho a mais é a chegada ao fim
  */
+export interface NavigationApp {
+  id: "google" | "waze" | "apple";
+  name: string;
+  href: string;
+}
+
+/**
+ * Navegação de carro até um ponto, a partir de onde o aparelho está, em cada app.
+ * - Google Maps: dir/?api=1&destination=…&travelmode=driving&dir_action=navigate (documentado).
+ * - Waze: ul?ll=…&navigate=yes.
+ * - Apple Maps: ?daddr=…&dirflg=d (abre o app no iPhone e no Mac; nos outros, o site).
+ */
+export function navigationLinks(point: { lat: number; lng: number }): NavigationApp[] {
+  const ll = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
+  const google = new URL("https://www.google.com/maps/dir/");
+  google.searchParams.set("api", "1");
+  google.searchParams.set("destination", ll);
+  google.searchParams.set("travelmode", "driving");
+  google.searchParams.set("dir_action", "navigate");
+  return [
+    { id: "google", name: "Google Maps", href: google.toString() },
+    { id: "waze", name: "Waze", href: wazeLink(point) },
+    { id: "apple", name: "Apple Maps", href: `https://maps.apple.com/?daddr=${ll}&dirflg=d` },
+  ];
+}
+
 export function routeText(
   start: Place,
   plan: Plan,

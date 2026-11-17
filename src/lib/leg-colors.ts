@@ -15,3 +15,6 @@ export const LEG_COLORS = [
 ] as const;
 
 export const legColor = (index: number): string => LEG_COLORS[index % LEG_COLORS.length];
+
+/** Trecho já concluído: cinza neutro, legível nos dois temas do mapa. */
+export const DONE_LEG_COLOR = "#a8a29e";

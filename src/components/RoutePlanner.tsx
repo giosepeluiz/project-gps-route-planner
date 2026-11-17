@@ -7,7 +7,6 @@ import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
-import HelpMenu from "./HelpMenu";
 import SettingsDialog from "./SettingsDialog";
 import StopList from "./StopList";
 import { useBlockDrag } from "./useBlockDrag";
@@ -75,7 +74,7 @@ const BLOCKS_KEY = "rotas:blocos";
 const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
   inicio: true,
   paradas: true,
-  acoes: true,
+  acoes: false,
   resumo: true,
 };
 
@@ -111,6 +110,8 @@ interface RouteState {
   stops: Place[];
   /** Locais travados: id → posição na visita (0 = primeira parada). */
   locks?: Record<string, number>;
+  /** Paradas já concluídas (ids): riscadas na lista e com o trecho cinza no mapa. */
+  done?: string[];
   timeMode: TimeMode;
 }
 
@@ -201,8 +202,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const settings = useMemo(() => normalizeSettings(storedSettings), [storedSettings]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  /** Botão "?" com o menu aberto. */
-  const [helpAnchor, setHelpAnchor] = useState<HTMLButtonElement | null>(null);
   /** Sobe quando os blocos mudam de lugar ou de tamanho de texto: o mapa reenquadra a rota. */
   const [fitVersion, setFitVersion] = useState(0);
   const setSettings = (next: Settings) => {
@@ -236,8 +235,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const switchId = useId();
   const dateId = useId();
 
-  const isOpen = (id: BlockId) => openBlocks[id] ?? BLOCKS_DEFAULT[id];
-  const toggle = (id: BlockId) => setOpenBlocks({ ...BLOCKS_DEFAULT, ...openBlocks, [id]: !isOpen(id) });
+  // "Abrir e compartilhar" sempre começa recolhido: o estado dele não é guardado.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const isOpen = (id: BlockId) => (id === "acoes" ? actionsOpen : (openBlocks[id] ?? BLOCKS_DEFAULT[id]));
+  const toggle = (id: BlockId) => {
+    if (id === "acoes") setActionsOpen((open) => !open);
+    else setOpenBlocks({ ...BLOCKS_DEFAULT, ...openBlocks, [id]: !isOpen(id) });
+  };
 
   // O aviso some sozinho depois de alguns segundos.
   useEffect(() => {
@@ -386,6 +390,38 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       });
     }
   }, [route.start, route.stops, route.end, setRoute]);
+
+  /** Paradas concluídas que ainda estão na rota. */
+  const doneIds = useMemo(
+    () => new Set((route.done ?? []).filter((id) => typedStops.some((s) => s.id === id))),
+    [route.done, typedStops],
+  );
+
+  /**
+   * Concluir (ou desfazer) uma parada. Ao concluir, ela também fica travada na
+   * posição atual, para a ordem não mudar embaixo do que já foi feito.
+   */
+  const toggleDone = (id: string) => {
+    const wasDone = doneIds.has(id);
+    setRoute((prev) => {
+      const done = new Set(prev.done ?? []);
+      if (wasDone) done.delete(id);
+      else done.add(id);
+      const position = displayedIds.indexOf(id);
+      const nextLocks = !wasDone && position !== -1 ? { ...locks, [id]: position } : prev.locks;
+      return { ...prev, done: [...done], locks: nextLocks };
+    });
+    if (!wasDone) {
+      const place = typedStops.find((s) => s.id === id);
+      notify(`${place?.label ?? "Parada"} concluída.`);
+    }
+  };
+
+  /** Trechos concluídos no mapa: o trecho i chega na parada i. */
+  const doneLegs = useMemo(
+    () => stops.flatMap((s, i) => (doneIds.has(s.id) ? [i] : [])),
+    [stops, doneIds],
+  );
 
   /** Aceita a ordem da IA: cada parada fica travada na posição sugerida (dá para destravar depois). */
   const acceptSuggestion = (suggestedStops: readonly number[]) => {
@@ -802,7 +838,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 <>
                   <p className="text-xs text-muted">
                     Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). O
-                    relógio define quanto tempo você fica em cada parada.
+                    relógio define quanto tempo você fica em cada parada. Toque no número para marcar a
+                    parada como concluída.
                   </p>
                   <StopList
                     stops={stops}
@@ -813,6 +850,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     onToggleLock={handleToggleLock}
                     onRemove={removeStop}
                     onDwellChange={setDwell}
+                    doneIds={doneIds}
+                    onToggleDone={toggleDone}
                   />
                 </>
               )}
@@ -845,7 +884,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           <CollapsibleCard
             id="bloco-acoes"
             title="Abrir e compartilhar"
-            summary="Google Maps, Waze, copiar"
+            summary="Google Maps, navegar, copiar"
             open={isOpen("acoes")}
             onToggle={() => toggle("acoes")}
             {...options}
@@ -853,6 +892,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             <ActionsPanel
               start={start}
               stops={stops}
+              doneIds={doneIds}
               finalPlace={finalPlace}
               roundTrip={endSame}
               plan={plan}
@@ -1104,10 +1144,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         path={path}
         streetLegs={streetLegs}
         onLegClick={handleLegClick}
+        selectedLeg={info?.leg ?? null}
+        doneLegs={doneLegs}
         columnInsets={columnInsets}
         fitVersion={fitVersion}
         onOpenSettings={() => setSettingsOpen(true)}
-        onOpenHelp={(button) => setHelpAnchor((current) => (current ? null : button))}
+        onOpenAbout={() => setAboutOpen(true)}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
         onMapClick={(lat, lng) => openInfo(lat, lng)}
@@ -1260,9 +1302,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         onChange={setSettings}
       />
 
-      {helpAnchor && (
-        <HelpMenu anchor={helpAnchor} onAbout={() => setAboutOpen(true)} onClose={() => setHelpAnchor(null)} />
-      )}
       <AboutDialog
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
