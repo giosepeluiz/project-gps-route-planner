@@ -16,8 +16,6 @@ import {
 interface SettingsPanelProps {
   settings: Settings;
   onChange: (next: Settings) => void;
-  /** Encerra a sessão. Só existe quando o site exige senha. */
-  onLogout?: () => void;
 }
 
 interface Option<T extends string> {
@@ -39,9 +37,9 @@ function Segmented<T extends string>({
 }) {
   return (
     <fieldset>
-      <legend className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{legend}</legend>
+      <legend className="mb-1 text-xs font-medium text-ink-2">{legend}</legend>
       <div
-        className="grid gap-1 rounded-lg bg-zinc-200 p-1 dark:bg-zinc-800"
+        className="grid gap-0.5 rounded-lg bg-sunken p-0.5"
         style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       >
         {options.map((option) => (
@@ -50,10 +48,10 @@ function Segmented<T extends string>({
             type="button"
             aria-pressed={value === option.value}
             onClick={() => onSelect(option.value)}
-            className={`focus-ring rounded-md px-1.5 py-1.5 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none ${
+            className={`focus-ring rounded-md px-1.5 py-1.5 text-xs font-medium transition-colors duration-150 motion-reduce:transition-none ${
               value === option.value
-                ? "bg-white text-zinc-900 shadow dark:bg-zinc-600 dark:text-white"
-                : "text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]"
+                : "text-muted hover:text-ink"
             }`}
           >
             {option.label}
@@ -84,7 +82,7 @@ const DOCKS: Option<SummaryDock>[] = [
   { value: "panel", label: "Junto dos blocos" },
 ];
 
-export default function SettingsPanel({ settings, onChange, onLogout }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     onChange({ ...settings, [key]: value });
 
@@ -116,7 +114,7 @@ export default function SettingsPanel({ settings, onChange, onLogout }: Settings
       />
 
       <div>
-        <p className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+        <p className="mb-1 text-xs font-medium text-ink-2">
           Ordem dos blocos (arraste pela alça)
         </p>
         <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
@@ -141,7 +139,7 @@ export default function SettingsPanel({ settings, onChange, onLogout }: Settings
                 >
                   <Grip />
                 </button>
-                <span className="w-4 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{i + 1}</span>
+                <span className="w-4 text-xs tabular-nums text-muted">{i + 1}</span>
                 <span className="text-sm">{BLOCK_NAMES[id]}</span>
               </li>
             );
@@ -153,19 +151,10 @@ export default function SettingsPanel({ settings, onChange, onLogout }: Settings
         <button
           type="button"
           onClick={() => onChange(DEFAULT_SETTINGS)}
-          className="focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          className="focus-ring rounded-lg border border-line-strong px-2.5 py-1.5 text-xs font-medium hover:bg-hover"
         >
           Restaurar o padrão
         </button>
-        {onLogout && (
-          <button
-            type="button"
-            onClick={onLogout}
-            className="focus-ring rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
-          >
-            Sair
-          </button>
-        )}
       </div>
     </div>
   );

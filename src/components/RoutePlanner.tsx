@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron } from "./CollapsibleCard";
@@ -142,20 +141,13 @@ function fixedPlacesOf(route: RouteState): Place[] {
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100">
+    <span className="rounded-md border border-line px-1.5 py-px text-[11px] font-semibold text-ink-2">
       {children}
     </span>
   );
 }
 
-export default function RoutePlanner({
-  fallbackStyleUrl,
-  authEnabled = false,
-}: {
-  fallbackStyleUrl: string | null;
-  /** true quando o site exige senha (mostra o botão "Sair"). */
-  authEnabled?: boolean;
-}) {
+export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: string | null }) {
   const [route, setRoute] = useLocalStorageState(ROUTE_KEY, ROUTE_DEFAULT, isRouteState);
   const { start, endSame, end, stops: typedStops, timeMode } = route;
   // Travas válidas para a lista atual (ignora restos de paradas removidas).
@@ -164,7 +156,6 @@ export default function RoutePlanner({
     [typedStops, route.locks],
   );
   const lockCount = Object.keys(locks).length;
-  const router = useRouter();
   const [summaryHeight, setSummaryHeight] = useState(0);
 
   // Preferências de aparência (tema, fonte e posição dos blocos).
@@ -455,8 +446,8 @@ export default function RoutePlanner({
     if (!street || !from || !to) return null;
     const planned = plan?.legs[info.leg];
     return (
-      <div className="flex w-56 max-w-full flex-col gap-1 pr-4 text-sm text-zinc-900 dark:text-zinc-100">
-        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+      <div className="flex w-56 max-w-full flex-col gap-1 pr-4 text-sm text-ink">
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
           <span aria-hidden="true" className="h-2 w-5 rounded-full" style={{ backgroundColor: legColor(info.leg) }} />
           Trecho {info.leg + 1}
         </p>
@@ -466,11 +457,11 @@ export default function RoutePlanner({
         <p className="text-base font-semibold">
           {formatKm(street.meters)} · {formatDuration(street.seconds)}
         </p>
-        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+        <p className="text-xs text-muted">
           Distância e tempo médio pelas ruas. Fonte: {serverPlan?.streetSource}.
         </p>
         {planned && !planned.estimated && Math.abs(planned.seconds - street.seconds) >= 60 && (
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">Com o trânsito previsto: {formatDuration(planned.seconds)}.</p>
+          <p className="text-xs text-muted">Com o trânsito previsto: {formatDuration(planned.seconds)}.</p>
         )}
       </div>
     );
@@ -560,7 +551,7 @@ export default function RoutePlanner({
               />
 
               <div className="flex items-center justify-between gap-3">
-                <span id={switchId} className="text-sm">
+                <span id={switchId} className="text-sm text-ink-2">
                   O local de fim é o mesmo do início
                 </span>
                 <button
@@ -569,14 +560,14 @@ export default function RoutePlanner({
                   aria-checked={endSame}
                   aria-labelledby={switchId}
                   onClick={() => setRoute((prev) => ({ ...prev, endSame: !prev.endSame }))}
-                  className={`focus-ring relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none ${
-                    endSame ? "bg-blue-600" : "bg-zinc-400 dark:bg-zinc-600"
+                  className={`focus-ring relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 motion-reduce:transition-none ${
+                    endSame ? "bg-accent" : "bg-line-strong"
                   }`}
                 >
                   <span
                     aria-hidden="true"
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform motion-reduce:transition-none ${
-                      endSame ? "translate-x-5" : ""
+                    className={`absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-200 motion-reduce:transition-none ${
+                      endSame ? "translate-x-4" : ""
                     }`}
                   />
                 </button>
@@ -593,10 +584,10 @@ export default function RoutePlanner({
               )}
 
               <fieldset>
-                <legend className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                <legend className="mb-1 text-xs font-medium text-ink-2">
                   Horário
                 </legend>
-                <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-zinc-200 p-1 dark:bg-zinc-800">
+                <div className="mb-2 grid grid-cols-2 gap-0.5 rounded-lg bg-sunken p-0.5">
                   {(
                     [
                       ["depart", "Sair em"],
@@ -608,10 +599,10 @@ export default function RoutePlanner({
                       type="button"
                       aria-pressed={timeMode === mode}
                       onClick={() => setRoute((prev) => ({ ...prev, timeMode: mode }))}
-                      className={`focus-ring rounded-md px-2 py-1.5 text-sm font-medium ${
+                      className={`focus-ring rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-150 motion-reduce:transition-none ${
                         timeMode === mode
-                          ? "bg-white text-zinc-900 shadow dark:bg-zinc-600 dark:text-white"
-                          : "text-zinc-700 dark:text-zinc-300"
+                          ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]"
+                          : "text-muted hover:text-ink"
                       }`}
                     >
                       {text}
@@ -633,7 +624,7 @@ export default function RoutePlanner({
                     type="button"
                     onClick={() => setDateTime(null)}
                     disabled={dateTime === null}
-                    className="focus-ring shrink-0 rounded-lg border border-zinc-300 px-3 text-sm font-medium hover:bg-zinc-100 disabled:cursor-default disabled:text-zinc-500 disabled:hover:bg-transparent dark:border-zinc-600 dark:hover:bg-zinc-800 dark:disabled:text-zinc-400"
+                    className="focus-ring shrink-0 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-2 transition-colors hover:bg-hover disabled:cursor-default disabled:text-faint disabled:hover:bg-transparent"
                   >
                     Agora
                   </button>
@@ -652,12 +643,12 @@ export default function RoutePlanner({
           >
             <div className="flex flex-col gap-3">
               {stops.length === 0 ? (
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                <p className="text-sm text-muted">
                   Nenhuma parada ainda. Adicione abaixo ou clique no mapa.
                 </p>
               ) : (
                 <>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  <p className="text-xs text-muted">
                     Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). Os
                     destravados são otimizados em volta.
                   </p>
@@ -674,13 +665,13 @@ export default function RoutePlanner({
               )}
 
               {noRouteMessage && (
-                <p role="alert" className="rounded-lg bg-red-100 px-2.5 py-2 text-xs text-red-900 dark:bg-red-950 dark:text-red-200">
+                <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
                   {noRouteMessage}
                 </p>
               )}
 
               {isApproximate(stops.length) && (
-                <p role="status" className="rounded-lg bg-amber-100 px-2.5 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
                   {MSG_APPROX}
                 </p>
               )}
@@ -721,6 +712,7 @@ export default function RoutePlanner({
             summary={`${totalText} · chega ${arriveText}`}
             open={isOpen("resumo")}
             onToggle={() => toggle("resumo")}
+            variant={isDesktop && summaryInCorner ? "card" : "section"}
             className={
               !summaryInCorner
                 ? ""
@@ -732,50 +724,57 @@ export default function RoutePlanner({
             onHeightChange={setSummaryHeight}
           >
             <div className="flex flex-col gap-3 text-sm">
-              <div>
-                <p className="text-2xl font-semibold leading-tight">{totalText}</p>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                  {endSame ? "Tempo total, ida e volta" : "Tempo total"}
-                </p>
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-ink">{totalText}</p>
+                  <p className="mt-1.5 text-xs text-muted">
+                    {endSame ? "Tempo total, ida e volta" : "Tempo total"}
+                  </p>
+                </div>
+                {savedMinutes > 0 && (
+                  <span className="mb-0.5 rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                    −{savedMinutes} min
+                  </span>
+                )}
               </div>
 
-              <dl className="grid grid-cols-2 gap-2">
-                <div>
-                  <dt className="text-xs text-zinc-600 dark:text-zinc-400">Saída</dt>
-                  <dd className="font-medium">{plan ? formatTime(plan.departAt) : "—"}</dd>
+              <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-line">
+                <div className="px-3 py-2">
+                  <dt className="text-[11px] font-medium text-muted">Saída</dt>
+                  <dd className="text-[15px] font-semibold text-ink">{plan ? formatTime(plan.departAt) : "—"}</dd>
                 </div>
-                <div>
-                  <dt className="text-xs text-zinc-600 dark:text-zinc-400">Chegada</dt>
-                  <dd className="font-medium">{arriveText}</dd>
+                <div className="border-l border-line px-3 py-2">
+                  <dt className="text-[11px] font-medium text-muted">Chegada</dt>
+                  <dd className="text-[15px] font-semibold text-ink">{arriveText}</dd>
                 </div>
               </dl>
 
-              <p>
+              <p className="text-[13px] text-ink-2">
                 Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
                 {savedMinutes > 0 ? (
-                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">
                     Economia de {savedMinutes} min.
-                  </strong>
+                  </span>
                 ) : (
                   "A ordem atual não é mais rápida que a digitada."
                 )}
               </p>
 
               {lockCount > 0 && plan && (
-                <p>
+                <p className="text-[13px] text-ink-2">
                   {lockCount === 1 ? "1 local travado." : `${lockCount} locais travados.`}{" "}
                   {plan.totalSeconds - bestSeconds >= 60 ? (
-                    <strong className="font-semibold text-amber-800 dark:text-amber-300">
+                    <span className="font-medium text-amber-800 dark:text-amber-300">
                       Sem travas, a rota levaria {formatDuration(bestSeconds)} (
                       {Math.round((plan.totalSeconds - bestSeconds) / 60)} min a menos).
-                    </strong>
+                    </span>
                   ) : (
                     "Mesmo assim, esta é a ordem mais rápida."
                   )}
                 </p>
               )}
 
-              <ul className="flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+              <ul className="flex flex-col gap-1 text-xs text-muted">
                 <li aria-live="polite">
                   Fonte:{" "}
                   {planStatus === "ok" && serverPlan
@@ -803,8 +802,8 @@ export default function RoutePlanner({
                 )}
               </ul>
 
-              <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-2.5 dark:border-zinc-700" aria-live="polite">
-                <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+              <div className="flex flex-col gap-1.5 border-t border-line pt-3" aria-live="polite">
+                <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
                   <Badge>{TIER_LABEL[aiTier]}</Badge>
                   {aiLoading
                     ? "Consultando a IA…"
@@ -816,14 +815,14 @@ export default function RoutePlanner({
                 </p>
                 {aiOutcome?.review && (
                   <>
-                    <p className="text-xs leading-relaxed">{aiOutcome.review.explanation}</p>
+                    <p className="text-[13px] leading-relaxed text-ink-2">{aiOutcome.review.explanation}</p>
                     {aiOutcome.review.backtracking && (
-                      <p className="rounded-lg bg-amber-100 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
                         A IA viu um possível vai-e-volta nesta ordem.
                       </p>
                     )}
                     {aiOutcome.review.suggestion && (
-                      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                      <p className="text-xs text-muted">
                         Sugestão da IA (não aplicada): {aiOutcome.review.suggestion}
                       </p>
                     )}
@@ -841,20 +840,7 @@ export default function RoutePlanner({
             open={isOpen("config")}
             onToggle={() => toggle("config")}
           >
-            <SettingsPanel
-              settings={settings}
-              onChange={setSettings}
-              onLogout={
-                authEnabled
-                  ? () => {
-                      void fetch("/api/login", { method: "DELETE" }).finally(() => {
-                        router.replace("/login");
-                        router.refresh();
-                      });
-                    }
-                  : undefined
-              }
-            />
+            <SettingsPanel settings={settings} onChange={setSettings} />
           </CollapsibleCard>
     ),
   };
@@ -954,7 +940,7 @@ export default function RoutePlanner({
               infoPlace && infoIsStop ? (
                 <button
                   type="button"
-                  className="focus-ring self-start rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-zinc-600 dark:text-red-400 dark:hover:bg-red-950"
+                  className="focus-ring self-start rounded-lg border border-line-strong px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
                   onClick={() => {
                     removeStop(infoPlace.id);
                     setInfo(null);
@@ -970,21 +956,21 @@ export default function RoutePlanner({
 
       <aside
         aria-label="Planejamento da rota"
-        className={`fixed inset-x-0 bottom-0 z-10 flex max-h-[60dvh] flex-col rounded-t-2xl bg-zinc-100/95 shadow-[0_-4px_24px_rgba(0,0,0,0.2)] backdrop-blur md:pointer-events-none md:absolute md:inset-x-auto md:bottom-4 md:top-4 ${
+        className={`fixed inset-x-0 bottom-0 z-10 flex max-h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t border-line bg-surface shadow-sheet md:absolute md:inset-x-auto md:bottom-auto md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-80 md:rounded-xl md:border md:shadow-panel ${
           panelLeft ? "md:left-4" : "md:right-4"
-        } md:max-h-none md:w-80 md:rounded-none md:bg-transparent md:shadow-none md:backdrop-blur-none dark:bg-zinc-950/95 md:dark:bg-transparent`}
+        }`}
       >
         <button
           type="button"
           aria-expanded={sheetOpen}
           aria-controls="hud-conteudo"
           onClick={() => setSheetOpen((open) => !open)}
-          className="focus-ring flex w-full shrink-0 flex-col items-center gap-1.5 rounded-t-2xl px-4 pb-3 pt-2 md:hidden"
+          className="focus-ring flex w-full shrink-0 flex-col items-center gap-2 px-4 pb-3 pt-2 outline-offset-[-2px] md:hidden"
         >
-          <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-zinc-400 dark:bg-zinc-500" />
-          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold">
+          <span aria-hidden="true" className="h-1 w-9 rounded-full bg-line-strong" />
+          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold text-ink">
             <span className="truncate">{handleSummary}</span>
-            <span className="rotate-180 text-zinc-500 dark:text-zinc-400">
+            <span className="rotate-180 text-faint">
               <Chevron open={sheetOpen} />
             </span>
           </span>
@@ -998,11 +984,15 @@ export default function RoutePlanner({
             sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           }`}
         >
-          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-3 md:p-0 md:pr-1">
+          <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line md:border-t-0">
+            {/* Cabeçalho do painel (só em telas largas; no celular a alça faz esse papel). */}
+            <header className="hidden items-baseline justify-between gap-3 border-b border-line px-4 pb-3 pt-3.5 md:flex">
+              <p className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Rotas</p>
+              <p className="truncate text-xs text-muted">{handleSummary}</p>
+            </header>
             {settings.blockOrder.map((id) => (
               <Fragment key={id}>{blocks[id]}</Fragment>
             ))}
-            <div aria-hidden="true" className="h-0 shrink-0 md:hidden" />
           </div>
         </div>
       </aside>
@@ -1011,7 +1001,7 @@ export default function RoutePlanner({
         <div
           key={toast.id}
           role="status"
-          className="fixed left-1/2 top-16 w-max z-20 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg md:absolute md:bottom-6 md:top-auto dark:bg-zinc-100 dark:text-zinc-900"
+          className="fixed left-1/2 top-4 z-20 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-3.5 py-2 text-[13px] text-on-ink shadow-panel md:absolute md:bottom-6 md:top-auto"
         >
           <span>{toast.text}</span>
           {toast.undoStopId && (
@@ -1021,7 +1011,7 @@ export default function RoutePlanner({
                 removeStop(toast.undoStopId!);
                 setToast(null);
               }}
-              className="focus-ring rounded font-semibold text-blue-300 underline underline-offset-2 dark:text-blue-700"
+              className="focus-ring -my-0.5 rounded px-1.5 py-0.5 font-semibold text-on-ink hover:bg-on-ink/15"
             >
               Desfazer
             </button>

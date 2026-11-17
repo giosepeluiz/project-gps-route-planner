@@ -61,5 +61,3 @@ export function apiLimitPerMinute(env: Record<string, string | undefined> = proc
   return Number.isInteger(value) && value > 0 ? value : 60;
 }
 
-/** Tentativas de login por minuto, por IP. */
-export const LOGIN_LIMIT_PER_MINUTE = 10;

@@ -60,14 +60,14 @@ export default function StopList({
 
             <span
               aria-hidden="true"
-              className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-600 text-xs font-semibold text-white"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-white dark:text-[#10131c]"
             >
               {i + 1}
             </span>
 
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{stop.label}</span>
-              <span className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+              <span className="block truncate text-[13px] font-medium text-ink">{stop.label}</span>
+              <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted" title={leg ? `Chega às ${formatTime(leg.arriveAt)}` : undefined}>
                 {showLegColors && (
                   <span
                     aria-hidden="true"
@@ -77,7 +77,7 @@ export default function StopList({
                   />
                 )}
                 {leg
-                  ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · chega ${formatTime(leg.arriveAt)}`
+                  ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · ${formatTime(leg.arriveAt)}`
                   : "—"}
               </span>
             </span>
@@ -89,10 +89,10 @@ export default function StopList({
               aria-label={locked ? `Destravar ${stop.label}` : `Travar ${stop.label} na posição ${i + 1}`}
               title={locked ? "Travado nesta posição" : "Travar nesta posição"}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-200 motion-reduce:transition-none ${
-                locked
-                  ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
-                  : "text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-              }`}
+ locked
+ ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+ : "text-faint hover:bg-hover hover:text-ink"
+ }`}
             >
               <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="4" y="9" width="12" height="8" rx="2" fill={locked ? "currentColor" : "none"} fillOpacity={locked ? 0.25 : 0} />
@@ -104,7 +104,7 @@ export default function StopList({
               type="button"
               onClick={() => onRemove(stop.id)}
               aria-label={`Remover ${stop.label}`}
-              className="focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg text-zinc-600 hover:bg-zinc-200 hover:text-red-700 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-red-400"
+              className="focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-red-700 dark:hover:text-red-400"
             >
               <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M5 5l10 10M15 5L5 15" />

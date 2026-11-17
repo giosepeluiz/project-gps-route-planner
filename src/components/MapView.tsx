@@ -428,14 +428,14 @@ export default function MapView({
       />
       {popupEl && popupAt && createPortal(children, popupEl)}
       {status === "loading" && (
-        <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-zinc-600 dark:text-zinc-300">
+        <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted">
           Carregando o mapa…
         </p>
       )}
       {status === "error" && (
         <p
           role="alert"
-          className="absolute left-1/2 top-1/2 w-72 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-4 text-center text-sm text-zinc-900 shadow-lg dark:bg-zinc-900 dark:text-zinc-100"
+          className="absolute left-1/2 top-1/2 w-72 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-4 text-center text-sm text-ink shadow-panel"
         >
           Não foi possível carregar o mapa base. Verifique a conexão e recarregue a página.
         </p>
@@ -443,16 +443,16 @@ export default function MapView({
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul
           className={`pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:top-2.5 ${
-            controlsSide === "left" ? "md:left-12" : "md:left-auto md:right-12 md:items-end"
-          }`}
+ controlsSide === "left" ? "md:left-12" : "md:left-auto md:right-12 md:items-end"
+ }`}
         >
           {!streetLegs && (
-            <li className="w-fit rounded-full bg-white/95 px-2.5 py-1 text-zinc-800 shadow dark:bg-zinc-900/95 dark:text-zinc-100">
+            <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">
               Traçado aproximado (sem rota pelas ruas)
             </li>
           )}
           {status === "fallback" && (
-            <li className="w-fit rounded-full bg-amber-100 px-2.5 py-1 text-amber-900 shadow">
+            <li className="w-fit rounded-md bg-amber-50 px-2 py-1 text-amber-900 shadow-panel">
               Mapa reserva em uso
             </li>
           )}

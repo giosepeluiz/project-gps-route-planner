@@ -9,6 +9,11 @@ interface CollapsibleCardProps {
   summary: string;
   open: boolean;
   onToggle: () => void;
+  /**
+   * "section": parte do painel, separada das vizinhas por uma linha fina.
+   * "card": bloco solto sobre o mapa, com fundo, borda e sombra próprios.
+   */
+  variant?: "section" | "card";
   /** Classes extras de posicionamento (ex.: fixar o bloco em um canto no desktop). */
   className?: string;
   /**
@@ -26,14 +31,14 @@ export function Chevron({ open }: { open: boolean }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 20 20"
-      className={`h-4 w-4 shrink-0 transition-transform duration-300 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+      className={`h-4 w-4 shrink-0 transition-transform duration-300 ease-out motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M5 8l5 5 5-5" />
+      <path d="M6 8l4 4 4-4" />
     </svg>
   );
 }
@@ -44,6 +49,7 @@ export default function CollapsibleCard({
   summary,
   open,
   onToggle,
+  variant = "section",
   className = "",
   collapseTo = "up",
   onHeightChange,
@@ -68,11 +74,18 @@ export default function CollapsibleCard({
     };
   }, [onHeightChange]);
 
+  const card = variant === "card";
+
   return (
     <section
       ref={sectionRef}
-      data-map-overlay
-      className={`pointer-events-auto rounded-xl border border-zinc-200 bg-white/95 shadow-lg backdrop-blur transition-shadow duration-300 hover:shadow-xl motion-reduce:transition-none dark:border-zinc-700 dark:bg-zinc-900/95 ${className}`}
+      // Só o cartão solto conta como obstáculo para o balão do mapa; a seção já está dentro do painel.
+      data-map-overlay={card ? "" : undefined}
+      className={`pointer-events-auto ${
+        card
+          ? "overflow-hidden rounded-xl border border-line bg-surface shadow-panel"
+          : "border-t border-line first:border-t-0"
+      } ${className}`}
     >
       <h2>
         <button
@@ -80,18 +93,20 @@ export default function CollapsibleCard({
           aria-expanded={open}
           aria-controls={panelId}
           onClick={onToggle}
-          className="focus-ring flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors duration-200 hover:bg-zinc-100/70 motion-reduce:transition-none dark:hover:bg-zinc-800/60"
+          className="focus-ring group flex w-full items-center gap-2 px-4 py-3 text-left outline-offset-[-2px] transition-colors duration-150 hover:bg-hover motion-reduce:transition-none"
         >
-          <span className="shrink-0 text-sm font-semibold">{title}</span>
+          <span className="shrink-0 text-[13px] font-semibold text-ink">{title}</span>
           <span
-            className={`min-w-0 truncate text-xs text-zinc-600 transition-opacity duration-300 motion-reduce:transition-none dark:text-zinc-400 ${
+            className={`min-w-0 truncate text-xs text-muted transition-opacity duration-200 motion-reduce:transition-none ${
               open ? "opacity-0" : "opacity-100"
             }`}
             aria-hidden={open}
           >
             {summary}
           </span>
-          <span className={`ml-auto text-zinc-500 dark:text-zinc-400 ${collapseTo === "down" ? "rotate-180" : ""}`}>
+          <span
+            className={`ml-auto text-faint transition-colors group-hover:text-ink ${collapseTo === "down" ? "rotate-180" : ""}`}
+          >
             <Chevron open={open} />
           </span>
         </button>
@@ -105,7 +120,7 @@ export default function CollapsibleCard({
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="px-3 pb-3 pt-0.5">{children}</div>
+          <div className="px-4 pb-4">{children}</div>
         </div>
       </div>
     </section>

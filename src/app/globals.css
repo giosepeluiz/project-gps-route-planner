@@ -3,31 +3,83 @@
 /* O tema vem do atributo data-theme no <html> (claro, escuro ou o do sistema, resolvido por script). */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/*
+ * Paleta: cinzas quentes e neutros, superfícies sólidas e um só destaque (o azul
+ * da rota). Os componentes usam só estes nomes (bg-surface, text-muted…), então
+ * o tema escuro é só trocar os valores abaixo.
+ */
 :root {
-  --background: #f4f4f5;
-  --foreground: #18181b;
-  --focus: #2563eb;
+  --page: #e9e7e3;
+  --surface: #ffffff;
+  --surface-2: #f6f5f2;
+  --sunken: #ecebe7;
+  --hover: #f1efeb;
+  --line: #e6e3de;
+  --line-strong: #d3cfc8;
+  --ink: #1c1b19;
+  --ink-2: #45413c;
+  --muted: #6d675f;
+  --faint: #9b958c;
+  --on-ink: #ffffff;
+  --accent: #2456d6;
+  --shadow-panel: 0 1px 2px rgb(28 27 25 / 0.06), 0 6px 20px rgb(28 27 25 / 0.08);
+  --shadow-sheet: 0 -1px 2px rgb(28 27 25 / 0.05), 0 -8px 24px rgb(28 27 25 / 0.1);
   color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
 :root[data-theme="dark"] {
-  --background: #09090b;
-  --foreground: #f4f4f5;
-  --focus: #60a5fa;
+  --page: #0f0e0d;
+  --surface: #1b1a18;
+  --surface-2: #22211f;
+  --sunken: #131211;
+  --hover: #292826;
+  --line: #2e2c29;
+  --line-strong: #403d39;
+  --ink: #f1efeb;
+  --ink-2: #d5d1ca;
+  --muted: #a39d94;
+  --faint: #79736b;
+  --on-ink: #1b1a18;
+  --accent: #7c9cff;
+  --shadow-panel: 0 0 0 1px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.45);
+  --shadow-sheet: 0 -8px 24px rgb(0 0 0 / 0.5);
   color-scheme: dark;
 }
 
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-sunken: var(--sunken);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-on-ink: var(--on-ink);
+  --color-accent: var(--accent);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+@utility shadow-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+@utility shadow-sheet {
+  box-shadow: var(--shadow-sheet);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--page);
+  color: var(--ink);
   font-family: var(--font-sans);
+  /* Horários e durações alinhados em coluna. */
+  font-variant-numeric: tabular-nums;
   overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Foco visível e consistente em todos os controles. */
@@ -35,7 +87,7 @@ body {
   outline: 2px solid transparent;
   outline-offset: 2px;
   &:focus-visible {
-    outline-color: var(--focus);
+    outline-color: var(--accent);
   }
 }
 
@@ -43,20 +95,27 @@ body {
 .pin {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 9999px;
   border: 2px solid #ffffff;
-  background: #2563eb;
+  background: #2456d6;
   color: #ffffff;
-  font: 700 13px/1 system-ui, sans-serif;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  cursor: default;
+  font: 650 12px/1 var(--font-sans);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.25),
+    0 3px 8px rgb(0 0 0 / 0.18);
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.pin:hover {
+  transform: scale(1.08);
 }
 
 .pin-start,
 .pin-end {
-  background: #18181b;
+  background: #1c1b19;
 }
 
 .pin:focus-visible {
@@ -64,43 +123,89 @@ body {
   outline-offset: 2px;
 }
 
-/* Balões do mapa: cantos arredondados, sombra suave e tema claro/escuro. */
+/* Controles do MapLibre (zoom, atribuição) no mesmo visual do painel. */
+.maplibregl-ctrl-group:not(:empty) {
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--line);
+}
+
+.maplibregl-ctrl-group button:not(:disabled):hover {
+  background: var(--hover);
+}
+
+[data-theme="dark"] .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-attrib {
+  font-size: 11px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  color: var(--muted);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: inherit;
+}
+
+/* Balões do mapa. */
 .maplibregl-map .maplibregl-popup-content {
   padding: 14px;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.22),
-    0 2px 6px rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-panel);
   font-family: var(--font-sans);
-  animation: popup-in 180ms ease-out;
+  animation: popup-in 160ms ease-out;
+}
+
+.maplibregl-map .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--surface);
+}
+.maplibregl-map .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--surface);
+}
+.maplibregl-map .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface);
+}
+.maplibregl-map .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface);
 }
 
 .maplibregl-map .maplibregl-popup-close-button {
   top: 8px;
   right: 8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 9999px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   font-size: 18px;
   line-height: 1;
-  color: #52525b;
+  color: var(--muted);
 }
 
 .maplibregl-map .maplibregl-popup-close-button:hover {
-  background: #e4e4e7;
-  color: #18181b;
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .maplibregl-map .maplibregl-popup-close-button:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
 @keyframes popup-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.97);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -112,39 +217,7 @@ body {
   .maplibregl-map .maplibregl-popup-content {
     animation: none;
   }
-}
-
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-content {
-  background: #18181b;
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.6),
-    0 0 0 1px #3f3f46;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-close-button {
-  color: #a1a1aa;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-close-button:hover {
-  background: #3f3f46;
-  color: #fafafa;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top .maplibregl-popup-tip,
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
-  border-bottom-color: #18181b;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
-  border-top-color: #18181b;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-left .maplibregl-popup-tip {
-  border-right-color: #18181b;
-}
-[data-theme="dark"] .maplibregl-map .maplibregl-popup-anchor-right .maplibregl-popup-tip {
-  border-left-color: #18181b;
-}
-
-/* A atribuição fica sempre legível, também no tema escuro. */
-.maplibregl-ctrl-attrib {
-  font-size: 11px;
+  .pin {
+    transition: none;
+  }
 }

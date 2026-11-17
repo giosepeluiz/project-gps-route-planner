@@ -13,4 +13,4 @@ export default function Grip() {
 }
 
 export const gripButtonClass =
-  "focus-ring grid h-8 w-5 shrink-0 touch-none place-items-center rounded text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200";
+  "focus-ring grid h-8 w-5 shrink-0 touch-none place-items-center rounded text-faint hover:text-ink";

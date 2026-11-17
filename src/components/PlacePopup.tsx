@@ -53,33 +53,33 @@ export default function PlacePopup({
   const heading = title ?? (loading ? null : "Local sem endereço");
 
   return (
-    <div className="flex w-64 max-w-full flex-col gap-3 text-sm text-zinc-900 dark:text-zinc-100">
+    <div className="flex w-64 max-w-full flex-col gap-3 text-sm text-ink">
       <header className="flex items-start gap-2.5 pr-5">
-        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-accent">
           <Pin />
         </span>
         <div className="min-w-0 flex-1" aria-live="polite">
           {role && (
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+            <p className="text-xs font-medium text-accent">
               {role}
             </p>
           )}
           {heading ? (
-            <p className="font-semibold leading-snug">{heading}</p>
+            <p className="text-[15px] font-semibold leading-snug">{heading}</p>
           ) : (
             // Enquanto o endereço não chega, um traço pulsando no lugar do título.
-            <p className="h-4 w-40 animate-pulse rounded bg-zinc-200 motion-reduce:animate-none dark:bg-zinc-700">
+            <p className="h-4 w-40 animate-pulse rounded bg-sunken motion-reduce:animate-none">
               <span className="sr-only">Buscando o endereço…</span>
             </p>
           )}
           {role && address && address !== title && (
-            <p className="text-xs text-zinc-600 dark:text-zinc-400">{address}</p>
+            <p className="text-xs text-muted">{address}</p>
           )}
           <button
             type="button"
             onClick={onCopy}
             title="Copiar coordenadas"
-            className="focus-ring mt-0.5 flex items-center gap-1 rounded font-mono text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            className="focus-ring mt-0.5 flex items-center gap-1 rounded font-mono text-xs text-muted hover:text-ink"
           >
             {formatLatLng(lat, lng)}
             <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -92,8 +92,8 @@ export default function PlacePopup({
       </header>
 
       {actions.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <div className="flex flex-col gap-1 border-t border-line pt-3">
+          <p className="mb-0.5 text-xs font-medium text-muted">
             O que fazer com este local?
           </p>
           {actions.map((action) => (
@@ -102,28 +102,24 @@ export default function PlacePopup({
               type="button"
               onClick={action.onClick}
               disabled={action.disabled}
-              className={`focus-ring flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+              className={`focus-ring flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
                 action.primary
-                  ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
-                  : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                  ? "border-ink bg-ink text-on-ink hover:bg-ink/85"
+                  : "border-transparent hover:bg-hover"
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold ${
-                  action.primary
-                    ? "bg-white text-blue-700"
-                    : "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                }`}
+                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white ring-2 ${
+                  /^d+$/.test(action.badge) ? "bg-accent" : "bg-[#1c1b19]"
+                } ${action.primary ? "ring-on-ink/25" : "ring-line-strong"}`}
               >
                 {action.badge}
               </span>
               <span className="min-w-0">
-                <span className="block font-medium leading-tight">{action.title}</span>
+                <span className="block text-[13px] font-medium leading-tight">{action.title}</span>
                 <span
-                  className={`block truncate text-xs ${
-                    action.primary ? "text-blue-100" : "text-zinc-600 dark:text-zinc-400"
-                  }`}
+                  className={`block truncate text-xs ${action.primary ? "text-on-ink/70" : "text-muted"}`}
                 >
                   {action.description}
                 </span>

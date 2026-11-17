@@ -26,11 +26,11 @@ interface ActionsPanelProps {
 const subscribeNothing = () => () => {};
 
 const linkClass =
-  "focus-ring flex items-center justify-between gap-2 rounded-lg border border-zinc-300 px-2.5 py-2 text-sm font-medium transition-colors duration-200 hover:bg-zinc-100 motion-reduce:transition-none dark:border-zinc-600 dark:hover:bg-zinc-800";
+  "focus-ring flex items-center justify-between gap-2 rounded-lg border border-line-strong px-2.5 py-2 text-sm font-medium transition-colors duration-200 hover:bg-hover motion-reduce:transition-none";
 
 function External() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4h5v5M16 4l-7 7M8 5H5a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3" />
     </svg>
   );
@@ -79,7 +79,7 @@ export default function ActionsPanel({
 
   if (links.length === 0) {
     return (
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted">
         Adicione ao menos uma parada (ou um fim) para abrir a rota em outro aplicativo.
       </p>
     );
@@ -92,7 +92,7 @@ export default function ActionsPanel({
           <span>
             Abrir no Google Maps
             {links.length > 1 && (
-              <span className="block text-xs font-normal text-zinc-600 dark:text-zinc-400">
+              <span className="block text-xs font-normal text-muted">
                 Parte {i + 1} de {links.length}
               </span>
             )}
@@ -101,7 +101,7 @@ export default function ActionsPanel({
         </a>
       ))}
       {links.length > 1 && (
-        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+        <p className="text-xs text-muted">
           O Google Maps aceita até {maxWaypoints} paradas por link{isMobile ? " no celular" : ""}, então a rota
           foi dividida em partes.
         </p>
@@ -111,7 +111,7 @@ export default function ActionsPanel({
         <a href={wazeLink(next)} target="_blank" rel="noopener noreferrer" className={linkClass}>
           <span className="min-w-0">
             Navegar no Waze
-            <span className="block truncate text-xs font-normal text-zinc-600 dark:text-zinc-400">
+            <span className="block truncate text-xs font-normal text-muted">
               Próxima parada: {next.label}
             </span>
           </span>

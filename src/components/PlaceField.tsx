@@ -15,7 +15,8 @@ interface PlaceFieldProps {
 }
 
 export const inputClass =
-  "focus-ring w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:disabled:bg-zinc-800/50 dark:disabled:text-zinc-400";
+  "w-full min-w-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink placeholder:text-faint outline-none transition-[border-color,background-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:bg-surface focus:ring-3 focus:ring-accent/15 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none";
+
 
 export default function PlaceField({
   label,
@@ -52,7 +53,7 @@ export default function PlaceField({
 
   return (
     <div>
-      <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+      <label htmlFor={inputId} className="mb-1.5 block text-xs font-medium text-ink-2">
         {label}
       </label>
       <div className="flex gap-2">
@@ -89,14 +90,14 @@ export default function PlaceField({
             onClick={() => void submit()}
             disabled={disabled || busy}
             aria-label="Adicionar parada"
-            className="focus-ring grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-blue-600 text-lg font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
+            className="focus-ring grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-ink text-lg font-medium text-on-ink transition-colors hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-40"
           >
             +
           </button>
         )}
       </div>
       {busy && (
-        <p id={messageId} role="status" className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+        <p id={messageId} role="status" className="mt-1 text-xs text-muted">
           Buscando o local…
         </p>
       )}

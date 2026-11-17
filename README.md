@@ -11,7 +11,7 @@ Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de in
 | F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
 | F4 | Provedores de matriz e rota, com cache e fallback | Pronta |
 | F5 | Camada de IA com fallback | Pronta |
-| F6 | Ações de saída, senha, rate limit e deploy na Vercel | Pronta (falta só publicar) |
+| F6 | Ações de saída, rate limit e deploy na Vercel | Pronta (falta só publicar; a senha foi dispensada) |
 
 ## Tempos e rota
 
@@ -74,15 +74,14 @@ O bloco Configurações guarda no navegador: tema (sistema, claro ou escuro), ta
 
 ## Acesso e segurança
 
-- **Senha:** com `APP_PASSWORD` definida, o site e as rotas `/api` exigem login. A sessão é um cookie httpOnly assinado (HMAC-SHA256), válido por 30 dias; o botão "Sair" fica nas Configurações.
-- **Sem senha:** em desenvolvimento o site fica aberto; em produção tudo responde 503, para ninguém consumir as cotas.
-- **Limite de requisições:** 60 por minuto por IP nas rotas `/api` (`RATE_LIMIT_PER_MIN`) e 10 tentativas de login por minuto. O contador fica na memória de cada instância do servidor, então na Vercel é uma proteção simples, não uma garantia.
+- **Sem senha:** o site é aberto (decisão de 2026-11-17). Quem tiver o endereço consegue usar, e cada uso consome as cotas das chaves configuradas.
+- **Limite de requisições:** 60 por minuto por IP nas rotas `/api` (`RATE_LIMIT_PER_MIN`). O contador fica na memória de cada instância do servidor, então na Vercel é uma proteção simples, não uma garantia.
 - Entradas validadas com zod, chaves só no servidor e lista fixa de domínios no `/api/resolve`.
 
 ## Publicar na Vercel
 
 1. Suba o repositório para o GitHub e importe o projeto na Vercel (framework Next.js, sem ajustes de build).
-2. Em Settings > Environment Variables, cadastre no mínimo `APP_PASSWORD` e `TOMTOM_API_KEY`. Recomendadas: `SESSION_SECRET`, `GEMINI_API_KEY`, `GROQ_API_KEY` e `NOMINATIM_USER_AGENT` com um contato real. Opcionais: `ORS_API_KEY`, `MAPTILER_KEY`, `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
+2. Em Settings > Environment Variables, cadastre no mínimo `TOMTOM_API_KEY`. Recomendadas: `GEMINI_API_KEY`, `GROQ_API_KEY` e `NOMINATIM_USER_AGENT` com um contato real. Opcionais: `ORS_API_KEY`, `MAPTILER_KEY`, `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
 3. Faça o deploy. Sem `TOMTOM_API_KEY` em produção não há linha pelas ruas (o OSRM de demonstração só vale em desenvolvimento) e os tempos são estimativa.
 
 ## Como usar o mapa
@@ -122,4 +121,4 @@ Outros comandos: `npm run lint`, `npm run typecheck`, `npm test` e `npm run buil
 
 ## Variáveis de ambiente
 
-Veja [.env.example](.env.example). Em desenvolvimento nenhuma é obrigatória: sem `TOMTOM_API_KEY` os tempos são estimativa e a geocodificação usa só o Nominatim; sem chaves de IA o selo fica em "Local"; sem as do Upstash o cache fica em memória. Em produção, `APP_PASSWORD` é obrigatória.
+Veja [.env.example](.env.example). Em desenvolvimento nenhuma é obrigatória: sem `TOMTOM_API_KEY` os tempos são estimativa e a geocodificação usa só o Nominatim; sem chaves de IA o selo fica em "Local"; sem as do Upstash o cache fica em memória.
