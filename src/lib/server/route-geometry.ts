@@ -43,12 +43,6 @@ type FetchFn = typeof fetch;
 /** O Calculate Route aceita no máximo 150 pontos intermediários. */
 const MAX_POINTS = 150;
 
-async function getJson(fetchFn: FetchFn, url: string, signal: AbortSignal): Promise<unknown> {
-  const res = await fetchFn(url, { signal, cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
 function total(legs: RouteLeg[], source: string): RouteGeometry {
   return {
     legs,
@@ -64,7 +58,22 @@ interface CalculateRouteResponse {
       summary?: { travelTimeInSeconds?: number; lengthInMeters?: number };
       points?: { latitude: number; longitude: number }[];
     }[];
+    sections?: { sectionType?: string }[];
   }[];
+  /** Presente nas respostas de erro (ex.: HTTP 400 com code NO_ROUTE_FOUND). */
+  detailedError?: { code?: string };
+  error?: { code?: string } | string;
+}
+
+/** A TomTom diz que não há caminho: ela responde HTTP 400 com code NO_ROUTE_FOUND. */
+function isTomTomNoRoute(body: CalculateRouteResponse | null): boolean {
+  if (!body) return false;
+  const codes = [
+    body.detailedError?.code,
+    typeof body.error === "object" ? body.error?.code : undefined,
+    (body as { code?: string }).code,
+  ];
+  return codes.includes("NO_ROUTE_FOUND");
 }
 
 export function createTomTomGeometry(
@@ -91,16 +100,31 @@ export function createTomTomGeometry(
         travelMode: "car",
         routeType: "fastest",
         routeRepresentation: "polyline",
-        // Sem balsas: carro não atravessa o mar. Pontes e túneis continuam valendo.
+        // Sem balsas: carro não atravessa o mar. Pontes, túneis e trens de carros
+        // (como o Eurotúnel, seção CAR_TRAIN) continuam valendo.
         avoid: "ferries",
+        // O avoid da TomTom é só preferência: sem alternativa, ela usa a balsa assim
+        // mesmo. Pedir as seções de balsa deixa recusar esses trechos logo abaixo.
+        sectionType: "ferry",
       });
       // Sem departAt o padrão é "now"; datas precisam estar no futuro.
       if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
 
       try {
-        const data = (await withPolicy(breaker, (signal) =>
-          getJson(fetchFn, `https://api.tomtom.com/routing/1/calculateRoute/${path}/json?${params}`, signal),
-        )) as CalculateRouteResponse;
+        const data = (await withPolicy(breaker, async (signal) => {
+          const res = await fetchFn(`https://api.tomtom.com/routing/1/calculateRoute/${path}/json?${params}`, {
+            signal,
+            cache: "no-store",
+          });
+          const body = (await res.json().catch(() => null)) as CalculateRouteResponse | null;
+          // "Não há rota" é resposta definitiva: devolve sem contar como falha do serviço.
+          if (isTomTomNoRoute(body)) return body;
+          if (!res.ok || !body) throw new Error(`HTTP ${res.status}`);
+          return body;
+        })) as CalculateRouteResponse;
+
+        if (isTomTomNoRoute(data)) return "no-route";
+        if (data.routes?.[0]?.sections?.some((s) => s.sectionType?.toUpperCase() === "FERRY")) return "no-route";
 
         const legs: RouteLeg[] = (data.routes?.[0]?.legs ?? []).map((leg) => ({
           coordinates: (leg.points ?? []).map((p) => [p.longitude, p.latitude] as [number, number]),

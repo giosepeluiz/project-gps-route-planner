@@ -1,6 +1,6 @@
 /**
  * Camada de IA: opcional e nunca bloqueante.
- * Cadeia: Gemini Flash (primária) → Groq/Llama (backup) → sem IA.
+ * Cadeia: Gemini Flash-Lite (primária) → Groq (backup) → sem IA.
  *
  * A IA só (a) interpreta texto livre em buscas de locais e (b) comenta a ordem
  * final. A ordem NUNCA vem dela: vem do solver. Se ela discordar, o texto
@@ -61,10 +61,11 @@ interface GroqResponse {
 }
 
 /**
- * Groq (Llama).
+ * Groq (padrão: openai/gpt-oss-120b).
  * POST https://api.groq.com/openai/v1/chat/completions
- * Os modelos Llama usam o modo JSON simples (json_object), que exige a palavra
- * "JSON" nas instruções.
+ * Usa o modo JSON simples (json_object), que exige a palavra "JSON" nas instruções.
+ * Nos modelos gpt-oss o raciocínio fica em "low": a tarefa é simples e o
+ * raciocínio também consome o limite de tokens da resposta.
  */
 export function createGroq(apiKey: string, model: string, fetchFn: FetchFn = fetch): AiProvider {
   return {
@@ -82,6 +83,7 @@ export function createGroq(apiKey: string, model: string, fetchFn: FetchFn = fet
           ],
           response_format: { type: "json_object" },
           max_completion_tokens: 1024,
+          ...(model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
         }),
         signal,
         cache: "no-store",
@@ -133,7 +135,8 @@ export function createAiService(
           );
           return { data, tier: provider.tier, provider: provider.name };
         } catch (err) {
-          console.warn(`IA: ${provider.name} falhou, tentando a próxima.`, err);
+          // Só a mensagem: o TimeoutError imprime a tabela inteira de códigos do DOMException.
+          console.warn(`IA: ${provider.name} falhou, tentando a próxima. ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
         }
       }
       return null;

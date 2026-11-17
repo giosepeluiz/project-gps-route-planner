@@ -58,7 +58,7 @@ A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
 - **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, o texto aparece como "Sugestão da IA (não aplicada)".
 - **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
 
-Cadeia: Gemini Flash (`GEMINI_API_KEY`, primária) → Groq/Llama (`GROQ_API_KEY`, backup) → sem IA. O selo no Resumo mostra quem respondeu: Primária, Backup ou Local ("Algoritmo local (nenhuma IA respondeu)"). As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
+Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária, Backup ou Local ("Algoritmo local (nenhuma IA respondeu)"). As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
 
 Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
 

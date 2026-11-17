@@ -351,8 +351,8 @@ describe("sem travessia por mar", () => {
     expect(tomtom.calls).toBe(2);
   });
 
-  it("TomTom: pede para evitar balsas e reconhece NO_ROUTE_FOUND", async () => {
-    let avoid: unknown;
+  it("TomTom: não manda avoid inválido para a Matrix v2 e reconhece NO_ROUTE_FOUND", async () => {
+    let avoid: unknown = "não lido";
     const fetchFn = (async (_u: string, init: RequestInit) => {
       avoid = JSON.parse(init.body as string).options.avoid;
       return Response.json({
@@ -368,7 +368,8 @@ describe("sem travessia por mar", () => {
     const error = await createTomTomMatrix("CHAVE", fetchFn, () => NOW)
       .getCells([pts[0]], [pts[1]], TUESDAY_9, AbortSignal.timeout(1000))
       .catch((e: unknown) => e);
-    expect(avoid).toEqual(["ferries"]);
+    // A Matrix v2 responde 400 para avoid "ferries"; a trava de balsas fica no traçado.
+    expect(avoid).toBeUndefined();
     expect(error).toBeInstanceOf(NoRouteError);
     expect((error as NoRouteError).from).toBe(pts[0]);
     expect((error as NoRouteError).to).toBe(pts[1]);
@@ -409,6 +410,31 @@ describe("sem travessia por mar", () => {
     );
     await tomtom.getRoute([pts[0], pts[1]], TUESDAY_9);
     expect(urls[1]).toContain("avoid=ferries");
+    expect(urls[1]).toContain("sectionType=ferry");
+  });
+
+  it("TomTom: rota só possível de balsa vira 'no-route'; trem de carros (Eurotúnel) vale", async () => {
+    const leg = {
+      summary: { travelTimeInSeconds: 9000, lengthInMeters: 180_000 },
+      points: [
+        { latitude: -22.9, longitude: -43.17 },
+        { latitude: -23.14, longitude: -44.16 },
+      ],
+    };
+    const answer = (body: unknown, status = 200) =>
+      createTomTomGeometry("CHAVE", new MemoryCache(), (async () => Response.json(body, { status })) as unknown as typeof fetch, () => NOW);
+
+    // O avoid=ferries é só preferência: sem alternativa, a TomTom devolve a rota com a seção FERRY.
+    const ferry = answer({ routes: [{ legs: [leg], sections: [{ sectionType: "FERRY" }] }] });
+    expect(await ferry.getRoute([pts[0], pts[1]], TUESDAY_9)).toBe("no-route");
+
+    // Sem caminho nenhum, ela responde 400 com NO_ROUTE_FOUND.
+    const none = answer({ detailedError: { code: "NO_ROUTE_FOUND", message: "No valid route found" } }, 400);
+    expect(await none.getRoute([pts[0], pts[1]], TUESDAY_9)).toBe("no-route");
+
+    const train = answer({ routes: [{ legs: [leg], sections: [{ sectionType: "CAR_TRAIN" }] }] });
+    const route = await train.getRoute([pts[0], pts[1]], TUESDAY_9);
+    expect(route && route !== "no-route" ? route.meters : null).toBe(180_000);
   });
 
   it("o plano falha com NoRouteError mesmo quando os tempos vêm da estimativa", async () => {

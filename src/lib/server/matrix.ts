@@ -130,8 +130,9 @@ export function createTomTomMatrix(
         traffic: live ? "live" : "historical",
         routeType: "fastest",
         travelMode: "car",
-        // Carro não atravessa o mar de balsa. Pontes, túneis e trens de carros continuam valendo.
-        avoid: ["ferries"],
+        // A Matrix v2 só aceita avoid "tollRoads" e "unpavedRoads" (com "ferries" responde 400).
+        // A trava contra balsas fica no traçado de cada trecho (Calculate Route com avoid=ferries),
+        // que recusa o plano quando não há caminho por terra, ponte ou túnel.
       };
 
       const seconds = emptyBlock(origins.length, destinations.length);

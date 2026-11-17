@@ -51,17 +51,17 @@ export function getServices(): Services {
   if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache));
   if (process.env.NODE_ENV === "development") geometries.push(createOsrmDemoGeometry(cache));
 
-  // IA: Gemini Flash (primária) → Groq/Llama (backup). Sem chaves, a lista fica vazia
+  // IA: Gemini Flash-Lite (primária) → Groq (backup). Sem chaves, a lista fica vazia
   // e a interface mostra "Algoritmo local". Os modelos mudam com frequência: por isso
   // são configuráveis por variável de ambiente.
   const aiProviders: AiProvider[] = [];
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
   const groqKey = process.env.GROQ_API_KEY?.trim();
   if (geminiKey) {
-    aiProviders.push(createGemini(geminiKey, process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash"));
+    aiProviders.push(createGemini(geminiKey, process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite"));
   }
   if (groqKey) {
-    aiProviders.push(createGroq(groqKey, process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile"));
+    aiProviders.push(createGroq(groqKey, process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b"));
   }
 
   services = {
