@@ -143,29 +143,32 @@ body {
   background: #1c1b19;
 }
 
-/* Posição atual (GPS) durante a viagem: ponto azul com um halo pulsando. */
+/* Posição atual (GPS) na viagem: seta azul que gira com a direção da via. */
 .pin-me {
-  width: 18px;
-  height: 18px;
-  border-radius: 9999px;
-  border: 3px solid #ffffff;
-  background: #1a73e8;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-  animation: pin-me-pulse 2s ease-out infinite;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
 }
 
-@keyframes pin-me-pulse {
-  0% {
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 0 rgb(26 115 232 / 0.45);
-  }
-  100% {
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 16px rgb(26 115 232 / 0);
-  }
+.pin-me svg {
+  display: block;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pin-me {
-    animation: none;
+/* Botão ligado (girar o mapa com a viagem). */
+.maplibregl-ctrl-group .rotas-ctrl-button.rotas-ctrl-on {
+  color: var(--accent);
+}
+
+/* Celular e tablet: botões do mapa maiores, mais fáceis de tocar. */
+@media (max-width: 1023px), (pointer: coarse) {
+  .maplibregl-ctrl-group .rotas-ctrl-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .maplibregl-ctrl-group .rotas-ctrl-button svg {
+    width: 22px;
+    height: 22px;
   }
 }
 
@@ -291,5 +294,26 @@ body {
   }
   .pin {
     transition: none;
+  }
+}
+
+/* Viagem no celular/tablet: os controles do mapa descem para baixo do cabeçalho da viagem. */
+.rotas-nav-header .maplibregl-ctrl-top-right {
+  top: calc(env(safe-area-inset-top) + 4.5rem);
+}
+
+/* Celular: o botão "i" da atribuição fica menor, embaixo à esquerda, acima da gaveta fechada. */
+@media (max-width: 767px) {
+  .maplibregl-map .maplibregl-ctrl-bottom-left {
+    bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
+  }
+  .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact {
+    min-height: 20px;
+    font-size: 10px;
+  }
+  .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+    width: 20px;
+    height: 20px;
+    background-size: 14px;
   }
 }

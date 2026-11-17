@@ -5,7 +5,7 @@ const ptPT: Messages = {
   aiLanguage: "português europeu (de Portugal)",
 
   app: {
-    title: "Planeador de rotas",
+    title: "Planeador de Rotas",
     panel: "Planeamento da rota",
     openPanel: "Abrir painel",
     closePanel: "Recolher painel",
@@ -217,6 +217,28 @@ const ptPT: Messages = {
   },
 
   trip: {
+    rerouting: "Saiu da rota. A recalcular…",
+    headerArrival: "Chegada",
+    headerTime: "Tempo",
+    headerDistance: "Distância",
+    finishedShort: (actual: string, planned: string | null, km: string) =>
+      `Demorou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
+    seeStats: "Ver estatísticas",
+    stats: {
+      title: "Viagem concluída",
+      lead: "Veja como correu em relação ao previsto.",
+      planned: "Previsto",
+      actual: "Real",
+      time: "Tempo total",
+      arrival: "Chegada",
+      distance: "Distância",
+      stopped: "Tempo parado",
+      speed: "Velocidade média em movimento",
+      stops: "Paragens concluídas",
+      faster: (d: string) => `${d} mais rápido do que o previsto`,
+      slower: (d: string) => `${d} além do previsto`,
+      onTime: "Dentro do tempo previsto",
+    },
     start: "Iniciar viagem",
     pause: "Pausar viagem",
     resume: "Retomar viagem",
@@ -262,6 +284,9 @@ const ptPT: Messages = {
   },
 
   map: {
+    rotate: "Rodar o mapa com a direção da viagem",
+    rotateOn: "Direção da viagem para cima (toque para o norte para cima)",
+    rotateOff: "Norte para cima (toque para rodar com a viagem)",
     aria: "Mapa da rota. Clique para ver um local; clique com o botão direito ou toque longo para adicionar uma paragem.",
     loading: "A carregar o mapa…",
     error: "Não foi possível carregar o mapa base. Verifique a ligação e recarregue a página.",

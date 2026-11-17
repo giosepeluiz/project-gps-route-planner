@@ -14,7 +14,7 @@ import {
 } from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
-import MapView, { type MapLayout, type MapPoint } from "./MapView";
+import MapView, { type MapLayout, type MapPoint, type MePosition } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
@@ -76,13 +76,27 @@ import { MESSAGES } from "@/lib/messages";
 import { MAX_DWELL_MINUTES, type LegTimeFn, type Place } from "@/lib/types";
 import {
   hasArrived,
+  headingFrom,
+  isOffRoute,
+  logFix,
+  logGo,
+  logStop,
+  newTripLog,
   remainingRoute,
   routeMeters,
   shouldReplan,
+  shouldReroute,
+  snapRadius,
+  summarizeTrip,
   tripTarget,
   type Fix,
+  type TripBaseline,
+  type TripLog,
   type TripStatus,
+  type TripSummary,
 } from "@/lib/trip";
+import { projectOnLine, remainingFraction } from "@/lib/route-progress";
+import TripStatsDialog from "./TripStatsDialog";
 
 const BLOCKS_KEY = "rotas:blocos";
 /** Blocos abertos por padrão. */
@@ -187,6 +201,21 @@ const herePlace = (point: { lat: number; lng: number }, label: string): Place =>
   dwellMinutes: 0,
 });
 
+/** Relógio para os eventos da viagem (cliques e leituras do GPS), fora da renderização. */
+const nowMs = () => Date.now();
+
+/** Horários de uma sequência já ordenada, com os tempos que o servidor devolveu. */
+function planAlong(sequence: readonly Place[], response: PlanResponse, anchor: Date) {
+  if (response.legSeconds.length !== sequence.length - 1) return null;
+  const known = new Map<string, number>();
+  response.legSeconds.forEach((seconds, i) => known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds));
+  const legTimeFn: LegTimeFn = (from, to) => {
+    const seconds = known.get(`${from.id}>${to.id}`);
+    return seconds === undefined ? estimateLegTime(from, to) : { seconds, estimated: response.source.estimated };
+  };
+  return computePlan([...sequence], "depart", anchor, legTimeFn);
+}
+
 interface Toast {
   id: number;
   text: string;
@@ -258,7 +287,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const t = MESSAGES[locale];
   useEffect(() => {
     document.documentElement.lang = locale;
-  }, [locale]);
+    document.title = t.app.title;
+  }, [locale, t.app.title]);
   const blockDrag = useBlockDrag(settings.layout, (id, target) =>
     setSettings({ ...settings, layout: placeBlock(settings.layout, id, target) }),
   );
@@ -271,7 +301,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     document.documentElement.style.fontSize = `${fontPx}px`;
   }, [theme, fontPx]);
   /** null = "agora" (acompanha o relógio). */
-  const [dateTime, setDateTime] = useState<string | null>(null);
+  /** Data e hora escolhidas (guardadas com a rota); null = "agora", acompanhando o relógio. */
+  const dateTime = route.dateTime ?? null;
+  const setDateTime = (value: string | null) => setRoute((prev) => ({ ...prev, dateTime: value }));
   const [sheetOpen, setSheetOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [info, setInfo] = useState<Info | null>(null);
@@ -280,6 +312,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const [openBlocks, setOpenBlocks] = useLocalStorageState(BLOCKS_KEY, BLOCKS_DEFAULT);
   const isDesktop = useMediaQuery("(min-width: 768px)");
+  /** Celular e tablet: cabeçalho da viagem, mapa girando sozinho e botões maiores. */
+  const isCompact = useMediaQuery("(max-width: 1023px), (pointer: coarse)");
   const currentMinute = useCurrentMinute();
   const switchId = useId();
   const dateId = useId();
@@ -493,51 +527,25 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // ---------- Viagem acompanhada pelo GPS ----------
   const [trip, setTrip] = useState<{ status: TripStatus; arrivedId?: string } | null>(null);
   const [tripWarning, setTripWarning] = useState(false);
-  /** Última leitura do GPS. */
+  /** Última leitura do GPS (com a direção do carro, quando se sabe). */
   const [fix, setFix] = useState<Fix | null>(null);
-  /** Posição usada no último recálculo (só muda de tempos em tempos, para poupar a cota). */
+  /** Posição usada no último recálculo (muda de tempos em tempos, ou logo ao sair da rota). */
   const [tripOrigin, setTripOrigin] = useState<Fix | null>(null);
+  /** true entre detectar que o carro saiu da rota e chegar a rota nova. */
+  const [rerouting, setRerouting] = useState(false);
+  /** Mapa girando com a direção da viagem: ligado sozinho no celular e no tablet. */
+  const [headingUp, setHeadingUp] = useState(false);
+  const [tripStats, setTripStats] = useState<TripSummary | null>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
   const lastReplanRef = useRef<Fix | null>(null);
+  const lastFixRef = useRef<Fix | null>(null);
+  const offRouteRef = useRef(0);
+  const tripLogRef = useRef<TripLog | null>(null);
+  const baselineRef = useRef<TripBaseline | null>(null);
+  /** Paradas concluídas durante a viagem. */
+  const stopsDoneRef = useRef(0);
   const target = start ? tripTarget(stops, doneIds, finalPlace) : null;
   const pendingStops = useMemo(() => stops.filter((s) => !doneIds.has(s.id)), [stops, doneIds]);
-
-  const onFix = useEffectEvent((next: Fix) => {
-    setFix(next);
-    if (shouldReplan(lastReplanRef.current, next)) {
-      lastReplanRef.current = next;
-      setTripOrigin(next);
-    }
-    if (!target) {
-      setTrip({ status: "finished" });
-      return;
-    }
-    if (!hasArrived(next, target)) return;
-    // Chegou: numa parada, pausa até a pessoa retomar; no ponto final, a viagem acaba.
-    const isStop = stops.some((s) => s.id === target.id);
-    setTrip(isStop ? { status: "arrived", arrivedId: target.id } : { status: "finished" });
-  });
-  const onGpsError = useEffectEvent((error: GeolocationPositionError) => {
-    // Sem permissão não há o que acompanhar; falhas passageiras (túnel, sinal fraco) são ignoradas.
-    if (error.code !== error.PERMISSION_DENIED) return;
-    notify(t.gps.denied);
-    setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
-  });
-  const tripRunning = trip?.status === "running";
-  useEffect(() => {
-    if (!tripRunning) return;
-    const watch = navigator.geolocation.watchPosition(
-      (position) =>
-        onFix({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          at: position.timestamp,
-        }),
-      (error) => onGpsError(error),
-      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 30_000 },
-    );
-    return () => navigator.geolocation.clearWatch(watch);
-  }, [tripRunning]);
 
   // Rota que falta, saindo da posição atual: as paradas pendentes na ordem combinada e o fim.
   const tripActive = trip !== null && trip.status !== "finished";
@@ -546,53 +554,168 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const route = remainingRoute(herePlace(tripOrigin, t.gps.here), pendingStops, finalPlace);
     if (route.stops.length === 0 && !route.end) return null;
     return {
-      body: JSON.stringify(planRequestBody({ ...route, mode: "depart", dateTime: null })),
+      // A direção do carro faz a rota nova sair para a frente, sem mandar dar meia-volta.
+      body: JSON.stringify(
+        planRequestBody({ ...route, mode: "depart", dateTime: null, heading: tripOrigin.heading ?? null }),
+      ),
       sequence: [route.start, ...route.stops, ...(route.end ? [route.end] : [])],
+      at: tripOrigin.at,
     };
   }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here]);
   const [tripRemote, setTripRemote] = useState<{
     body: string;
     sequence: Place[];
+    at: number;
     outcome: PlanOutcome;
   } | null>(null);
   useEffect(() => {
     if (!tripRequest) return;
     const controller = new AbortController();
     void fetchPlan(tripRequest.body, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setTripRemote({ ...tripRequest, outcome: result });
+      if (controller.signal.aborted) return;
+      setTripRemote({ ...tripRequest, outcome: result });
+      setRerouting(false);
+      // O primeiro cálculo da viagem é o "previsto" das estatísticas.
+      if (!baselineRef.current && result.kind === "ok") {
+        const along = planAlong(tripRequest.sequence, result.plan, new Date(tripRequest.at));
+        if (along) {
+          baselineRef.current = {
+            seconds: along.totalSeconds,
+            arriveAt: along.arriveAt.getTime(),
+            meters: routeMeters(tripRequest.sequence, result.plan.streetLegs).meters,
+          };
+        }
+      }
     });
     return () => controller.abort();
   }, [tripRequest]);
 
   /** O que o mapa e o Resumo mostram durante a viagem (a última resposta boa, até chegar a nova). */
   const tripView = useMemo(() => {
-    if (!tripActive || tripRemote?.outcome.kind !== "ok" || currentMinute === null) return null;
+    if (!tripActive || tripRemote?.outcome.kind !== "ok") return null;
     const tripPlan = tripRemote.outcome.plan;
     const sequence = tripRemote.sequence;
-    if (tripPlan.legSeconds.length !== sequence.length - 1) return null;
-    const known = new Map<string, number>();
-    tripPlan.legSeconds.forEach((seconds, i) => known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds));
-    const legTimeFn: LegTimeFn = (from, to) => {
-      const seconds = known.get(`${from.id}>${to.id}`);
-      return seconds === undefined ? estimateLegTime(from, to) : { seconds, estimated: tripPlan.source.estimated };
-    };
+    const along = planAlong(sequence, tripPlan, new Date(tripRemote.at));
+    if (!along) return null;
     return {
       sequence,
       server: tripPlan,
-      plan: computePlan(sequence, "depart", new Date(currentMinute * 60_000), legTimeFn),
+      plan: along,
+      at: tripRemote.at,
       // Cada trecho mantém a cor da parada a que chega (a mesma da lista).
       colors: sequence.slice(1).map((p) => {
         const i = stops.findIndex((s) => s.id === p.id);
         return legColor(i === -1 ? stops.length : i);
       }),
     };
-  }, [tripActive, tripRemote, currentMinute, stops]);
+  }, [tripActive, tripRemote, stops]);
+
+  /**
+   * Quanto falta até a próxima parada, ao vivo: a posição do GPS é projetada na
+   * linha do trecho e o tempo e a distância do trecho são descontados do que já
+   * foi percorrido.
+   */
+  const live = useMemo(() => {
+    if (!tripView) return null;
+    const leg = tripView.plan.legs[0];
+    if (!leg) return null;
+    const line = tripView.server.streetLegs?.[0]?.coordinates;
+    const legMeters = routeMeters(tripView.sequence.slice(0, 2), tripView.server.streetLegs?.slice(0, 1));
+    const projection = fix && line ? projectOnLine([fix.lng, fix.lat], line) : null;
+    const fraction = projection && projection.distanceM <= snapRadius(fix?.accuracy ?? 30) ? remainingFraction(projection) : 1;
+    const now = fix?.at ?? tripView.at;
+    const nextSeconds = Math.round(leg.seconds * fraction);
+    // O resto da rota (as outras paradas e a permanência) não muda com o avanço no trecho.
+    const restSeconds = tripView.plan.totalSeconds - leg.seconds;
+    return {
+      nextSeconds,
+      nextMeters: Math.round(legMeters.meters * fraction),
+      estimated: legMeters.estimated,
+      nextArriveAt: new Date(now + nextSeconds * 1000),
+      endArriveAt: new Date(now + (nextSeconds + restSeconds) * 1000),
+      startedAt: new Date(now),
+    };
+  }, [tripView, fix]);
+
+  const finishTrip = (at: number) => {
+    const log = tripLogRef.current ?? newTripLog(at);
+    setTripStats(summarizeTrip(log, baselineRef.current, at, stopsDoneRef.current));
+    setStatsOpen(true);
+    setTrip({ status: "finished" });
+  };
+
+  const onFix = useEffectEvent((raw: Fix, gps: { heading: number | null; speed: number | null }) => {
+    // Direção: a do GPS em movimento, ou a do deslocamento; parado, fica a última conhecida.
+    const heading = headingFrom(lastFixRef.current, raw, gps) ?? lastFixRef.current?.heading ?? null;
+    const next: Fix = { ...raw, heading };
+    lastFixRef.current = next;
+    setFix(next);
+    if (tripLogRef.current) tripLogRef.current = logFix(tripLogRef.current, next);
+
+    // Saiu da rota? Mede a distância até a linha do trecho atual; duas leituras
+    // seguidas longe dela pedem uma rota nova já, saindo na direção do carro.
+    const line = tripView?.server.streetLegs?.[0]?.coordinates;
+    const projection = line ? projectOnLine([next.lng, next.lat], line) : null;
+    offRouteRef.current = projection && isOffRoute(projection.distanceM, next.accuracy) ? offRouteRef.current + 1 : 0;
+    const reroute = shouldReroute(lastReplanRef.current, next, offRouteRef.current);
+    if (reroute || shouldReplan(lastReplanRef.current, next)) {
+      lastReplanRef.current = next;
+      offRouteRef.current = 0;
+      setTripOrigin(next);
+      if (reroute) setRerouting(true);
+    }
+
+    if (!target) {
+      finishTrip(next.at);
+      return;
+    }
+    if (!hasArrived(next, target)) return;
+    // Chegou: numa parada, pausa até a pessoa retomar; no ponto final, a viagem acaba.
+    if (stops.some((s) => s.id === target.id)) {
+      if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, next.at);
+      setTrip({ status: "arrived", arrivedId: target.id });
+    } else {
+      finishTrip(next.at);
+    }
+  });
+  const onGpsError = useEffectEvent((error: GeolocationPositionError) => {
+    // Sem permissão não há o que acompanhar; falhas passageiras (túnel, sinal fraco) são ignoradas.
+    if (error.code !== error.PERMISSION_DENIED) return;
+    notify(t.gps.denied);
+    if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, nowMs());
+    setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
+  });
+  const tripRunning = trip?.status === "running";
+  useEffect(() => {
+    if (!tripRunning) return;
+    const watch = navigator.geolocation.watchPosition(
+      (position) =>
+        onFix(
+          {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            at: position.timestamp,
+          },
+          { heading: position.coords.heading, speed: position.coords.speed },
+        ),
+      (error) => onGpsError(error),
+      // maximumAge 0: cada leitura é nova, para a seta andar sem saltos.
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [tripRunning]);
 
   const clearTrip = () => {
     lastReplanRef.current = null;
+    lastFixRef.current = null;
+    offRouteRef.current = 0;
+    baselineRef.current = null;
+    stopsDoneRef.current = 0;
     setFix(null);
     setTripOrigin(null);
     setTripRemote(null);
+    setRerouting(false);
     setInfo(null);
   };
   const beginTrip = () => {
@@ -602,16 +725,38 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       return;
     }
     clearTrip();
+    tripLogRef.current = newTripLog(nowMs());
+    setTripStats(null);
+    // No celular e no tablet o mapa gira com a viagem, como nos GPS; no computador, só se a pessoa ligar.
+    setHeadingUp(isCompact);
     setTrip({ status: "running" });
   };
+  const pauseTrip = () => {
+    if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, nowMs());
+    setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
+  };
   const resumeTrip = () => {
+    const now = nowMs();
     // Retomar depois de chegar: a parada fica concluída e o acompanhamento segue para a próxima.
-    if (trip?.status === "arrived" && trip.arrivedId && !doneIds.has(trip.arrivedId)) toggleDone(trip.arrivedId);
+    if (trip?.status === "arrived" && trip.arrivedId) {
+      const arrivedId = trip.arrivedId;
+      if (!doneIds.has(arrivedId)) toggleDone(arrivedId);
+      stopsDoneRef.current += 1;
+      // Era a última parada e a rota termina nela: a viagem acaba na hora em que chegou.
+      if (!tripTarget(stops, new Set([...doneIds, arrivedId]), finalPlace)) {
+        finishTrip(tripLogRef.current?.stoppedSince ?? now);
+        return;
+      }
+    }
+    if (tripLogRef.current) tripLogRef.current = logGo(tripLogRef.current, now);
     lastReplanRef.current = null;
+    offRouteRef.current = 0;
     setTrip({ status: "running" });
   };
   const endTrip = () => {
     clearTrip();
+    tripLogRef.current = null;
+    setStatsOpen(false);
     setTrip(null);
   };
 
@@ -832,7 +977,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [tripView, sequenceOf, stops, serverPlan, plan],
   );
   const mapPath = useMemo<[number, number][]>(
-    () => (tripView ? tripView.sequence.map((p) => [p.lng, p.lat]) : path),
+    () => (tripView ? (tripView.server.streetLegs ? [] : tripView.sequence.map((p) => [p.lng, p.lat])) : path),
     [tripView, path],
   );
   const mapStreetLegs = useMemo(
@@ -962,12 +1107,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Textos de resumo. O total inclui a permanência nas paradas.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
   const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
-  const tripLeg = tripView?.plan?.legs[0];
   const handleSummary = !start
     ? t.empty.handle
-    : trip && target && tripLeg
-      ? `${t.trip.next}: ${target.label} · ${formatTime(tripLeg.arriveAt)}`
+    : tripActive && target
+      ? `${t.trip.next}: ${target.label}`
       : `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`;
+  const liveKm = live ? `${live.estimated ? "≈ " : ""}${formatKm(live.nextMeters)}` : "—";
+  const statsShort = tripStats
+    ? t.trip.finishedShort(
+        formatDuration(tripStats.actualSeconds),
+        tripStats.plannedSeconds === null ? null : formatDuration(tripStats.plannedSeconds),
+        formatKm(tripStats.actualMeters),
+      )
+    : null;
   const distanceText = totalDistance ? `${totalDistance.estimated ? "≈ " : ""}${formatKm(totalDistance.meters)}` : "—";
 
   // Painel da viagem, no Resumo.
@@ -998,11 +1150,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           : trip.status === "arrived"
             ? t.trip.arrived(arrivedPlace?.label ?? t.stops.fallbackName)
             : t.trip.finished;
-    const firstStreet = tripView?.server.streetLegs?.slice(0, 1);
-    const legMeters =
-      tripView && tripView.sequence.length > 1
-        ? routeMeters(tripView.sequence.slice(0, 2), firstStreet)
-        : null;
     return (
       <div className="flex flex-col gap-2.5 rounded-lg border border-accent/35 bg-accent/5 p-3" aria-live="polite">
         <p className="flex items-center gap-2 text-xs font-semibold text-ink">
@@ -1030,27 +1177,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               <span className="text-muted">{t.trip.next}:</span> <span className="font-medium">{target.label}</span>
             </p>
             <p className="text-xs text-muted">
-              {tripLeg && legMeters
-                ? t.trip.eta(
-                    formatTime(tripLeg.arriveAt),
-                    formatDuration(tripLeg.seconds),
-                    `${legMeters.estimated ? "≈ " : ""}${formatKm(legMeters.meters)}`,
-                  )
-                : fix
-                  ? t.trip.updating
-                  : t.trip.waitingGps}
+              {rerouting
+                ? t.trip.rerouting
+                : live
+                  ? t.trip.eta(formatTime(live.nextArriveAt), formatDuration(live.nextSeconds), liveKm)
+                  : fix
+                    ? t.trip.updating
+                    : t.trip.waitingGps}
             </p>
-            {tripView?.plan && tripView.sequence.length > 2 && (
+            {live && tripView && tripView.sequence.length > 2 && (
               <p className="text-xs text-muted">
-                {t.trip.endEta(formatTimeWithDay(tripView.plan.arriveAt, tripView.plan.departAt))}
+                {t.trip.endEta(formatTimeWithDay(live.endArriveAt, live.startedAt))}
               </p>
             )}
           </div>
         )}
         {trip.status === "arrived" && <p className="text-xs text-muted">{t.trip.arrivedHint}</p>}
+        {trip.status === "finished" && statsShort && <p className="text-xs text-ink-2">{statsShort}</p>}
         <div className="flex flex-wrap gap-2">
           {trip.status === "running" && (
-            <button type="button" onClick={() => setTrip({ status: "paused" })} className={`${secondary} flex-1`}>
+            <button type="button" onClick={pauseTrip} className={`${secondary} flex-1`}>
               <PauseIcon />
               {t.trip.pause}
             </button>
@@ -1062,9 +1208,17 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             </button>
           )}
           {trip.status === "finished" ? (
-            <button type="button" onClick={endTrip} className={`${secondary} flex-1`}>
-              {t.trip.close}
-            </button>
+            <>
+              {tripStats && (
+                <button type="button" onClick={() => setStatsOpen(true)} className={`${primary} flex-1`}>
+                  <FlagIcon />
+                  {t.trip.seeStats}
+                </button>
+              )}
+              <button type="button" onClick={endTrip} className={`${secondary} flex-1`}>
+                {t.trip.close}
+              </button>
+            </>
           ) : (
             <button type="button" onClick={endTrip} className={secondary} aria-label={t.trip.end} title={t.trip.end}>
               <StopIcon />
@@ -1075,6 +1229,40 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       </div>
     );
   })();
+
+  const meOnMap: MePosition | null =
+    tripActive && fix ? { lat: fix.lat, lng: fix.lng, heading: fix.heading ?? null, accuracy: fix.accuracy, at: fix.at } : null;
+
+  // Celular e tablet: cabeçalho da viagem com a chegada, o tempo e a distância até a próxima parada.
+  const tripHeader =
+    isCompact && tripActive && target && trip?.status !== "arrived" ? (
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 mx-auto max-w-[24rem] overflow-hidden rounded-xl border border-line bg-surface shadow-panel"
+      >
+        {rerouting || !live ? (
+          <p className="px-3 py-2.5 text-center text-compact font-medium text-ink-2">
+            {rerouting ? t.trip.rerouting : fix ? t.trip.updating : t.trip.waitingGps}
+          </p>
+        ) : (
+          <dl className="grid grid-cols-3 divide-x divide-line">
+            {(
+              [
+                [t.trip.headerArrival, formatTime(live.nextArriveAt)],
+                [t.trip.headerTime, formatDuration(live.nextSeconds)],
+                [t.trip.headerDistance, liveKm],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label} className="flex flex-col items-center px-2 py-1.5">
+                <dt className="text-2xs font-medium text-muted">{label}</dt>
+                <dd className="whitespace-nowrap text-md font-semibold tabular-nums text-ink">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    ) : null;
 
   const tourSteps: TourStep[] = [
     { target: "#bloco-inicio", text: t.tour.start },
@@ -1537,8 +1725,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         selectedLeg={info?.leg ?? null}
         doneLegs={tripView ? [] : doneLegs}
         legColors={view.colors}
-        me={trip && fix ? fix : null}
+        me={meOnMap}
         follow={tripRunning}
+        tracking={tripActive}
+        headingUp={headingUp}
+        navHeader={isCompact && !!tripHeader}
+        rotateControl={tripActive ? { pressed: headingUp, onToggle: () => setHeadingUp((on) => !on) } : null}
         columnInsets={columnInsets}
         fitVersion={fitVersion}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1701,6 +1893,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       />
 
       <TripWarningDialog open={tripWarning} onAccept={beginTrip} onCancel={() => setTripWarning(false)} />
+
+      <TripStatsDialog open={statsOpen} stats={tripStats} onClose={() => setStatsOpen(false)} />
+
+      {tripHeader}
 
       {!tourSeen && (
         <Tour

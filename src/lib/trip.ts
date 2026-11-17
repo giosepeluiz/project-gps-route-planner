@@ -17,6 +17,8 @@ export interface Fix {
   accuracy: number;
   /** Momento da leitura (ms desde 1970). */
   at: number;
+  /** Direção do carro (graus), quando se sabe. */
+  heading?: number | null;
 }
 
 /** Distância até o destino que conta como "cheguei". */
@@ -79,4 +81,134 @@ export function routeMeters(
   let meters = 0;
   for (let i = 1; i < sequence.length; i++) meters += haversineMeters(sequence[i - 1], sequence[i]) * 1.4;
   return { meters: Math.round(meters), estimated: true };
+}
+
+// ---------- Desvio de rota e direção ----------
+
+/** Raio em que a posição "gruda" na linha da rota (cresce com GPS impreciso). */
+export const SNAP_RADIUS_M = 45;
+export const MAX_SNAP_RADIUS_M = 90;
+/** Longe da linha mais do que isso, o carro saiu da rota. */
+export const OFF_ROUTE_M = 60;
+export const MAX_OFF_ROUTE_M = 150;
+/** Leituras seguidas fora da rota antes de recalcular (evita alarme por um salto do GPS). */
+export const OFF_ROUTE_FIXES = 2;
+/** Intervalo mínimo entre recálculos por desvio. */
+export const REROUTE_MIN_MS = 15_000;
+
+export function snapRadius(accuracy: number): number {
+  return Math.min(Math.max(SNAP_RADIUS_M, accuracy * 1.2), MAX_SNAP_RADIUS_M);
+}
+
+export function isOffRoute(distanceFromLineM: number, accuracy: number): boolean {
+  return distanceFromLineM > Math.min(Math.max(OFF_ROUTE_M, accuracy * 1.5), MAX_OFF_ROUTE_M);
+}
+
+/** Recálculo por desvio: logo, mas não mais de um a cada REROUTE_MIN_MS. */
+export function shouldReroute(last: Fix | null, fix: Fix, offRouteFixes: number): boolean {
+  if (offRouteFixes < OFF_ROUTE_FIXES) return false;
+  return !last || fix.at - last.at >= REROUTE_MIN_MS;
+}
+
+/**
+ * Direção do carro: a do GPS quando ele está andando (o GPS só sabe a direção
+ * em movimento); senão, a do deslocamento desde a leitura anterior; senão, null.
+ */
+export function headingFrom(
+  previous: Fix | null,
+  fix: Fix,
+  gps: { heading: number | null; speed: number | null },
+): number | null {
+  if (gps.heading !== null && Number.isFinite(gps.heading) && (gps.speed ?? 0) > 1.5) return gps.heading;
+  if (previous && haversineMeters(previous, fix) >= Math.max(8, fix.accuracy * 0.5)) {
+    const rad = Math.PI / 180;
+    const φ1 = previous.lat * rad;
+    const φ2 = fix.lat * rad;
+    const Δλ = (fix.lng - previous.lng) * rad;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return (Math.atan2(y, x) / rad + 360) % 360;
+  }
+  return null;
+}
+
+// ---------- Estatísticas da viagem ----------
+
+/** O que estava previsto no começo da viagem. */
+export interface TripBaseline {
+  seconds: number;
+  /** Chegada prevista ao fim (ms). */
+  arriveAt: number;
+  meters: number;
+}
+
+/** Diário da viagem, atualizado a cada leitura do GPS. */
+export interface TripLog {
+  startedAt: number;
+  /** Metros percorridos (soma das leituras, sem o tremido do GPS parado). */
+  meters: number;
+  /** Tempo parado (pausas e paradas), em ms. */
+  stoppedMs: number;
+  /** Início da pausa atual, ou null se está andando. */
+  stoppedSince: number | null;
+  /** Última leitura que entrou na soma. */
+  lastCounted: Fix | null;
+}
+
+export function newTripLog(at: number): TripLog {
+  return { startedAt: at, meters: 0, stoppedMs: 0, stoppedSince: null, lastCounted: null };
+}
+
+/** Soma o deslocamento só quando ele passa da incerteza do GPS (parado, o GPS "anda" sozinho). */
+export function logFix(log: TripLog, fix: Fix): TripLog {
+  if (!log.lastCounted) return { ...log, lastCounted: fix };
+  const moved = haversineMeters(log.lastCounted, fix);
+  if (moved < Math.max(10, Math.min(fix.accuracy, 30))) return log;
+  return { ...log, meters: log.meters + moved, lastCounted: fix };
+}
+
+export function logStop(log: TripLog, at: number): TripLog {
+  return log.stoppedSince === null ? { ...log, stoppedSince: at } : log;
+}
+
+export function logGo(log: TripLog, at: number): TripLog {
+  if (log.stoppedSince === null) return log;
+  // Depois de parado, a próxima leitura recomeça a soma (sem contar um "salto").
+  return { ...log, stoppedMs: log.stoppedMs + (at - log.stoppedSince), stoppedSince: null, lastCounted: null };
+}
+
+export interface TripSummary {
+  plannedSeconds: number | null;
+  actualSeconds: number;
+  plannedArriveAt: number | null;
+  arrivedAt: number;
+  plannedMeters: number | null;
+  actualMeters: number;
+  stoppedSeconds: number;
+  /** Velocidade média em movimento (km/h), ou null se quase não andou. */
+  averageKmh: number | null;
+  stopsDone: number;
+}
+
+export function summarizeTrip(
+  log: TripLog,
+  baseline: TripBaseline | null,
+  finishedAt: number,
+  stopsDone: number,
+): TripSummary {
+  const closed = logGo(log, finishedAt);
+  const actualSeconds = Math.max(0, Math.round((finishedAt - log.startedAt) / 1000));
+  const stoppedSeconds = Math.round(closed.stoppedMs / 1000);
+  const movingSeconds = actualSeconds - stoppedSeconds;
+  return {
+    plannedSeconds: baseline?.seconds ?? null,
+    actualSeconds,
+    plannedArriveAt: baseline?.arriveAt ?? null,
+    arrivedAt: finishedAt,
+    plannedMeters: baseline?.meters ?? null,
+    actualMeters: Math.round(closed.meters),
+    stoppedSeconds,
+    averageKmh: movingSeconds >= 60 && closed.meters >= 200 ? (closed.meters / movingSeconds) * 3.6 : null,
+    stopsDone,
+  };
 }

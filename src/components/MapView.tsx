@@ -7,6 +7,8 @@ import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap, Marker
 import { useT } from "./I18nProvider";
 import { DONE_LEG_COLOR, legColor } from "@/lib/leg-colors";
 import { overlayPadding } from "@/lib/map-padding";
+import { angleDelta, lerpAngle, projectOnLine, remainingLine, type LngLat, type Projection } from "@/lib/route-progress";
+import { snapRadius } from "@/lib/trip";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
 type MapLibre = typeof import("maplibre-gl");
@@ -19,6 +21,17 @@ export interface MapPoint {
   /** Texto do pin: "A", "B" ou o número da parada. */
   badge: string;
   title: string;
+}
+
+/** Leitura do GPS mostrada no mapa. */
+export interface MePosition {
+  lat: number;
+  lng: number;
+  /** Direção do carro (graus), quando se sabe. */
+  heading: number | null;
+  accuracy: number;
+  /** Momento da leitura (ms). */
+  at: number;
 }
 
 /** Quanto do mapa está coberto pelo HUD, para o enquadramento da rota. */
@@ -39,9 +52,20 @@ interface MapViewProps {
   /** Cor de cada trecho (na viagem, os trechos que faltam mantêm a cor da parada). */
   legColors?: readonly string[];
   /** Posição atual pelo GPS (durante a viagem), ou null. */
-  me?: { lat: number; lng: number } | null;
-  /** Com a viagem em andamento, o mapa acompanha a posição atual. */
+  me?: MePosition | null;
+  /** Com a viagem em andamento, o mapa acompanha a posição atual (em 3D). */
   follow?: boolean;
+  /**
+   * Viagem ativa: a seta "gruda" no primeiro trecho da linha colorida e a parte
+   * já percorrida some, acompanhando a seta.
+   */
+  tracking?: boolean;
+  /** Mapa girando com a direção da viagem (senão, norte para cima). */
+  headingUp?: boolean;
+  /** Viagem no celular/tablet: o cabeçalho ocupa o topo e os botões descem para baixo dele. */
+  navHeader?: boolean;
+  /** Botão de girar o mapa junto das configurações (só na viagem). */
+  rotateControl?: { pressed: boolean; onToggle: () => void } | null;
   layout: MapLayout;
   /**
    * Largura (px) das colunas de blocos grudadas em cada borda, no desktop. Os
@@ -80,6 +104,51 @@ const STREET_SOURCE = "rota-ruas";
 const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
 const DESKTOP_QUERY = "(min-width: 768px)";
+/** Inclinação da câmera na viagem (visão 3D, como nos GPS). */
+const NAV_PITCH = 55;
+const NAV_ZOOM = 16.5;
+/** Depois de a pessoa arrastar o mapa na viagem, a câmera espera antes de voltar a seguir. */
+const FOLLOW_PAUSE_MS = 8_000;
+
+const ARROW_SVG =
+  '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><defs><filter id="sombra-seta" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#000" flood-opacity=".35"/></filter></defs><circle cx="20" cy="20" r="17" fill="#1a73e8" fill-opacity=".16"/><path d="M20 6.5 L30.5 31 L20 25.4 L9.5 31 Z" fill="#1a73e8" stroke="#ffffff" stroke-width="2.6" stroke-linejoin="round" filter="url(#sombra-seta)"/></svg>';
+
+const ROTATE_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.25"/><path d="M10 4.6l2.4 6.2L10 9.6l-2.4 1.2z" fill="currentColor"/></svg>';
+
+type StreetsData = {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    properties: { index: number; color: string };
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+  }[];
+};
+
+/**
+ * Na viagem, o primeiro trecho começa onde o carro está: projeta a posição na
+ * linha e, se estiver perto o bastante, corta o pedaço já percorrido.
+ */
+function withProgress(
+  streets: StreetsData,
+  position: LngLat | null,
+  accuracy: number,
+): { data: StreetsData; snapped: Projection | null } {
+  const first = streets.features[0];
+  if (!position || !first) return { data: streets, snapped: null };
+  const projection = projectOnLine(position, first.geometry.coordinates);
+  if (!projection || projection.distanceM > snapRadius(accuracy)) return { data: streets, snapped: null };
+  return {
+    data: {
+      ...streets,
+      features: [
+        { ...first, geometry: { ...first.geometry, coordinates: remainingLine(first.geometry.coordinates, projection) } },
+        ...streets.features.slice(1),
+      ],
+    },
+    snapped: projection,
+  };
+}
 
 interface CtrlButton {
   title: string;
@@ -89,6 +158,8 @@ interface CtrlButton {
   onClick: () => void;
   /** Abre um diálogo (anunciado pelos leitores de tela). */
   opensDialog?: boolean;
+  /** Botão liga/desliga: aria-pressed e destaque. */
+  pressed?: boolean;
 }
 
 const GEAR_ICON =
@@ -110,6 +181,10 @@ function createButtonsControl(buttons: CtrlButton[]) {
         button.title = spec.title;
         button.setAttribute("aria-label", spec.label);
         if (spec.opensDialog) button.setAttribute("aria-haspopup", "dialog");
+        if (spec.pressed !== undefined) {
+          button.setAttribute("aria-pressed", String(spec.pressed));
+          if (spec.pressed) button.classList.add("rotas-ctrl-on");
+        }
         button.innerHTML = spec.icon;
         button.addEventListener("click", () => spec.onClick());
         container.append(button);
@@ -167,6 +242,10 @@ export default function MapView({
   legColors,
   me = null,
   follow = false,
+  tracking = false,
+  headingUp = false,
+  rotateControl = null,
+  navHeader = false,
   layout,
   columnInsets,
   fitVersion,
@@ -186,6 +265,22 @@ export default function MapView({
   const libRef = useRef<MapLibre | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const meMarkerRef = useRef<Marker | null>(null);
+  /** Linha colorida completa (sem o corte do trecho percorrido). */
+  const streetsRef = useRef<StreetsData | null>(null);
+  /** Posição e direção que a seta mostra agora (animadas). */
+  const shownRef = useRef<{ lng: number; lat: number; bearing: number } | null>(null);
+  /** Posição do GPS (sem grudar na linha) no quadro atual da animação. */
+  const rawRef = useRef<LngLat | null>(null);
+  const lastFixAtRef = useRef<number | null>(null);
+  const followPauseRef = useRef(0);
+  const followRef = useRef(follow);
+  const headingUpRef = useRef(headingUp);
+  const trackingRef = useRef(tracking);
+  useEffect(() => {
+    followRef.current = follow;
+    headingUpRef.current = headingUp;
+    trackingRef.current = tracking;
+  });
   /** Muda a cada estilo carregado, para redesenhar a rota depois de uma troca de estilo. */
   const [styleVersion, setStyleVersion] = useState(0);
   const [size, setSize] = useState("");
@@ -205,6 +300,9 @@ export default function MapView({
   const t = useT();
   const handleOpenSettings = useEffectEvent(() => onOpenSettings());
   const handleOpenAbout = useEffectEvent(() => onOpenAbout());
+  const handleToggleRotate = useEffectEvent(() => rotateControl?.onToggle());
+  const hasRotate = rotateControl !== null;
+  const rotatePressed = rotateControl?.pressed ?? false;
   const handleBounds = useEffectEvent((map: MapLibreMap) => {
     const b = map.getBounds();
     onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
@@ -283,6 +381,10 @@ export default function MapView({
         handleContextMenu(event.lngLat.lat, event.lngLat.lng);
       });
       map.on("moveend", () => map && handleBounds(map));
+      // Arrastar o mapa na viagem pausa o "seguir" por alguns segundos.
+      map.on("dragstart", () => {
+        followPauseRef.current = Date.now() + FOLLOW_PAUSE_MS;
+      });
       map.on("load", () => map && handleBounds(map));
     });
 
@@ -307,6 +409,17 @@ export default function MapView({
 
     const media = window.matchMedia(DESKTOP_QUERY);
     const settings = createButtonsControl([
+      ...(hasRotate
+        ? [
+            {
+              title: rotatePressed ? t.map.rotateOn : t.map.rotateOff,
+              label: t.map.rotate,
+              icon: ROTATE_ICON,
+              pressed: rotatePressed,
+              onClick: () => handleToggleRotate(),
+            },
+          ]
+        : []),
       {
         title: t.map.settings,
         label: t.map.openSettings,
@@ -344,8 +457,11 @@ export default function MapView({
         zoom = new lib.NavigationControl({ showCompass: false });
         map.addControl(zoom, "top-right");
       }
-      attribution = new lib.AttributionControl({ compact: false, customAttribution: MAP_ATTRIBUTION });
-      map.addControl(attribution, media.matches ? "bottom-right" : "top-left");
+      // Atribuição sempre recolhida no botão "i" (abre com um clique ou toque):
+      // embaixo à direita no computador, embaixo à esquerda (acima da gaveta) no celular.
+      attribution = new lib.AttributionControl({ compact: true, customAttribution: MAP_ATTRIBUTION });
+      map.addControl(attribution, media.matches ? "bottom-right" : "bottom-left");
+      map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
     };
     place();
     media.addEventListener("change", place);
@@ -353,7 +469,7 @@ export default function MapView({
       media.removeEventListener("change", place);
       clear();
     };
-  }, [styleVersion, t]);
+  }, [styleVersion, t, hasRotate, rotatePressed]);
 
   const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
   const colorKey = legColors?.join(",") ?? "";
@@ -400,7 +516,7 @@ export default function MapView({
       geometry: { type: "LineString" as const, coordinates: path },
     };
     // Linha colorida: a rota pelas ruas, um trecho por feature (para o clique saber qual é).
-    const streets = {
+    const streets: StreetsData = {
       type: "FeatureCollection" as const,
       features: (streetLegs ?? []).map((coordinates, index) => ({
         type: "Feature" as const,
@@ -410,14 +526,17 @@ export default function MapView({
       })),
     };
 
+    streetsRef.current = streets;
+    const drawn = tracking && rawRef.current ? withProgress(streets, rawRef.current, 30).data : streets;
+
     const straightSource = map.getSource(STRAIGHT_SOURCE) as GeoJSONSource | undefined;
     if (straightSource) {
       straightSource.setData(straight);
-      (map.getSource(STREET_SOURCE) as GeoJSONSource | undefined)?.setData(streets);
+      (map.getSource(STREET_SOURCE) as GeoJSONSource | undefined)?.setData(drawn);
     } else {
       const round = { "line-cap": "round" as const, "line-join": "round" as const };
       map.addSource(STRAIGHT_SOURCE, { type: "geojson", data: straight });
-      map.addSource(STREET_SOURCE, { type: "geojson", data: streets });
+      map.addSource(STREET_SOURCE, { type: "geojson", data: drawn });
       map.addLayer({
         id: STREET_CASING,
         type: "line",
@@ -451,38 +570,115 @@ export default function MapView({
     // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
     map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
     map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
-  }, [points, path, streetLegs, doneKey, colorKey, styleVersion, t]);
+  }, [points, path, streetLegs, doneKey, colorKey, tracking, styleVersion, t]);
 
-  // Ponto azul da posição atual (viagem). Com "seguir", o mapa centraliza nele.
+  // Seta da posição atual (viagem). Ela desliza de uma leitura do GPS para a
+  // seguinte (sem pulos), gruda na linha da rota quando está perto dela, gira
+  // com a direção da via e leva junto a câmera e o corte da linha percorrida.
   const meLat = me?.lat;
   const meLng = me?.lng;
+  const meAt = me?.at;
+  const meHeading = me?.heading ?? null;
+  const meAccuracy = me?.accuracy ?? 30;
   useEffect(() => {
     const map = mapRef.current;
     const lib = libRef.current;
     if (!map || !lib || styleVersion === 0) return;
-    if (meLat === undefined || meLng === undefined) {
+    if (meLat === undefined || meLng === undefined || meAt === undefined) {
       meMarkerRef.current?.remove();
       meMarkerRef.current = null;
+      shownRef.current = null;
+      rawRef.current = null;
+      lastFixAtRef.current = null;
       return;
     }
     if (!meMarkerRef.current) {
       const element = document.createElement("div");
       element.className = "pin-me";
+      element.innerHTML = ARROW_SVG;
       element.title = t.gps.here;
+      element.setAttribute("role", "img");
       element.setAttribute("aria-label", t.gps.here);
-      meMarkerRef.current = new lib.Marker({ element }).setLngLat([meLng, meLat]).addTo(map);
-    } else {
-      meMarkerRef.current.setLngLat([meLng, meLat]);
+      meMarkerRef.current = new lib.Marker({ element, rotationAlignment: "map", pitchAlignment: "map" })
+        .setLngLat([meLng, meLat])
+        .addTo(map);
     }
+    const marker = meMarkerRef.current;
+    const target: LngLat = [meLng, meLat];
+    const fromRaw = rawRef.current ?? target;
+    // A animação dura o intervalo entre as leituras: a seta chega quando a próxima leitura sai.
+    const gap = lastFixAtRef.current === null ? 0 : meAt - lastFixAtRef.current;
+    lastFixAtRef.current = meAt;
+    const duration = Math.min(Math.max(gap, 300), 1_600);
+    const started = performance.now();
+    const navPadding = routePadding(map, layout);
+    // Na viagem, a seta fica mais para baixo da tela, com mais caminho à frente.
+    navPadding.top += map.getContainer().clientHeight * 0.28;
+    let lastLineAt = 0;
+    let frame = 0;
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / duration);
+      const raw: LngLat = [fromRaw[0] + (target[0] - fromRaw[0]) * t, fromRaw[1] + (target[1] - fromRaw[1]) * t];
+      rawRef.current = raw;
+      let position = raw;
+      let wanted = meHeading ?? shownRef.current?.bearing ?? 0;
+      const streets = streetsRef.current;
+      if (trackingRef.current && streets) {
+        const { data, snapped } = withProgress(streets, raw, meAccuracy);
+        if (snapped) {
+          position = snapped.point;
+          wanted = snapped.bearing;
+        }
+        // A linha é redesenhada ~10 vezes por segundo (mais que isso só pesa no celular).
+        if (now - lastLineAt >= 100 || t === 1) {
+          (map.getSource(STREET_SOURCE) as GeoJSONSource | undefined)?.setData(data);
+          lastLineAt = now;
+        }
+      }
+      const previous = shownRef.current?.bearing ?? wanted;
+      const bearing = lerpAngle(previous, wanted, 0.18);
+      shownRef.current = { lng: position[0], lat: position[1], bearing };
+      marker.setLngLat(position).setRotation(bearing);
+      if (followRef.current && Date.now() >= followPauseRef.current) {
+        map.jumpTo({
+          center: position,
+          bearing: headingUpRef.current ? bearing : 0,
+          pitch: NAV_PITCH,
+          padding: navPadding,
+        });
+      }
+      if (t < 1 || Math.abs(angleDelta(bearing, wanted)) > 0.5) frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
+  }, [meLat, meLng, meAt, meHeading, meAccuracy, layout, styleVersion, t]);
+
+  // Começo e fim do "seguir": aproxima em 3D ao iniciar e volta ao mapa plano, com o norte para cima, no fim.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || styleVersion === 0) return;
     if (follow) {
+      followPauseRef.current = 0;
+      const shown = shownRef.current;
       map.easeTo({
-        center: [meLng, meLat],
-        zoom: Math.max(map.getZoom(), 14),
-        padding: routePadding(map, layout),
-        duration: 600,
+        ...(shown ? { center: [shown.lng, shown.lat] as LngLat } : {}),
+        zoom: Math.max(map.getZoom(), NAV_ZOOM),
+        pitch: NAV_PITCH,
+        duration: 800,
       });
+    } else if (map.getPitch() !== 0 || map.getBearing() !== 0) {
+      map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
     }
-  }, [meLat, meLng, follow, layout, styleVersion, t]);
+  }, [follow, styleVersion]);
+
+  // Ligar ou desligar a rotação sem esperar a próxima leitura do GPS.
+  useEffect(() => {
+    const map = mapRef.current;
+    const shown = shownRef.current;
+    if (!map || styleVersion === 0 || !followRef.current || !shown) return;
+    map.easeTo({ bearing: headingUp ? shown.bearing : 0, duration: 500 });
+  }, [headingUp, styleVersion]);
 
   // Trecho clicado em destaque: os outros ficam semitransparentes e ele passa por cima.
   useEffect(() => {
@@ -549,7 +745,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     const lib = libRef.current;
-    if (!map || !lib || styleVersion === 0 || boundsKey === "") return;
+    if (!map || !lib || styleVersion === 0 || boundsKey === "" || follow) return;
 
     const coords = boundsKey.split("|").map((pair) => {
       const [lat, lng] = pair.split(",").map(Number);
@@ -570,11 +766,11 @@ export default function MapView({
     } catch (err) {
       console.warn("Não foi possível enquadrar a rota no mapa.", err);
     }
-  }, [boundsKey, layout, fitVersion, styleVersion, size]);
+  }, [boundsKey, layout, fitVersion, styleVersion, size, follow]);
 
   return (
     <div
-      className="absolute inset-0"
+      className={`absolute inset-0 ${navHeader ? "rotas-nav-header" : ""}`}
       style={{ "--inset-left": `${columnInsets.left}px`, "--inset-right": `${columnInsets.right}px` } as CSSProperties}
     >
       <div
@@ -599,7 +795,7 @@ export default function MapView({
       )}
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul
-          className="pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
+          className="pointer-events-none absolute bottom-28 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
         >
           {!streetLegs && (
             <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">

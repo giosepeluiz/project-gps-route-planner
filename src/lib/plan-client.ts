@@ -14,6 +14,8 @@ interface RouteInput {
   mode: TimeMode;
   /** Valor do campo datetime-local, ou null para "agora". */
   dateTime: string | null;
+  /** Direção do carro no início (viagem), em graus. */
+  heading?: number | null;
 }
 
 const point = (p: Place) => ({ id: p.id, lat: p.lat, lng: p.lng });
@@ -24,7 +26,7 @@ const stopPoint = (p: Place) => {
   return dwellMin > 0 ? { ...point(p), dwellMin } : point(p);
 };
 
-export function planRequestBody({ start, stops, end, endSame, locks, mode, dateTime }: RouteInput) {
+export function planRequestBody({ start, stops, end, endSame, locks, mode, dateTime, heading }: RouteInput) {
   const at = dateTime ? new Date(dateTime) : null;
   return {
     start: point(start),
@@ -34,6 +36,7 @@ export function planRequestBody({ start, stops, end, endSame, locks, mode, dateT
     locks,
     mode,
     at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : null,
+    ...(heading == null ? {} : { heading: Math.round(((heading % 360) + 360) % 360) % 360 }),
   };
 }
 

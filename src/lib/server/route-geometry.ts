@@ -35,10 +35,19 @@ export interface GeometryService {
    * Devolve null quando não há provedor ou quando ele falha (o mapa fica só com
    * as retas), e "no-route" quando o provedor afirma que não existe caminho de carro.
    */
-  getRoute(points: readonly Point[], departAt: Date): Promise<RouteGeometry | null | "no-route">;
+  getRoute(points: readonly Point[], departAt: Date, options?: RouteOptions): Promise<RouteGeometry | null | "no-route">;
 }
 
 type FetchFn = typeof fetch;
+
+export interface RouteOptions {
+  /**
+   * Direção em que o carro anda no primeiro ponto (graus a partir do norte, no
+   * sentido horário). Na viagem, faz a rota recalculada sair no sentido em que
+   * o carro já está, em vez de mandar dar meia-volta.
+   */
+  heading?: number;
+}
 
 /** O Calculate Route aceita no máximo 150 pontos intermediários. */
 const MAX_POINTS = 150;
@@ -85,12 +94,15 @@ export function createTomTomGeometry(
   const breaker = new CircuitBreaker("tomtom-rota", 3, 60_000, now);
 
   return {
-    async getRoute(points, departAt) {
+    async getRoute(points, departAt, options) {
       if (points.length < 2 || points.length > MAX_POINTS) return null;
+      // vehicleHeading da TomTom: inteiro de 0 a 359. Arredondado a 10° para o cache servir.
+      const heading =
+        options?.heading === undefined ? null : (Math.round(((options.heading % 360) + 360) % 360 / 10) * 10) % 360;
 
       const path = points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(":");
       const live = isNearNow(departAt, now());
-      const key = `rt:v2:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${path}`;
+      const key = `rt:v2:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${heading === null ? "" : `h${heading}:`}${path}`;
       const cached = await cache.get<RouteGeometry>(key);
       if (cached) return cached;
 
@@ -109,6 +121,7 @@ export function createTomTomGeometry(
       });
       // Sem departAt o padrão é "now"; datas precisam estar no futuro.
       if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
+      if (heading !== null) params.set("vehicleHeading", String(heading));
 
       try {
         const data = (await withPolicy(breaker, async (signal) => {
@@ -245,9 +258,9 @@ export function createOsrmDemoGeometry(cache: Cache, fetchFn: FetchFn = fetch): 
 /** Tenta cada serviço em ordem e fica com o primeiro que responder. */
 export function chainGeometry(services: GeometryService[]): GeometryService {
   return {
-    async getRoute(points, departAt) {
+    async getRoute(points, departAt, options) {
       for (const service of services) {
-        const route = await service.getRoute(points, departAt);
+        const route = await service.getRoute(points, departAt, options);
         if (route) return route;
       }
       return null;

@@ -23,6 +23,8 @@ const Body = z.object({
   mode: z.enum(["depart", "arrive"]),
   /** ISO 8601, ou null para "agora". */
   at: z.iso.datetime({ offset: true }).nullable(),
+  /** Direção do carro no início, em graus (só na viagem). */
+  heading: z.number().min(0).max(360).optional(),
 });
 
 /**

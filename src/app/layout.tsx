@@ -3,7 +3,7 @@ import "./globals.css";
 import { SETTINGS_BOOT_SCRIPT } from "@/lib/settings";
 
 export const metadata: Metadata = {
-  title: "Planejador de rotas",
+  title: "Planejador de Rotas",
   description: "Planeja a melhor sequência de paradas de carro, com trânsito previsto.",
   robots: { index: false, follow: false },
 };

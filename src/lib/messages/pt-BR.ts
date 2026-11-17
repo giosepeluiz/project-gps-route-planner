@@ -7,7 +7,7 @@ const ptBR = {
   aiLanguage: "português do Brasil",
 
   app: {
-    title: "Planejador de rotas",
+    title: "Planejador de Rotas",
     panel: "Planejamento da rota",
     openPanel: "Abrir painel",
     closePanel: "Recolher painel",
@@ -224,6 +224,28 @@ const ptBR = {
   },
 
   trip: {
+    rerouting: "Você saiu da rota. Recalculando…",
+    headerArrival: "Chegada",
+    headerTime: "Tempo",
+    headerDistance: "Distância",
+    finishedShort: (actual: string, planned: string | null, km: string) =>
+      `Levou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
+    seeStats: "Ver estatísticas",
+    stats: {
+      title: "Viagem concluída",
+      lead: "Veja como foi em relação ao previsto.",
+      planned: "Previsto",
+      actual: "Real",
+      time: "Tempo total",
+      arrival: "Chegada",
+      distance: "Distância",
+      stopped: "Tempo parado",
+      speed: "Velocidade média em movimento",
+      stops: "Paradas concluídas",
+      faster: (d: string) => `${d} mais rápido que o previsto`,
+      slower: (d: string) => `${d} além do previsto`,
+      onTime: "No tempo previsto",
+    },
     start: "Iniciar viagem",
     pause: "Pausar viagem",
     resume: "Retomar viagem",
@@ -269,6 +291,9 @@ const ptBR = {
   },
 
   map: {
+    rotate: "Girar o mapa com a direção da viagem",
+    rotateOn: "Direção da viagem para cima (toque para o norte para cima)",
+    rotateOff: "Norte para cima (toque para girar com a viagem)",
     aria: "Mapa da rota. Clique para ver um local; clique direito ou toque longo para adicionar uma parada.",
     loading: "Carregando o mapa…",
     error: "Não foi possível carregar o mapa base. Verifique a conexão e recarregue a página.",

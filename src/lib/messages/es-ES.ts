@@ -5,7 +5,7 @@ const esES: Messages = {
   aiLanguage: "español de España",
 
   app: {
-    title: "Planificador de rutas",
+    title: "Planificador de Rutas",
     panel: "Planificación de la ruta",
     openPanel: "Abrir panel",
     closePanel: "Recoger panel",
@@ -217,6 +217,28 @@ const esES: Messages = {
   },
 
   trip: {
+    rerouting: "Te has salido de la ruta. Recalculando…",
+    headerArrival: "Llegada",
+    headerTime: "Tiempo",
+    headerDistance: "Distancia",
+    finishedShort: (actual: string, planned: string | null, km: string) =>
+      `Tardó ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} recorridos`,
+    seeStats: "Ver estadísticas",
+    stats: {
+      title: "Viaje completado",
+      lead: "Así fue en comparación con lo previsto.",
+      planned: "Previsto",
+      actual: "Real",
+      time: "Tiempo total",
+      arrival: "Llegada",
+      distance: "Distancia",
+      stopped: "Tiempo parado",
+      speed: "Velocidad media en movimiento",
+      stops: "Paradas completadas",
+      faster: (d: string) => `${d} más rápido de lo previsto`,
+      slower: (d: string) => `${d} más de lo previsto`,
+      onTime: "Justo a tiempo",
+    },
     start: "Iniciar viaje",
     pause: "Pausar viaje",
     resume: "Reanudar viaje",
@@ -262,6 +284,9 @@ const esES: Messages = {
   },
 
   map: {
+    rotate: "Girar el mapa con la dirección del viaje",
+    rotateOn: "Dirección del viaje arriba (toca para el norte arriba)",
+    rotateOff: "Norte arriba (toca para girar con el viaje)",
     aria: "Mapa de la ruta. Haz clic para ver un lugar; clic derecho o pulsación larga para añadir una parada.",
     loading: "Cargando el mapa…",
     error: "No se ha podido cargar el mapa base. Comprueba la conexión y recarga la página.",

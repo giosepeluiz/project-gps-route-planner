@@ -14,6 +14,8 @@ export interface RouteState {
   /** Paradas já concluídas (ids): riscadas na lista e com o trecho cinza no mapa. */
   done?: string[];
   timeMode: TimeMode;
+  /** Data e hora escolhidas (valor do datetime-local), ou null para "agora". */
+  dateTime?: string | null;
 }
 
 export const ROUTE_KEY = "rotas:rota:v2";
@@ -50,7 +52,8 @@ export function isRouteState(value: unknown): value is RouteState {
     Array.isArray(r.stops) &&
     r.stops.length <= MAX_STOPS &&
     r.stops.every(isPlace) &&
-    (r.timeMode === "depart" || r.timeMode === "arrive")
+    (r.timeMode === "depart" || r.timeMode === "arrive") &&
+    (r.dateTime === undefined || r.dateTime === null || typeof r.dateTime === "string")
   );
 }
 

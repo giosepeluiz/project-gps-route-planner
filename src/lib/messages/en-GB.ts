@@ -5,7 +5,7 @@ const enGB: Messages = {
   aiLanguage: "British English",
 
   app: {
-    title: "Route planner",
+    title: "Route Planner",
     panel: "Route planning",
     openPanel: "Open panel",
     closePanel: "Collapse panel",
@@ -217,6 +217,28 @@ const enGB: Messages = {
   },
 
   trip: {
+    rerouting: "You've left the route. Recalculating…",
+    headerArrival: "Arrival",
+    headerTime: "Time",
+    headerDistance: "Distance",
+    finishedShort: (actual: string, planned: string | null, km: string) =>
+      `Took ${actual}${planned ? ` (planned ${planned})` : ""} · ${km} travelled`,
+    seeStats: "See statistics",
+    stats: {
+      title: "Trip complete",
+      lead: "Here's how it went compared with the plan.",
+      planned: "Planned",
+      actual: "Actual",
+      time: "Total time",
+      arrival: "Arrival",
+      distance: "Distance",
+      stopped: "Time stopped",
+      speed: "Average moving speed",
+      stops: "Stops completed",
+      faster: (d: string) => `${d} faster than planned`,
+      slower: (d: string) => `${d} longer than planned`,
+      onTime: "Right on time",
+    },
     start: "Start trip",
     pause: "Pause trip",
     resume: "Resume trip",
@@ -262,6 +284,9 @@ const enGB: Messages = {
   },
 
   map: {
+    rotate: "Rotate the map with the direction of travel",
+    rotateOn: "Direction of travel up (tap for north up)",
+    rotateOff: "North up (tap to rotate with the trip)",
     aria: "Route map. Click to see a place; right-click or long-press to add a stop.",
     loading: "Loading the map…",
     error: "Couldn't load the base map. Check your connection and reload the page.",

@@ -91,18 +91,28 @@ A lista se **reorganiza sozinha** na melhor ordem. Em cada parada:
 
 O **Resumo** mostra o tempo total (direção + paradas), a saída, a chegada, a **distância total** e quanto você economiza em relação à ordem digitada. O ícone **ⓘ** explica de onde vêm os tempos e se a ordem é exata. Com travas, ele diz quanto a rota levaria sem elas.
 
-**▶ Iniciar viagem** acompanha a viagem pelo GPS do aparelho. Antes de começar, um aviso lembra que o planejador **não é um GPS de navegação**: conduza com o seu app de navegação preferido. Durante a viagem, o mapa segue a sua posição (ponto azul) e a rota que falta é recalculada a partir de onde você está, com a previsão de chegada na próxima parada e no fim. Dá para **⏸ pausar** e **⏹ encerrar**. Ao chegar numa parada, a viagem pausa sozinha; **▶ Retomar viagem** marca a parada como concluída e segue para a próxima. Para poupar a cota dos serviços, o recálculo acontece no máximo a cada 2 minutos (ou antes, se você andar mais de 3 km).
-
 Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confere com os tempos reais**: o botão **Aceitar sugestão** só aparece se a sugestão for mesmo mais rápida (com até 10 paradas e sem travas, a ordem já é a melhor possível e a IA nem sugere).
 
-### 4. No mapa
+### 4. Modo viagem
+
+**▶ Iniciar viagem**, no Resumo, acompanha a viagem pelo GPS do aparelho. Antes de começar, um aviso lembra que o planejador **não é um GPS de navegação**: conduza com o seu app de navegação preferido (o botão **Ciente** começa a viagem).
+
+- **Seta no mapa, em 3D:** a sua posição aparece como uma seta que desliza entre as leituras do GPS (sem pulos), gruda na via da rota quando está perto dela e aponta para onde a via segue. O mapa se inclina, como nos GPS.
+- **Linha que acompanha o carro:** o pedaço do trecho que você já percorreu some junto com a seta, e o tempo e a distância até a próxima parada vão diminuindo ao vivo.
+- **Girar o mapa:** com o botão de bússola (junto das configurações), a direção da viagem fica para cima. No celular e no tablet ele já começa ligado; no computador, começa com o norte para cima.
+- **Saiu da rota?** Duas leituras seguidas longe da linha pedem uma rota nova na hora, saindo **no sentido em que o carro já está** (sem mandar dar meia-volta). Fora isso, a rota é recalculada com o trânsito a cada 2 minutos (ou antes, se você andar mais de 3 km), para poupar a cota dos serviços.
+- **No celular e no tablet**, um cabeçalho mostra a **hora de chegada**, o **tempo** e os **km** que faltam até a próxima parada; o nome dela fica no rodapé. Os botões do mapa ficam maiores.
+- **⏸ Pausar** e **⏹ Encerrar** a qualquer momento. Ao chegar numa parada, a viagem pausa sozinha; **▶ Retomar viagem** marca a parada como concluída e segue para a próxima.
+- **Ao concluir**, uma janela mostra as **estatísticas**: tempo, chegada e distância previstos × reais, paradas concluídas, tempo parado e velocidade média em movimento. Um resumo fica também no aviso de viagem concluída.
+
+### 5. No mapa
 
 - **Linha azul pontilhada:** as retas entre os pontos.
 - **Linha colorida:** o caminho pelas ruas, uma cor por trecho. Clique num trecho para ver a distância e o tempo; os outros ficam semitransparentes.
 - Trechos de paradas concluídas ficam **cinza**.
 - O mapa se reenquadra quando a rota muda, sempre no espaço que os blocos deixam livre.
 
-### 5. Abrir e compartilhar
+### 6. Abrir e compartilhar
 
 | Ação | O que faz |
 |---|---|
@@ -111,14 +121,14 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 | **Copiar rota** | O roteiro em texto, com horários, no idioma da interface |
 | **Compartilhar** | A folha de compartilhamento do celular (onde o navegador oferece) |
 
-### 6. Personalizar
+### 7. Personalizar
 
 - **⚙️ Configurações** (ao lado do zoom): idioma, tema, tamanho do texto, tempo padrão nas paradas novas e voltar os blocos ao lugar padrão.
 - **Blocos:** no computador, arraste cada bloco pelo título. Perto da borda esquerda ou direita ele gruda numa coluna; perto do topo ou da base, gruda na margem.
 - **Tutorial:** na primeira visita, balões azuis explicam cada parte da tela (com **Pular tutorial**). Para ver de novo: Configurações → Ajuda.
 - **❓ Sobre:** autoria, contatos, serviços e IAs em uso (com o estado de cada um) e as informações técnicas, com um botão para copiá-las.
 
-> 💾 **Tudo fica guardado no navegador:** a rota, as travas, as paradas concluídas, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos.
+> 💾 **Tudo fica guardado no navegador:** a rota, o horário de saída ou de chegada, as travas, as paradas concluídas, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos.
 
 ## 🌍 Idiomas
 
@@ -186,6 +196,31 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🧭 Versão 0.3.0 (beta): "Seta no mapa"
+
+Melhorias do modo viagem, depois do primeiro teste na rua:
+
+- **Seta em vez de bolinha**, com a direção da via, deslizando entre as leituras do GPS e grudando na linha da rota.
+- **Mapa em 3D** durante a viagem e botão para **girar o mapa** com a direção da viagem (ligado sozinho no celular e no tablet).
+- **Linha da rota acompanha o carro:** o trecho já percorrido some junto com a seta; tempo e distância até a próxima parada atualizados ao vivo.
+- **Desvio de rota mais esperto:** detecta quando o carro sai da linha e recalcula na hora, saindo no sentido em que o carro está (`vehicleHeading` da TomTom).
+- **Estatísticas ao concluir a viagem:** previsto × real (tempo, chegada, distância), paradas, tempo parado e velocidade média.
+- **Cabeçalho da viagem no celular e no tablet** (chegada, tempo e km até a próxima parada) e botões do mapa maiores.
+- **Título da aba no idioma escolhido** (Planejador de Rotas, Planeador de Rotas, Route Planner, Planificador de Rutas).
+- **Horário de saída ou de chegada guardado** junto com a rota.
+- **Atribuição do mapa no botão ⓘ:** embaixo à direita no computador e embaixo à esquerda no celular; na viagem, o cabeçalho ocupa o topo e os botões ficam logo abaixo dele.
+
+### 🚗 Versão 0.2.0 (beta): "Pé na estrada"
+
+- **Modo viagem:** acompanha a viagem pelo GPS, com aviso de segurança, pausar, retomar ao chegar em cada parada e encerrar.
+- **GPS no início e no fim:** um toque usa a sua localização.
+- **Resumo:** distância total, detalhes do cálculo num ícone ⓘ e comentário da IA com rótulo próprio.
+- **Tempo em cada parada** numa lista, com "Outro…" para horas e minutos.
+- **Ícones de navegação** no formato de ícone de app (Google Maps, Waze e Apple Maps).
+- **Tutorial** no primeiro uso, com balões azuis e "Pular tutorial".
+- **Começa vazio:** sem rota de exemplo; só o que você preencher fica guardado.
+- **Publicado** em [rotas.arqueirover.de](https://rotas.arqueirover.de), com código aberto no GitHub e publicação automática na Vercel.
 
 ### 🌱 Versão 0.1.0 (beta): "Primeira viagem"
 

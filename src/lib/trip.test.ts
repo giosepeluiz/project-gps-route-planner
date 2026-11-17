@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { placeBeside } from "./floating";
-import { hasArrived, remainingRoute, routeMeters, shouldReplan, tripTarget, type Fix } from "./trip";
+import { planRequestBody } from "./plan-client";
+import { angleDelta, bearingDeg, lerpAngle, projectOnLine, remainingFraction, remainingLine, type LngLat } from "./route-progress";
+import { isRouteState } from "./route-state";
+import {
+  hasArrived,
+  headingFrom,
+  isOffRoute,
+  logFix,
+  logGo,
+  logStop,
+  newTripLog,
+  remainingRoute,
+  routeMeters,
+  shouldReplan,
+  shouldReroute,
+  snapRadius,
+  summarizeTrip,
+  tripTarget,
+  type Fix,
+} from "./trip";
 import type { Place } from "./types";
 
 const place = (id: string, lat: number, lng: number): Place => ({
@@ -87,5 +106,115 @@ describe("balão flutuante", () => {
     expect(high.side).toBe("top");
     expect(high.left).toBeGreaterThanOrEqual(8);
     expect(high.left + tip.width).toBeLessThanOrEqual(375 - 8);
+  });
+});
+
+describe("progresso na rota", () => {
+  // Uma via reta para leste, ~1.1 km, e depois para norte.
+  const line: LngLat[] = [
+    [-9.15, 38.7],
+    [-9.1373, 38.7],
+    [-9.1373, 38.709],
+  ];
+
+  it("projeta a posição na via, mede o desvio e o que falta", () => {
+    const p = projectOnLine([-9.14, 38.7003], line)!;
+    expect(p.index).toBe(0);
+    expect(p.point[1]).toBeCloseTo(38.7, 6);
+    expect(p.distanceM).toBeGreaterThan(25);
+    expect(p.distanceM).toBeLessThan(40);
+    expect(Math.round(p.bearing)).toBe(90);
+    expect(remainingFraction(p)).toBeGreaterThan(0.5);
+    expect(remainingFraction(p)).toBeLessThan(0.7);
+    const rest = remainingLine(line, p);
+    expect(rest[0]).toEqual(p.point);
+    expect(rest).toHaveLength(3);
+  });
+
+  it("no segundo segmento a direção é para norte", () => {
+    const p = projectOnLine([-9.1373, 38.705], line)!;
+    expect(p.index).toBe(1);
+    expect(Math.round(p.bearing)).toBe(0);
+    expect(remainingLine(line, p)).toHaveLength(2);
+  });
+
+  it("ângulos: direção, diferença e interpolação pelo lado mais curto", () => {
+    expect(Math.round(bearingDeg([0, 0], [0, 1]))).toBe(0);
+    expect(Math.round(bearingDeg([0, 0], [-1, 0]))).toBe(270);
+    expect(angleDelta(350, 10)).toBe(20);
+    expect(angleDelta(10, 350)).toBe(-20);
+    expect(lerpAngle(350, 10, 0.5)).toBeCloseTo(0, 6);
+  });
+
+  it("desvio: raio de encaixe e de saída da rota crescem com GPS impreciso, com limite", () => {
+    expect(snapRadius(5)).toBe(45);
+    expect(snapRadius(60)).toBe(72);
+    expect(snapRadius(500)).toBe(90);
+    expect(isOffRoute(40, 10)).toBe(false);
+    expect(isOffRoute(80, 10)).toBe(true);
+    expect(isOffRoute(80, 70)).toBe(false); // GPS de 70 m: tolera até 105 m
+    expect(isOffRoute(200, 500)).toBe(true); // limite de 150 m
+  });
+
+  it("recalcula por desvio só depois de 2 leituras fora e no máximo a cada 15 s", () => {
+    const last = fix(38.7, -9.14, 0);
+    expect(shouldReroute(last, fix(38.7, -9.14, 20_000), 1)).toBe(false);
+    expect(shouldReroute(last, fix(38.7, -9.14, 20_000), 2)).toBe(true);
+    expect(shouldReroute(last, fix(38.7, -9.14, 10_000), 3)).toBe(false);
+    expect(shouldReroute(null, fix(38.7, -9.14, 0), 2)).toBe(true);
+  });
+
+  it("direção do carro: GPS em movimento, senão o deslocamento, senão nada", () => {
+    const a = fix(38.7, -9.14, 0);
+    const north = fix(38.7005, -9.14, 1000);
+    expect(headingFrom(a, north, { heading: 123, speed: 10 })).toBe(123);
+    expect(Math.round(headingFrom(a, north, { heading: null, speed: null })!)).toBe(0);
+    expect(headingFrom(a, fix(38.70001, -9.14, 1000), { heading: 50, speed: 0.2 })).toBeNull();
+  });
+});
+
+describe("estatísticas da viagem", () => {
+  it("soma o caminho sem o tremido do GPS e desconta o tempo parado", () => {
+    let log = newTripLog(0);
+    log = logFix(log, fix(38.7, -9.14, 0, 5));
+    log = logFix(log, fix(38.70002, -9.14, 1000, 5)); // ~2 m: tremido
+    expect(log.meters).toBe(0);
+    log = logFix(log, fix(38.709, -9.14, 60_000, 5)); // ~1 km
+    expect(log.meters).toBeGreaterThan(990);
+    log = logStop(log, 60_000);
+    log = logGo(log, 360_000); // 5 min parado
+    // Depois da parada, a primeira leitura só recomeça a soma (sem salto).
+    log = logFix(log, fix(38.8, -9.14, 361_000, 5));
+    expect(log.meters).toBeLessThan(1010);
+    const summary = summarizeTrip(log, { seconds: 400, arriveAt: 400_000, meters: 1200 }, 420_000, 1);
+    expect(summary.actualSeconds).toBe(420);
+    expect(summary.stoppedSeconds).toBe(300);
+    expect(summary.averageKmh).toBeCloseTo((log.meters / 120) * 3.6, 5);
+    expect(summary.plannedMeters).toBe(1200);
+    expect(summary.stopsDone).toBe(1);
+  });
+
+  it("sem previsão, os campos previstos ficam vazios; quase sem andar, sem velocidade média", () => {
+    const summary = summarizeTrip(newTripLog(0), null, 30_000, 0);
+    expect(summary.plannedSeconds).toBeNull();
+    expect(summary.plannedArriveAt).toBeNull();
+    expect(summary.averageKmh).toBeNull();
+  });
+});
+
+describe("pedido da rota e estado guardado", () => {
+  it("envia a direção do carro só quando existe, de 0 a 359", () => {
+    const base = { start: A, stops: [S1], end: null, endSame: true, locks: {}, mode: "depart" as const, dateTime: null };
+    expect(planRequestBody(base)).not.toHaveProperty("heading");
+    expect(planRequestBody({ ...base, heading: 359.7 })).toHaveProperty("heading", 0);
+    expect(planRequestBody({ ...base, heading: -10 })).toHaveProperty("heading", 350);
+  });
+
+  it("guarda a data e hora com a rota", () => {
+    const route = { start: A, endSame: true, end: null, stops: [S1], timeMode: "depart" };
+    expect(isRouteState({ ...route, dateTime: "2026-11-18T08:30" })).toBe(true);
+    expect(isRouteState({ ...route, dateTime: null })).toBe(true);
+    expect(isRouteState(route)).toBe(true);
+    expect(isRouteState({ ...route, dateTime: 5 })).toBe(false);
   });
 });

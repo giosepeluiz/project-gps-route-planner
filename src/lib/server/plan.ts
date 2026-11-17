@@ -26,6 +26,8 @@ export interface PlanRequest {
   mode: TimeMode;
   /** Horário de saída ou de chegada. null = agora. */
   at: Date | null;
+  /** Direção do carro no início (viagem em andamento), em graus. */
+  heading?: number;
 }
 
 export interface PlanResponse {
@@ -137,6 +139,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
       ? await deps.geometry.getRoute(
           sequence.map((i) => nodes[i]),
           departAt,
+          request.heading === undefined ? undefined : { heading: request.heading },
         )
       : null;
 
