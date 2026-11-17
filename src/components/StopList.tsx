@@ -1,11 +1,23 @@
 "use client";
 
+import { useState } from "react";
+import DwellPicker from "./DwellPicker";
 import Grip, { gripButtonClass } from "./Grip";
 import { dragRowClass, useDragReorder } from "./useDragReorder";
 import { formatDuration, formatTime } from "@/lib/format";
 import { legColor } from "@/lib/leg-colors";
 import type { Locks } from "@/lib/locks";
+import { dwellSecondsOf } from "@/lib/plan";
 import type { Place, PlanLeg } from "@/lib/types";
+
+function ClockIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10" cy="10" r="7" />
+      <path d="M10 6.5V10l2.5 1.5" />
+    </svg>
+  );
+}
 
 interface StopListProps {
   /** Paradas na ordem exibida (a ordem da visita). */
@@ -18,6 +30,8 @@ interface StopListProps {
   onMove: (from: number, to: number) => void;
   onToggleLock: (id: string) => void;
   onRemove: (id: string) => void;
+  /** Muda a permanência (minutos) da parada. */
+  onDwellChange: (id: string, minutes: number) => void;
 }
 
 export default function StopList({
@@ -28,8 +42,11 @@ export default function StopList({
   onMove,
   onToggleLock,
   onRemove,
+  onDwellChange,
 }: StopListProps) {
   const reorder = useDragReorder(stops.length, onMove);
+  /** Parada com o seletor de permanência aberto. */
+  const [editing, setEditing] = useState<string | null>(null);
 
   return (
     <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
@@ -37,16 +54,20 @@ export default function StopList({
         const leg = legs?.[i];
         const locked = locks[stop.id] !== undefined;
         const dragging = reorder.draggingIndex === i;
+        const dwellMin = dwellSecondsOf(stop) / 60;
+        const isEditing = editing === stop.id;
+        const pickerId = `permanencia-${stop.id}`;
         return (
           <li
             key={stop.id}
             ref={reorder.rowRef(i)}
             style={{ transform: `translateY(${reorder.offsetOf(i)}px)` }}
-            className={`relative flex items-center gap-1.5 rounded-lg py-1.5 pl-0.5 pr-1 ${dragRowClass(
+            className={`relative rounded-lg py-1.5 pl-0.5 pr-1 ${dragRowClass(
               dragging,
               reorder.draggingIndex !== null,
             )}`}
           >
+            <div className="flex items-center gap-1.5">
             {/* Alça: arrastar com o mouse ou o dedo; setas do teclado também movem. */}
             <button
               type="button"
@@ -60,14 +81,21 @@ export default function StopList({
 
             <span
               aria-hidden="true"
-              className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-white dark:text-[#10131c]"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-2xs font-semibold text-white dark:text-[#10131c]"
             >
               {i + 1}
             </span>
 
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium text-ink">{stop.label}</span>
-              <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted" title={leg ? `Chega às ${formatTime(leg.arriveAt)}` : undefined}>
+              <span className="block truncate text-compact font-medium text-ink">{stop.label}</span>
+              <span
+                className="flex items-center gap-1.5 truncate whitespace-nowrap text-xs text-muted"
+                title={
+                  leg
+                    ? `Chega às ${formatTime(leg.arriveAt)}${leg.dwellSeconds > 0 ? `, sai às ${formatTime(leg.leaveAt)}` : ""}`
+                    : undefined
+                }
+              >
                 {showLegColors && (
                   <span
                     aria-hidden="true"
@@ -76,11 +104,41 @@ export default function StopList({
                     style={{ backgroundColor: legColor(i) }}
                   />
                 )}
-                {leg
-                  ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · ${formatTime(leg.arriveAt)}`
-                  : "—"}
+                <span className="truncate">
+                  {leg
+                    ? `${leg.estimated ? "≈ " : "+"}${formatDuration(leg.seconds)} · ${formatTime(leg.arriveAt)}`
+                    : "—"}
+                  {dwellMin > 0 && (
+                    <span className="text-ink-2">
+                      {" "}
+                      · fica {formatDuration(dwellMin * 60)}
+                    </span>
+                  )}
+                </span>
               </span>
             </span>
+
+            <button
+              type="button"
+              aria-expanded={isEditing}
+              aria-controls={pickerId}
+              onClick={() => setEditing(isEditing ? null : stop.id)}
+              aria-label={
+                dwellMin > 0
+                  ? `Permanência em ${stop.label}: ${formatDuration(dwellMin * 60)}. Alterar`
+                  : `Definir quanto tempo fica em ${stop.label}`
+              }
+              title="Tempo de permanência"
+              className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
+                isEditing
+                  ? "bg-sunken text-ink"
+                  : dwellMin > 0
+                    ? "text-accent hover:bg-hover"
+                    : "text-faint hover:bg-hover hover:text-ink"
+              }`}
+            >
+              <ClockIcon />
+            </button>
 
             <button
               type="button"
@@ -110,6 +168,17 @@ export default function StopList({
                 <path d="M5 5l10 10M15 5L5 15" />
               </svg>
             </button>
+            </div>
+
+            {isEditing && (
+              <div id={pickerId} className="mb-1 ml-[3.25rem] mr-1 mt-1.5">
+                <DwellPicker
+                  label={`Quanto tempo fica em ${stop.label}`}
+                  value={dwellMin}
+                  onChange={(minutes) => onDwellChange(stop.id, minutes)}
+                />
+              </div>
+            )}
           </li>
         );
       })}

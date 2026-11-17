@@ -437,6 +437,21 @@ describe("sem travessia por mar", () => {
     expect(route && route !== "no-route" ? route.meters : null).toBe(180_000);
   });
 
+  it("permanência nas paradas: antecipa a saída no Chegar até e soma na chegada", async () => {
+    const deps = {
+      matrix: createMatrixService({ providers: [], cache: new MemoryCache() }),
+      geometry: { getRoute: async () => null },
+      now: () => NOW,
+    };
+    const request = { start: pts[0], end: null, roundTrip: true, mode: "arrive" as const, at: TUESDAY_9 };
+    const without = await planRoute({ ...request, stops: [pts[1]] }, deps);
+    const withDwell = await planRoute({ ...request, stops: [{ ...pts[1], dwellMin: 30 }] }, deps);
+    expect(withDwell.dwellSeconds).toBe(30 * 60);
+    expect(withDwell.totalSeconds).toBe(without.totalSeconds);
+    expect(new Date(withDwell.arriveAt).getTime()).toBe(TUESDAY_9.getTime());
+    expect(new Date(without.departAt).getTime() - new Date(withDwell.departAt).getTime()).toBe(30 * 60_000);
+  });
+
   it("o plano falha com NoRouteError mesmo quando os tempos vêm da estimativa", async () => {
     await expect(
       planRoute(

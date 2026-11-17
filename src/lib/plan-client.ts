@@ -1,4 +1,5 @@
 /** Cliente de POST /api/plan. Envia o mínimo: ids e coordenadas, sem rótulos. */
+import { dwellSecondsOf } from "./plan";
 import type { PlanResponse } from "./server/plan";
 import type { Place, TimeMode } from "./types";
 
@@ -17,11 +18,17 @@ interface RouteInput {
 
 const point = (p: Place) => ({ id: p.id, lat: p.lat, lng: p.lng });
 
+/** Parada: além do ponto, a permanência (só quando há), que muda o horário de saída no "Chegar até". */
+const stopPoint = (p: Place) => {
+  const dwellMin = dwellSecondsOf(p) / 60;
+  return dwellMin > 0 ? { ...point(p), dwellMin } : point(p);
+};
+
 export function planRequestBody({ start, stops, end, endSame, locks, mode, dateTime }: RouteInput) {
   const at = dateTime ? new Date(dateTime) : null;
   return {
     start: point(start),
-    stops: stops.map(point),
+    stops: stops.map(stopPoint),
     end: !endSame && end ? point(end) : null,
     roundTrip: endSame,
     locks,

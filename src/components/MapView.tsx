@@ -1,10 +1,11 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import { legColor } from "@/lib/leg-colors";
+import { overlayPadding } from "@/lib/map-padding";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
 type MapLibre = typeof import("maplibre-gl");
@@ -31,10 +32,19 @@ interface MapViewProps {
   /** Clique em um trecho da linha colorida. */
   onLegClick: (index: number, lat: number, lng: number) => void;
   layout: MapLayout;
-  /** Espaço (px) coberto pelo HUD em cada borda, no desktop. */
-  desktopInsets: { left: number; right: number; bottom: number };
-  /** Lado dos controles do mapa (zoom, avisos, atribuição): o oposto do painel. */
-  controlsSide: "left" | "right";
+  /**
+   * Largura (px) das colunas de blocos grudadas em cada borda, no desktop. Os
+   * controles do mapa ficam ao lado delas, nunca embaixo.
+   */
+  columnInsets: { left: number; right: number };
+  /**
+   * Muda quando os blocos mudam de lugar (fim de um arrasto). A rota é
+   * reenquadrada só nessas horas e quando os pontos mudam, nunca porque um
+   * bloco cresceu (ex.: chegou o comentário da IA).
+   */
+  fitVersion: number;
+  /** Abre a tela de configurações (botão junto do zoom). */
+  onOpenSettings: () => void;
   fallbackStyleUrl: string | null;
   /** Clique esquerdo no mapa: mostra a informação do local. */
   onMapClick: (lat: number, lng: number) => void;
@@ -58,14 +68,49 @@ const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
+/** Botão de configurações no mesmo visual dos controles do MapLibre. */
+function createSettingsControl(onClick: () => void) {
+  let container: HTMLDivElement | null = null;
+  return {
+    onAdd() {
+      container = document.createElement("div");
+      container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "rotas-ctrl-settings";
+      button.title = "Configurações";
+      button.setAttribute("aria-label", "Abrir as configurações");
+      // Engrenagem simples, em traço, herdando a cor do texto.
+      button.innerHTML =
+        '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>';
+      button.addEventListener("click", onClick);
+      container.append(button);
+      return container;
+    },
+    onRemove() {
+      container?.remove();
+      container = null;
+    },
+  };
+}
+
+/** Margens do enquadramento a partir dos blocos sobre o mapa ([data-map-overlay]). */
+function measuredPadding(container: HTMLElement) {
+  const overlays = [...document.querySelectorAll<HTMLElement>("[data-map-overlay]")].map((el) =>
+    el.getBoundingClientRect(),
+  );
+  return overlayPadding(container.getBoundingClientRect(), overlays);
+}
+
 export default function MapView({
   points,
   path,
   streetLegs,
   onLegClick,
   layout,
-  desktopInsets,
-  controlsSide,
+  columnInsets,
+  fitVersion,
+  onOpenSettings,
   fallbackStyleUrl,
   onMapClick,
   onMapContextMenu,
@@ -95,6 +140,7 @@ export default function MapView({
   const handleContextMenu = useEffectEvent((lat: number, lng: number) => onMapContextMenu(lat, lng));
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
+  const handleOpenSettings = useEffectEvent(() => onOpenSettings());
   const handleBounds = useEffectEvent((map: MapLibreMap) => {
     const b = map.getBounds();
     onBoundsChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
@@ -185,35 +231,40 @@ export default function MapView({
     };
   }, [fallbackStyleUrl]);
 
-  // Controles do mapa. A atribuição fica sempre aberta; no celular vai para o topo, fora da gaveta.
+  // Controles do mapa, à direita: configurações e zoom em cima, atribuição embaixo.
+  // A atribuição fica sempre aberta; no celular vai para o topo à esquerda, fora da gaveta.
+  // Quando há uma coluna de blocos na borda, o CSS (--inset-*) afasta os controles dela.
   useEffect(() => {
     const map = mapRef.current;
     const lib = libRef.current;
     if (!map || !lib || styleVersion === 0) return;
 
     const media = window.matchMedia(DESKTOP_QUERY);
+    const settings = createSettingsControl(() => handleOpenSettings());
     let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
     let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
+    let settingsAdded = false;
     const clear = () => {
       // Se o mapa já foi destruído (desmontagem), os controles foram junto.
       if (mapRef.current !== map) return;
       if (attribution) map.removeControl(attribution);
       if (zoom) map.removeControl(zoom);
+      if (settingsAdded) map.removeControl(settings);
       attribution = null;
       zoom = null;
+      settingsAdded = false;
     };
     const place = () => {
       clear();
+      map.addControl(settings, "top-right");
+      settingsAdded = true;
       // Botões de zoom só no desktop; no celular o zoom é por gesto.
       if (media.matches) {
         zoom = new lib.NavigationControl({ showCompass: false });
-        map.addControl(zoom, controlsSide === "left" ? "top-left" : "top-right");
+        map.addControl(zoom, "top-right");
       }
       attribution = new lib.AttributionControl({ compact: false, customAttribution: MAP_ATTRIBUTION });
-      map.addControl(
-        attribution,
-        !media.matches ? "top-left" : controlsSide === "left" ? "bottom-left" : "bottom-right",
-      );
+      map.addControl(attribution, media.matches ? "bottom-right" : "top-left");
     };
     place();
     media.addEventListener("change", place);
@@ -221,7 +272,7 @@ export default function MapView({
       media.removeEventListener("change", place);
       clear();
     };
-  }, [controlsSide, styleVersion]);
+  }, [styleVersion]);
 
   // Pins e linha da rota.
   useEffect(() => {
@@ -378,12 +429,7 @@ export default function MapView({
     const height = map.getContainer().clientHeight;
     const padding =
       layout === "desktop"
-        ? {
-            top: 56,
-            bottom: Math.max(56, desktopInsets.bottom + 24),
-            left: 56 + desktopInsets.left,
-            right: 56 + desktopInsets.right,
-          }
+        ? measuredPadding(map.getContainer())
         : {
             top: 72,
             left: 40,
@@ -416,10 +462,13 @@ export default function MapView({
     } catch (err) {
       console.warn("Não foi possível enquadrar a rota no mapa.", err);
     }
-  }, [boundsKey, layout, desktopInsets.left, desktopInsets.right, desktopInsets.bottom, styleVersion, size]);
+  }, [boundsKey, layout, fitVersion, styleVersion, size]);
 
   return (
-    <div className="absolute inset-0">
+    <div
+      className="absolute inset-0"
+      style={{ "--inset-left": `${columnInsets.left}px`, "--inset-right": `${columnInsets.right}px` } as CSSProperties}
+    >
       <div
         ref={containerRef}
         className="h-full w-full"
@@ -442,9 +491,7 @@ export default function MapView({
       )}
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul
-          className={`pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:top-2.5 ${
- controlsSide === "left" ? "md:left-12" : "md:left-auto md:right-12 md:items-end"
- }`}
+          className="pointer-events-none absolute bottom-20 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
         >
           {!streetLegs && (
             <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">

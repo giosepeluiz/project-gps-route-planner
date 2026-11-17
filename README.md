@@ -34,7 +34,7 @@ Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha colo
 
 ### Sem travessia por mar
 
-Carro não atravessa o mar: as consultas à TomTom pedem para evitar balsas (`avoid=ferries`), enquanto pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
+Carro não atravessa o mar: o traçado de cada trecho na TomTom pede para evitar balsas (`avoid=ferries`) e as seções de balsa (`sectionType=ferry`). Como o `avoid` da TomTom é só uma preferência, uma rota que ainda venha com seção de balsa é recusada. Pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. A matriz de tempos (Matrix v2) não aceita evitar balsas, então essa trava fica no traçado. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
 
 Limites: a estimativa por distância sozinha não sabe onde há mar, então esse bloqueio depende de um provedor de rotas responder. O servidor demo do OSRM (desenvolvimento) não aceita excluir balsas; nele, o bloqueio vale para pontos sem estrada por perto ou sem ligação por terra.
 
@@ -48,6 +48,7 @@ A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de
 - Até 10 paradas: solução exata (Held-Karp), com início e fim fixos.
 - De 11 a 20: heurística (vizinho mais próximo + 2-opt + Or-opt), com aviso de ordem aproximada.
 - **Ordem manual, por local:** arraste uma parada pela alça para reposicioná-la; ela fica travada na posição em que foi solta (cadeado). O cadeado de cada parada trava ou destrava só aquele local. Os locais destravados continuam sendo otimizados em volta dos travados, e o Resumo mostra quanto a rota levaria sem as travas. Com o teclado, as setas para cima e para baixo na alça fazem o mesmo.
+- **Tempo de permanência:** o relógio em cada parada define quanto tempo você fica nela (atalhos de 5 min a 2 h, ou qualquer valor até 12 h). O total do Resumo soma direção e permanência, os horários de chegada e saída de cada parada levam isso em conta, e no "Chegar até" a saída é antecipada. A permanência do último local, onde a rota termina, não conta. A permanência padrão das novas paradas fica nas Configurações.
 - A matriz de tempos é tratada como assimétrica.
 - "Chegar até": a saída é a chegada menos a duração, recalculada em até 3 iterações quando muda de faixa de 15 minutos (entra em uso com os provedores de trânsito, na fase 4).
 
@@ -58,7 +59,7 @@ A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
 - **Comenta a ordem final** em 2 a 3 frases e aponta um possível vai-e-volta. Se discordar, o texto aparece como "Sugestão da IA (não aplicada)".
 - **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
 
-Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária, Backup ou Local ("Algoritmo local (nenhuma IA respondeu)"). As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
+Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária ou Backup (com o ícone de IA), ou Local ("Algoritmo local (nenhuma IA respondeu)"). O nome do modelo não aparece na tela. As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
 
 Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
 
@@ -70,7 +71,11 @@ Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (
 
 ## Configurações
 
-O bloco Configurações guarda no navegador: tema (sistema, claro ou escuro), tamanho da fonte, lado do painel, posição do Resumo e a ordem dos blocos (arrastando pela alça). "Restaurar o padrão" desfaz tudo.
+A engrenagem junto do zoom abre a tela de Configurações (em tela cheia no celular). Ela guarda no navegador o tema (sistema, claro ou escuro), o tamanho do texto, a permanência padrão das novas paradas e a posição dos blocos. "Restaurar tudo" desfaz tudo.
+
+- **Texto:** "Pequeno" é o padrão, na escala do Google Maps (14 px no texto principal, 12 px no secundário). Os tamanhos maiores escalam a interface inteira.
+- **Blocos:** no desktop, cada bloco é um cartão sobre o mapa, arrastável pelo título. Perto da borda esquerda ou direita ele gruda numa coluna, na posição em que foi solto; perto do topo ou da base, gruda na margem; no resto da tela fica solto onde foi largado. Os controles do mapa ficam ao lado das colunas. No celular os blocos ficam na gaveta, na mesma ordem. "Voltar os blocos ao lugar padrão" fica nas Configurações.
+- **Enquadramento:** o mapa reenquadra a rota quando os locais mudam ou quando um bloco muda de lugar, usando o espaço que os blocos deixam livre. Abrir ou fechar um bloco, ou o Resumo crescer com o comentário da IA, não mexe no zoom.
 
 ## Acesso e segurança
 

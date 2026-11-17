@@ -60,8 +60,33 @@
   --color-faint: var(--faint);
   --color-on-ink: var(--on-ink);
   --color-accent: var(--accent);
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: Roboto, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+/*
+ * Escala de texto inspirada no Google Maps. Com o tamanho "Pequeno" (base de
+ * 14 px, o padrão) dá: 11 px rótulos, 12 px secundário, 13 px listas, 14 px
+ * texto principal, 15–16 px títulos e 24 px o número de destaque. Os outros
+ * tamanhos escalam tudo junto, porque é tudo em rem.
+ */
+@theme {
+  --text-2xs: 0.7857rem;
+  --text-2xs--line-height: 1.35;
+  --text-xs: 0.8571rem;
+  --text-xs--line-height: 1.4;
+  --text-compact: 0.9286rem;
+  --text-compact--line-height: 1.4;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.43;
+  --text-md: 1.0714rem;
+  --text-md--line-height: 1.35;
+  --text-base: 1.1429rem;
+  --text-base--line-height: 1.4;
+  --text-lg: 1.2857rem;
+  --text-lg--line-height: 1.35;
+  --text-display: 1.7143rem;
+  --text-display--line-height: 1.1;
 }
 
 @utility shadow-panel {
@@ -129,6 +154,27 @@ body {
   border-radius: 8px;
   box-shadow: var(--shadow-panel);
   overflow: hidden;
+}
+
+/* No desktop, os controles ficam ao lado das colunas de blocos grudadas nas bordas. */
+@media (min-width: 768px) {
+  /* .maplibregl-map na frente: o CSS do MapLibre carrega depois e venceria com a mesma especificidade. */
+  .maplibregl-map .maplibregl-ctrl-top-right,
+  .maplibregl-map .maplibregl-ctrl-bottom-right {
+    right: var(--inset-right, 0px);
+    transition: right 200ms ease-out;
+  }
+  .maplibregl-map .maplibregl-ctrl-top-left,
+  .maplibregl-map .maplibregl-ctrl-bottom-left {
+    left: var(--inset-left, 0px);
+    transition: left 200ms ease-out;
+  }
+}
+
+.maplibregl-ctrl-group .rotas-ctrl-settings {
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
 }
 
 .maplibregl-ctrl-group button + button {

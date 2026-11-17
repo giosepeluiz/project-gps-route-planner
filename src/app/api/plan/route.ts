@@ -4,11 +4,14 @@ import { NoRouteError } from "@/lib/server/matrix";
 import { planRoute, type PlanPoint } from "@/lib/server/plan";
 import { getServices } from "@/lib/server/services";
 import { MAX_STOPS } from "@/lib/stops";
+import { MAX_DWELL_MINUTES } from "@/lib/types";
 
 const Point = z.object({
   id: z.string().min(1).max(64),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  /** Permanência na parada (minutos). */
+  dwellMin: z.number().int().min(0).max(MAX_DWELL_MINUTES).optional(),
 });
 
 const Body = z.object({

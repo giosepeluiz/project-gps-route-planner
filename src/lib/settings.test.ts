@@ -1,36 +1,57 @@
 import { describe, expect, it } from "vitest";
 import { GOOGLE_WAYPOINTS_MOBILE, googleMapsLinks, routeText, wazeLink } from "./export";
 import { FIXTURE_PLACES as P, mockLegTime } from "./mock-data";
+import { dropTarget, freeRect, placeBlock, sheetOrder } from "./block-layout";
+import { overlayPadding } from "./map-padding";
 import { computePlan } from "./plan";
 import {
   BLOCK_IDS,
+  DEFAULT_LAYOUT,
   DEFAULT_SETTINGS,
+  EDGE_MARGIN,
   FONT_PX,
-  moveItem,
+  normalizeLayout,
   normalizeSettings,
   resolveTheme,
   SETTINGS_BOOT_SCRIPT,
 } from "./settings";
 
+const allBlocks = (layout: ReturnType<typeof normalizeLayout>) =>
+  [...layout.left, ...layout.right, ...Object.keys(layout.free)].sort();
+
 describe("configurações", () => {
-  it("valores inválidos ou ausentes caem no padrão", () => {
+  it("valores inválidos ou ausentes caem no padrão (texto pequeno)", () => {
     expect(normalizeSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(normalizeSettings("lixo")).toEqual(DEFAULT_SETTINGS);
-    expect(normalizeSettings({ theme: "roxo", fontSize: 99, panelSide: "cima", summaryDock: 1 })).toEqual(
+    expect(normalizeSettings({ version: 2, theme: "roxo", fontSize: 99, defaultDwellMinutes: -5 })).toEqual(
       DEFAULT_SETTINGS,
     );
+    expect(DEFAULT_SETTINGS.fontSize).toBe("sm");
   });
 
   it("mantém as escolhas válidas", () => {
-    const saved = { theme: "dark", fontSize: "xl", panelSide: "left", summaryDock: "panel" };
+    const saved = { version: 2, theme: "dark", fontSize: "xl", defaultDwellMinutes: 15 };
     expect(normalizeSettings(saved)).toMatchObject(saved);
+    expect(normalizeSettings({ version: 2, defaultDwellMinutes: 99_999 }).defaultDwellMinutes).toBe(720);
   });
 
-  it("ordem dos blocos: tira repetidos e desconhecidos e completa os que faltam", () => {
-    const { blockOrder } = normalizeSettings({ blockOrder: ["resumo", "xpto", "resumo", "inicio"] });
-    expect(blockOrder.slice(0, 2)).toEqual(["resumo", "inicio"]);
-    expect([...blockOrder].sort()).toEqual([...BLOCK_IDS].sort());
-    expect(new Set(blockOrder).size).toBe(BLOCK_IDS.length);
+  it("formato antigo: guarda o tema, mas a fonte volta ao pequeno e os blocos ao lugar padrão", () => {
+    const old = normalizeSettings({ theme: "dark", fontSize: "md", panelSide: "left", blockOrder: ["resumo"] });
+    expect(old.theme).toBe("dark");
+    expect(old.fontSize).toBe("sm");
+    expect(old.layout).toEqual(DEFAULT_LAYOUT);
+  });
+
+  it("posição dos blocos: cada bloco uma vez só, e os que faltam voltam ao padrão", () => {
+    const layout = normalizeLayout({
+      left: ["resumo", "xpto", "resumo"],
+      right: ["resumo", "inicio"],
+      free: { inicio: { h: "left", x: 10, v: "top", y: 10 }, acoes: { h: "meio" } },
+    });
+    expect(layout.left).toEqual(["resumo"]);
+    expect(layout.right).toEqual(["inicio", "paradas", "acoes"]);
+    expect(layout.free).toEqual({});
+    expect(allBlocks(layout)).toEqual([...BLOCK_IDS].sort());
   });
 
   it("tema do sistema segue a preferência do aparelho", () => {
@@ -40,10 +61,8 @@ describe("configurações", () => {
     expect(resolveTheme("dark", false)).toBe("dark");
   });
 
-  it("move um bloco na lista", () => {
-    expect(moveItem(["a", "b", "c"], 2, 0)).toEqual(["c", "a", "b"]);
-    expect(moveItem(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
-    expect(moveItem(["a", "b", "c"], 0, 9)).toEqual(["a", "b", "c"]);
+  it("o texto pequeno é a base de 14 px", () => {
+    expect(FONT_PX.sm).toBe(14);
   });
 
   it("o script inicial aplica tema e fonte antes da primeira pintura", () => {
@@ -63,11 +82,124 @@ describe("configurações", () => {
     };
     expect(run(null, true).dataset.theme).toBe("dark");
     expect(run(null, false).dataset.theme).toBe("light");
-    const saved = run(JSON.stringify({ theme: "light", fontSize: "xl" }), true);
+    expect(run(null, false).style.fontSize).toBe(`${FONT_PX.sm}px`);
+    const saved = run(JSON.stringify({ version: 2, theme: "light", fontSize: "xl" }), true);
     expect(saved.dataset.theme).toBe("light");
     expect(saved.style.fontSize).toBe(`${FONT_PX.xl}px`);
+    // Formato antigo: o texto volta ao pequeno.
+    expect(run(JSON.stringify({ theme: "light", fontSize: "xl" }), true).style.fontSize).toBe(`${FONT_PX.sm}px`);
     // Armazenamento corrompido não quebra a página.
     expect(run("{não é json", true).dataset.theme).toBe("dark");
+  });
+});
+
+describe("blocos arrastáveis", () => {
+  const viewport = { width: 1400, height: 900 };
+  const size = { width: 322, height: 200 };
+  const noDocks = { left: [], right: [] };
+
+  it("perto da borda lateral, gruda na coluna, na posição em que foi solto", () => {
+    const target = dropTarget({
+      rect: { left: viewport.width - 322 - 30, top: 300, ...size },
+      viewport,
+      dockMids: { left: [], right: [100, 350, 600] },
+    });
+    // Centro em 400: fica depois do bloco do meio (350) e antes do último (600).
+    expect(target).toEqual({ kind: "dock", side: "right", index: 2 });
+    expect(dropTarget({ rect: { left: 40, top: 300, ...size }, viewport, dockMids: noDocks })).toEqual({
+      kind: "dock",
+      side: "left",
+      index: 0,
+    });
+  });
+
+  it("no meio da tela fica solto; perto do topo ou da base gruda na margem", () => {
+    const middle = dropTarget({ rect: { left: 500, top: 300, ...size }, viewport, dockMids: noDocks });
+    expect(middle).toEqual({ kind: "free", position: { h: "left", x: 500, v: "top", y: 300 } });
+
+    const nearBottom = dropTarget({ rect: { left: 900, top: 900 - 200 - 30, ...size }, viewport, dockMids: noDocks });
+    expect(nearBottom).toEqual({ kind: "free", position: { h: "right", x: 1400 - 900 - 322, v: "bottom", y: EDGE_MARGIN } });
+
+    // Largado parcialmente fora da tela, volta para dentro.
+    const outside = dropTarget({ rect: { left: 400, top: -150, ...size }, viewport, dockMids: noDocks });
+    expect(outside).toEqual({ kind: "free", position: { h: "left", x: 400, v: "top", y: EDGE_MARGIN } });
+    if (outside.kind === "free") {
+      expect(freeRect(outside.position, size, viewport)).toEqual({ left: 400, top: EDGE_MARGIN, ...size });
+    }
+  });
+
+  it("mover um bloco o tira do lugar antigo", () => {
+    const moved = placeBlock(DEFAULT_LAYOUT, "resumo", { kind: "dock", side: "right", index: 1 });
+    expect(moved.right).toEqual(["inicio", "resumo", "paradas", "acoes"]);
+    expect(moved.free.resumo).toBeUndefined();
+    const back = placeBlock(moved, "inicio", { kind: "free", position: { h: "left", x: 16, v: "top", y: 16 } });
+    expect(back.right).toEqual(["resumo", "paradas", "acoes"]);
+    expect(back.free.inicio).toEqual({ h: "left", x: 16, v: "top", y: 16 });
+    expect(allBlocks(normalizeLayout(back))).toEqual([...BLOCK_IDS].sort());
+  });
+
+  it("no celular, a gaveta segue a ordem das colunas e depois os soltos", () => {
+    expect(sheetOrder(DEFAULT_LAYOUT, BLOCK_IDS)).toEqual(["inicio", "paradas", "acoes", "resumo"]);
+  });
+});
+
+describe("enquadramento da rota com os blocos", () => {
+  const map = { left: 0, top: 0, right: 2000, bottom: 840 };
+
+  it("caso da captura: Resumo alto no canto sai pela lateral, não pela base inteira", () => {
+    const pad = overlayPadding(map, [
+      { left: 1748, top: 36, right: 1994, bottom: 760 }, // painel à direita
+      { left: 36, top: 356, right: 282, bottom: 795 }, // Resumo alto embaixo à esquerda
+    ]);
+    expect(pad.right).toBe(2000 - 1748 + 32);
+    expect(pad.left).toBe(282 + 32);
+    expect(pad.bottom).toBe(48);
+  });
+
+  it("bloco largo e baixo no rodapé sai pela base; bloco fora do mapa não conta", () => {
+    const pad = overlayPadding(map, [
+      { left: 400, top: 700, right: 1600, bottom: 830 },
+      { left: 2100, top: 0, right: 2400, bottom: 300 },
+    ]);
+    expect(pad).toEqual({ top: 48, left: 48, right: 48, bottom: 840 - 700 + 32 });
+  });
+});
+
+describe("tempo de permanência", () => {
+  const depart = new Date(2026, 10, 17, 9, 0);
+  const withDwell = (place: typeof P.CC, minutes: number) => ({ ...place, dwellMinutes: minutes });
+
+  it("soma a permanência das paradas no total e nos horários", () => {
+    const base = computePlan([P.B, P.CC, P.Be, P.B], "depart", depart, mockLegTime);
+    const plan = computePlan([P.B, withDwell(P.CC, 15), withDwell(P.Be, 30), P.B], "depart", depart, mockLegTime);
+    expect(plan.driveSeconds).toBe(base.driveSeconds);
+    expect(plan.dwellSeconds).toBe(45 * 60);
+    expect(plan.totalSeconds).toBe(base.totalSeconds + 45 * 60);
+    // Chega na primeira parada no mesmo horário, sai 15 min depois.
+    expect(plan.legs[0].arriveAt).toEqual(base.legs[0].arriveAt);
+    expect(plan.legs[0].leaveAt.getTime() - plan.legs[0].arriveAt.getTime()).toBe(15 * 60_000);
+    expect(plan.legs[1].arriveAt.getTime() - base.legs[1].arriveAt.getTime()).toBe(15 * 60_000);
+    expect(plan.arriveAt.getTime() - base.arriveAt.getTime()).toBe(45 * 60_000);
+  });
+
+  it("no Chegar até, a saída antecipa a permanência; o último local não conta", () => {
+    const arrive = new Date(2026, 10, 17, 18, 0);
+    const plan = computePlan([P.B, withDwell(P.CC, 20), withDwell(P.Be, 60)], "arrive", arrive, mockLegTime);
+    // A rota termina em Belém: a hora lá não entra no total.
+    expect(plan.dwellSeconds).toBe(20 * 60);
+    expect(plan.arriveAt).toEqual(arrive);
+    expect(plan.departAt.getTime()).toBe(arrive.getTime() - plan.totalSeconds * 1000);
+  });
+
+  it("valores inválidos de permanência viram zero", () => {
+    const plan = computePlan([P.B, withDwell(P.CC, Number.NaN), withDwell(P.Be, -10), P.B], "depart", depart, mockLegTime);
+    expect(plan.dwellSeconds).toBe(0);
+  });
+
+  it("o texto da rota mostra quanto tempo fica em cada parada", () => {
+    const plan = computePlan([P.B, withDwell(P.CC, 15), P.B], "depart", depart, mockLegTime);
+    const lines = routeText(P.B, plan, 1, true, []).split("\n");
+    expect(lines[2]).toBe("1. Costa da Caparica (chega 09:33, fica 15 min, sai 09:48)");
   });
 });
 

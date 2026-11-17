@@ -6,7 +6,12 @@ import type { GeometryService, RouteLeg } from "./route-geometry";
 
 export interface PlanPoint extends Point {
   id: string;
+  /** Permanência na parada, em minutos. Só vale para as paradas. */
+  dwellMin?: number;
 }
+
+const dwellOf = (p: PlanPoint) =>
+  Number.isFinite(p.dwellMin) && (p.dwellMin ?? 0) > 0 ? Math.round(p.dwellMin!) * 60 : 0;
 
 export interface PlanRequest {
   start: PlanPoint;
@@ -29,6 +34,8 @@ export interface PlanResponse {
   /** Segundos de cada trecho, na sequência início → paradas → fim. */
   legSeconds: number[];
   totalSeconds: number;
+  /** Permanência somada nas paradas (fora de totalSeconds, que é só direção). */
+  dwellSeconds: number;
   /** Tempo da ordem digitada, com a mesma matriz. */
   typedSeconds: number;
   /** Tempo da melhor ordem sem nenhuma trava (igual a totalSeconds quando não há travas). */
@@ -91,13 +98,20 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     return fixed.size > 0 ? solveRoute({ ...problem, fixed }) : best;
   };
 
+  // Permanência: conta em toda parada, menos na última quando a rota termina nela.
+  const dwellFor = (order: readonly number[]) =>
+    order.reduce(
+      (sum, node, i) => sum + (endIndex === null && i === order.length - 1 ? 0 : dwellOf(nodes[node])),
+      0,
+    );
+
   const at = request.at ?? new Date(now());
   let departAt: Date;
   let solution: RouteSolution;
   let arrival: PlanResponse["arrival"] = null;
 
   if (mode === "arrive") {
-    const plan = await planArrival(at, solveAt);
+    const plan = await planArrival(at, solveAt, 3, (s) => dwellFor(s.order));
     ({ departAt, solution } = plan);
     arrival = { iterations: plan.iterations, converged: plan.converged };
   } else {
@@ -116,6 +130,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const sequence = [0, ...order, ...(endIndex === null ? [] : [endIndex])];
   const legSeconds = sequence.slice(1).map((to, i) => matrix.seconds[sequence[i]][to]);
   const totalSeconds = legSeconds.reduce((sum, s) => sum + s, 0);
+  const dwellSeconds = dwellFor(order);
 
   const route =
     sequence.length >= 2
@@ -132,12 +147,13 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     order: order.map((i) => nodes[i].id),
     legSeconds,
     totalSeconds,
+    dwellSeconds,
     typedSeconds,
     bestSeconds,
     exact: solution.exact,
     lockedCount: fixed.size,
     departAt: departAt.toISOString(),
-    arriveAt: new Date(departAt.getTime() + totalSeconds * 1000).toISOString(),
+    arriveAt: new Date(departAt.getTime() + (totalSeconds + dwellSeconds) * 1000).toISOString(),
     source: {
       name: matrix.source,
       label: matrix.label,

@@ -1,13 +1,15 @@
 "use client";
 
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import ActionsPanel from "./ActionsPanel";
-import CollapsibleCard, { Chevron } from "./CollapsibleCard";
+import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import MapView, { type MapLayout, type MapPoint } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
-import SettingsPanel from "./SettingsPanel";
+import SettingsDialog from "./SettingsDialog";
 import StopList from "./StopList";
+import { useBlockDrag } from "./useBlockDrag";
+import { freeRect, freeStyle, placeBlock, sheetOrder } from "@/lib/block-layout";
 import {
   formatDuration,
   formatKm,
@@ -34,7 +36,9 @@ import { computePlan, estimateLegTime } from "@/lib/plan";
 import { fetchPlan, planRequestBody, type PlanOutcome } from "@/lib/plan-client";
 import type { PlanResponse } from "@/lib/server/plan";
 import {
+  BLOCK_IDS,
   DEFAULT_SETTINGS,
+  EDGE_MARGIN,
   FONT_PX,
   normalizeSettings,
   resolveTheme,
@@ -51,17 +55,39 @@ import {
   MSG_DUPLICATE,
   MSG_NOT_FOUND,
 } from "@/lib/stops";
-import type { LegTimeFn, Place, TimeMode } from "@/lib/types";
+import { MAX_DWELL_MINUTES, type LegTimeFn, type Place, type TimeMode } from "@/lib/types";
 
 const BLOCKS_KEY = "rotas:blocos";
-/** Blocos abertos por padrão. As Configurações começam recolhidas. */
+/** Blocos abertos por padrão. */
 const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
   inicio: true,
   paradas: true,
   acoes: true,
   resumo: true,
-  config: false,
 };
+
+/** Largura dos blocos no desktop (rem): ~322 px no texto pequeno. */
+const BLOCK_WIDTH_REM = 23;
+
+/** Como cada bloco é desenhado: na gaveta do celular, numa coluna ou solto. */
+interface BlockOptions {
+  variant: "section" | "card";
+  collapseTo?: "up" | "down";
+  headerDrag?: HeaderDrag;
+  blockRef?: (element: HTMLElement | null) => void;
+  style?: CSSProperties;
+  className?: string;
+}
+
+/** Estrelinhas de IA, ao lado do nome da camada que respondeu. */
+function Sparkles() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-accent" fill="currentColor">
+      <path d="M8 2.5l1.35 3.9a2 2 0 001.25 1.25L14.5 9l-3.9 1.35a2 2 0 00-1.25 1.25L8 15.5l-1.35-3.9a2 2 0 00-1.25-1.25L1.5 9l3.9-1.35a2 2 0 001.25-1.25z" />
+      <path d="M15 11.5l.65 1.85a1 1 0 00.6.6l1.85.65-1.85.65a1 1 0 00-.6.6L15 17.7l-.65-1.85a1 1 0 00-.6-.6L11.9 14.6l1.85-.65a1 1 0 00.6-.6z" />
+    </svg>
+  );
+}
 
 /** Último estado da rota, salvo em localStorage. */
 interface RouteState {
@@ -141,7 +167,7 @@ function fixedPlacesOf(route: RouteState): Place[] {
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-md border border-line px-1.5 py-px text-[11px] font-semibold text-ink-2">
+    <span className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-px text-2xs font-semibold text-ink-2">
       {children}
     </span>
   );
@@ -156,11 +182,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [typedStops, route.locks],
   );
   const lockCount = Object.keys(locks).length;
-  const [summaryHeight, setSummaryHeight] = useState(0);
 
-  // Preferências de aparência (tema, fonte e posição dos blocos).
-  const [storedSettings, setSettings] = useLocalStorageState<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
+  // Preferências (tema, fonte, permanência padrão e posição dos blocos).
+  const [storedSettings, setStoredSettings] = useLocalStorageState<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
   const settings = useMemo(() => normalizeSettings(storedSettings), [storedSettings]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Sobe quando os blocos mudam de lugar ou de tamanho de texto: o mapa reenquadra a rota. */
+  const [fitVersion, setFitVersion] = useState(0);
+  const setSettings = (next: Settings) => {
+    if (next.fontSize !== settings.fontSize || JSON.stringify(next.layout) !== JSON.stringify(settings.layout)) {
+      setFitVersion((v) => v + 1);
+    }
+    setStoredSettings(next);
+  };
+  const blockDrag = useBlockDrag(settings.layout, (id, target) =>
+    setSettings({ ...settings, layout: placeBlock(settings.layout, id, target) }),
+  );
   const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
   const theme = resolveTheme(settings.theme, systemDark);
   const fontPx = FONT_PX[settings.fontSize];
@@ -169,8 +206,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.fontSize = `${fontPx}px`;
   }, [theme, fontPx]);
-  const summaryInCorner = settings.summaryDock === "corner";
-  const panelLeft = settings.panelSide === "left";
   /** null = "agora" (acompanha o relógio). */
   const [dateTime, setDateTime] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -281,7 +316,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [anchor, start, stops, finalPlace, timeMode, legTime, planStatus]);
 
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
-  const tryAddStop = (place: Place): string | null => {
+  const tryAddStop = (newPlace: Place): string | null => {
+    // Toda parada nova recebe a permanência padrão das configurações.
+    const place = { ...newPlace, dwellMinutes: settings.defaultDwellMinutes };
     let problem: string | null = null;
     setRoute((prev) => {
       const result = addStop(prev.stops, place, fixedPlacesOf(prev));
@@ -308,6 +345,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const moved = moveStop(displayedIds, locks, from, to);
     setRoute((prev) => ({ ...prev, locks: moved.locks }));
   };
+
+  const setDwell = (id: string, minutes: number) =>
+    setRoute((prev) => ({
+      ...prev,
+      stops: prev.stops.map((s) =>
+        s.id === id ? { ...s, dwellMinutes: Math.max(0, Math.min(Math.round(minutes), MAX_DWELL_MINUTES)) } : s,
+      ),
+    }));
 
   const handleToggleLock = (id: string) =>
     setRoute((prev) => ({ ...prev, locks: toggleLock(displayedIds, locks, id) }));
@@ -509,18 +554,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return `Não existe caminho de carro ${where}. Balsas não contam; pontes e túneis, sim.`;
   })();
 
-  // Espaço do mapa coberto pelo HUD no desktop: o painel (20rem + margem) de um lado
-  // e, quando fica no canto, a altura do Resumo embaixo.
-  const desktopInsets = useMemo(() => {
-    const panel = isDesktop ? 20 * fontPx + 16 : 0;
-    return {
-      left: panelLeft ? panel : 0,
-      right: panelLeft ? 0 : panel,
-      bottom: isDesktop && summaryInCorner ? summaryHeight + 32 : 0,
-    };
-  }, [isDesktop, fontPx, panelLeft, summaryInCorner, summaryHeight]);
+  // Colunas de blocos grudadas nas bordas (desktop): os controles do mapa ficam ao lado delas.
+  const blockWidthPx = BLOCK_WIDTH_REM * fontPx;
+  const layoutBlocks = settings.layout;
+  const columnInsets = useMemo(
+    () => ({
+      left: isDesktop && layoutBlocks.left.length > 0 ? blockWidthPx + EDGE_MARGIN : 0,
+      right: isDesktop && layoutBlocks.right.length > 0 ? blockWidthPx + EDGE_MARGIN : 0,
+    }),
+    [isDesktop, layoutBlocks.left.length, layoutBlocks.right.length, blockWidthPx],
+  );
 
-  // Textos de resumo.
+  // Textos de resumo. O total inclui a permanência nas paradas.
   const totalText = plan ? formatDuration(plan.totalSeconds) : "—";
   const arriveText = plan ? formatTimeWithDay(plan.arriveAt, plan.departAt) : "—";
   const handleSummary = `${totalText} · ${pluralStops(stops.length)} · chega ${arriveText}`;
@@ -529,18 +574,21 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     : end
       ? `${start.label} → ${end.label}`
       : `${start.label} · termina na última parada`;
-  const savedMinutes = plan ? Math.round((typedSeconds - plan.totalSeconds) / 60) : 0;
+  const dwellTotal = plan?.dwellSeconds ?? 0;
+  // A ordem só muda o tempo dirigindo; a permanência é a mesma em qualquer ordem.
+  const savedMinutes = plan ? Math.round((typedSeconds - plan.driveSeconds) / 60) : 0;
   const dateValue = dateTime ?? (anchor ? toLocalInputValue(anchor) : "");
 
-  // Blocos do painel. A ordem em que aparecem vem das configurações.
-  const blocks: Record<BlockId, ReactNode> = {
-    inicio: (
+  // Blocos do HUD. Onde cada um aparece vem das configurações (arrastar e soltar).
+  const blocks: Record<BlockId, (options: BlockOptions) => ReactNode> = {
+    inicio: (options) => (
           <CollapsibleCard
             id="bloco-inicio"
             title="Início e fim"
             summary={startEndSummary}
             open={isOpen("inicio")}
             onToggle={() => toggle("inicio")}
+            {...options}
           >
             <div className="flex flex-col gap-3">
               <PlaceField
@@ -599,7 +647,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                       type="button"
                       aria-pressed={timeMode === mode}
                       onClick={() => setRoute((prev) => ({ ...prev, timeMode: mode }))}
-                      className={`focus-ring rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-150 motion-reduce:transition-none ${
+                      className={`focus-ring rounded-md px-2 py-1.5 text-compact font-medium transition-colors duration-150 motion-reduce:transition-none ${
                         timeMode === mode
                           ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]"
                           : "text-muted hover:text-ink"
@@ -624,7 +672,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     type="button"
                     onClick={() => setDateTime(null)}
                     disabled={dateTime === null}
-                    className="focus-ring shrink-0 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-2 transition-colors hover:bg-hover disabled:cursor-default disabled:text-faint disabled:hover:bg-transparent"
+                    className="focus-ring shrink-0 rounded-lg border border-line px-3 text-compact font-medium text-ink-2 transition-colors hover:bg-hover disabled:cursor-default disabled:text-faint disabled:hover:bg-transparent"
                   >
                     Agora
                   </button>
@@ -633,13 +681,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             </div>
           </CollapsibleCard>
     ),
-    paradas: (
+    paradas: (options) => (
           <CollapsibleCard
             id="bloco-paradas"
             title={`Paradas (${stops.length}/${MAX_STOPS})`}
             summary={pluralStops(stops.length)}
             open={isOpen("paradas")}
             onToggle={() => toggle("paradas")}
+            {...options}
           >
             <div className="flex flex-col gap-3">
               {stops.length === 0 ? (
@@ -649,8 +698,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               ) : (
                 <>
                   <p className="text-xs text-muted">
-                    Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). Os
-                    destravados são otimizados em volta.
+                    Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). O
+                    relógio define quanto tempo você fica em cada parada.
                   </p>
                   <StopList
                     stops={stops}
@@ -660,6 +709,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     onMove={handleMove}
                     onToggleLock={handleToggleLock}
                     onRemove={removeStop}
+                    onDwellChange={setDwell}
                   />
                 </>
               )}
@@ -686,13 +736,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             </div>
           </CollapsibleCard>
     ),
-    acoes: (
+    acoes: (options) => (
           <CollapsibleCard
             id="bloco-acoes"
             title="Abrir e compartilhar"
             summary="Google Maps, Waze, copiar"
             open={isOpen("acoes")}
             onToggle={() => toggle("acoes")}
+            {...options}
           >
             <ActionsPanel
               start={start}
@@ -705,30 +756,27 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             />
           </CollapsibleCard>
     ),
-    resumo: (
+    resumo: (options) => (
           <CollapsibleCard
             id="bloco-resumo"
             title="Resumo"
             summary={`${totalText} · chega ${arriveText}`}
             open={isOpen("resumo")}
             onToggle={() => toggle("resumo")}
-            variant={isDesktop && summaryInCorner ? "card" : "section"}
-            className={
-              !summaryInCorner
-                ? ""
-                : panelLeft
-                  ? "md:fixed md:bottom-8 md:right-4 md:z-10 md:w-80"
-                  : "md:fixed md:bottom-8 md:left-4 md:z-10 md:w-80"
-            }
-            collapseTo={isDesktop && summaryInCorner ? "down" : "up"}
-            onHeightChange={setSummaryHeight}
+            {...options}
           >
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-ink">{totalText}</p>
+                  <p className="text-display font-semibold leading-none tracking-[-0.02em] text-ink">{totalText}</p>
                   <p className="mt-1.5 text-xs text-muted">
                     {endSame ? "Tempo total, ida e volta" : "Tempo total"}
+                    {plan && dwellTotal > 0 && (
+                      <>
+                        {": "}
+                        {formatDuration(plan.driveSeconds)} dirigindo + {formatDuration(dwellTotal)} nas paradas
+                      </>
+                    )}
                   </p>
                 </div>
                 {savedMinutes > 0 && (
@@ -740,17 +788,17 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
               <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-line">
                 <div className="px-3 py-2">
-                  <dt className="text-[11px] font-medium text-muted">Saída</dt>
-                  <dd className="text-[15px] font-semibold text-ink">{plan ? formatTime(plan.departAt) : "—"}</dd>
+                  <dt className="text-2xs font-medium text-muted">Saída</dt>
+                  <dd className="text-md font-semibold text-ink">{plan ? formatTime(plan.departAt) : "—"}</dd>
                 </div>
                 <div className="border-l border-line px-3 py-2">
-                  <dt className="text-[11px] font-medium text-muted">Chegada</dt>
-                  <dd className="text-[15px] font-semibold text-ink">{arriveText}</dd>
+                  <dt className="text-2xs font-medium text-muted">Chegada</dt>
+                  <dd className="text-md font-semibold text-ink">{arriveText}</dd>
                 </div>
               </dl>
 
-              <p className="text-[13px] text-ink-2">
-                Na ordem digitada: {formatDuration(typedSeconds)}.{" "}
+              <p className="text-compact text-ink-2">
+                Na ordem digitada: {formatDuration(typedSeconds + dwellTotal)}.{" "}
                 {savedMinutes > 0 ? (
                   <span className="font-medium text-emerald-700 dark:text-emerald-400">
                     Economia de {savedMinutes} min.
@@ -761,12 +809,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               </p>
 
               {lockCount > 0 && plan && (
-                <p className="text-[13px] text-ink-2">
+                <p className="text-compact text-ink-2">
                   {lockCount === 1 ? "1 local travado." : `${lockCount} locais travados.`}{" "}
-                  {plan.totalSeconds - bestSeconds >= 60 ? (
+                  {plan.driveSeconds - bestSeconds >= 60 ? (
                     <span className="font-medium text-amber-800 dark:text-amber-300">
-                      Sem travas, a rota levaria {formatDuration(bestSeconds)} (
-                      {Math.round((plan.totalSeconds - bestSeconds) / 60)} min a menos).
+                      Sem travas, a rota levaria {formatDuration(bestSeconds + dwellTotal)} (
+                      {Math.round((plan.driveSeconds - bestSeconds) / 60)} min a menos).
                     </span>
                   ) : (
                     "Mesmo assim, esta é a ordem mais rápida."
@@ -804,18 +852,21 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
               <div className="flex flex-col gap-1.5 border-t border-line pt-3" aria-live="polite">
                 <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <Badge>{TIER_LABEL[aiTier]}</Badge>
+                  <Badge>
+                    {(aiTier !== "local" || aiLoading) && <Sparkles />}
+                    {aiLoading ? "IA" : TIER_LABEL[aiTier]}
+                  </Badge>
                   {aiLoading
                     ? "Consultando a IA…"
                     : aiOutcome?.review
-                      ? `Comentário da IA: ${aiOutcome.provider}`
+                      ? "Comentário da IA"
                       : stops.length < 2
                         ? "Algoritmo local"
                         : "Algoritmo local (nenhuma IA respondeu)"}
                 </p>
                 {aiOutcome?.review && (
                   <>
-                    <p className="text-[13px] leading-relaxed text-ink-2">{aiOutcome.review.explanation}</p>
+                    <p className="text-compact leading-relaxed text-ink-2">{aiOutcome.review.explanation}</p>
                     {aiOutcome.review.backtracking && (
                       <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
                         A IA viu um possível vai-e-volta nesta ordem.
@@ -832,18 +883,77 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             </div>
           </CollapsibleCard>
     ),
-    config: (
-          <CollapsibleCard
-            id="bloco-config"
-            title="Configurações"
-            summary="Tema, fonte e blocos"
-            open={isOpen("config")}
-            onToggle={() => toggle("config")}
-          >
-            <SettingsPanel settings={settings} onChange={setSettings} />
-          </CollapsibleCard>
-    ),
   };
+
+  // ---------- Posição dos blocos no desktop ----------
+  const drag = blockDrag.drag;
+  const viewport = typeof window === "undefined" ? { width: 0, height: 0 } : { width: window.innerWidth, height: window.innerHeight };
+  const cardOptions = (id: BlockId, extra: Partial<BlockOptions> = {}): BlockOptions => ({
+    variant: "card",
+    headerDrag: blockDrag.headerDrag(id),
+    blockRef: blockDrag.register(id),
+    className: `w-[23rem] ${extra.className ?? ""}`,
+    ...(extra.style ? { style: extra.style } : {}),
+    ...(extra.collapseTo ? { collapseTo: extra.collapseTo } : {}),
+  });
+  /** Lugar reservado na coluna enquanto um bloco é arrastado para ela (o "ímã"). */
+  const placeholder = drag && (
+    <div
+      key="lugar"
+      aria-hidden="true"
+      className="w-[23rem] shrink-0 rounded-xl border-2 border-dashed border-accent/60 bg-accent/5"
+      style={{ height: Math.min(drag.rect.height, 160) }}
+    />
+  );
+  const column = (side: "left" | "right") => {
+    const ids = layoutBlocks[side].filter((id) => id !== drag?.id);
+    const items: ReactNode[] = ids.map((id) => (
+      <Fragment key={id}>{blocks[id](cardOptions(id, { className: "shrink-0" }))}</Fragment>
+    ));
+    if (drag?.target.kind === "dock" && drag.target.side === side) {
+      items.splice(Math.min(drag.target.index, items.length), 0, placeholder);
+    }
+    if (items.length === 0) return null;
+    return (
+      <div
+        key={side}
+        className="pointer-events-none fixed top-4 z-10 flex max-h-[calc(100dvh-2rem)] flex-col gap-3 overflow-y-auto [scrollbar-width:none]"
+        style={{ [side]: EDGE_MARGIN }}
+      >
+        {items}
+      </div>
+    );
+  };
+  const freeBlocks = BLOCK_IDS.filter((id) => layoutBlocks.free[id] && id !== drag?.id).map((id) => {
+    const position = layoutBlocks.free[id]!;
+    return (
+      <Fragment key={id}>
+        {blocks[id](
+          cardOptions(id, {
+            className: "fixed z-10",
+            style: freeStyle(position),
+            // Preso pela base, o bloco recolhe para baixo.
+            collapseTo: position.v === "bottom" ? "down" : "up",
+          }),
+        )}
+      </Fragment>
+    );
+  });
+  /** O bloco sendo arrastado: segue o ponteiro, ou já gruda na margem quando o ímã pega. */
+  const draggedBlock = (() => {
+    if (!drag) return null;
+    const rect =
+      drag.target.kind === "free"
+        ? freeRect(drag.target.position, drag.rect, viewport)
+        : drag.rect;
+    return blocks[drag.id](
+      cardOptions(drag.id, {
+        className: "fixed z-30 ring-2 ring-accent/40 shadow-[0_16px_40px_rgb(0_0_0/0.25)] transition-[left,top] duration-75",
+        style: { left: rect.left, top: rect.top },
+        collapseTo: drag.target.kind === "free" && drag.target.position.v === "bottom" ? "down" : "up",
+      }),
+    );
+  })();
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
@@ -854,8 +964,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         path={path}
         streetLegs={streetLegs}
         onLegClick={handleLegClick}
-        desktopInsets={desktopInsets}
-        controlsSide={panelLeft ? "right" : "left"}
+        columnInsets={columnInsets}
+        fitVersion={fitVersion}
+        onOpenSettings={() => setSettingsOpen(true)}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
         onMapClick={(lat, lng) => openInfo(lat, lng)}
@@ -954,18 +1065,25 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         )}
       </MapView>
 
+      {isDesktop ? (
+        // Desktop: cada bloco é um cartão sobre o mapa, arrastável pelo título.
+        <aside aria-label="Planejamento da rota">
+          {column("left")}
+          {column("right")}
+          {freeBlocks}
+          {draggedBlock}
+        </aside>
+      ) : (
       <aside
         aria-label="Planejamento da rota"
-        className={`fixed inset-x-0 bottom-0 z-10 flex max-h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t border-line bg-surface shadow-sheet md:absolute md:inset-x-auto md:bottom-auto md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-80 md:rounded-xl md:border md:shadow-panel ${
-          panelLeft ? "md:left-4" : "md:right-4"
-        }`}
+        className="fixed inset-x-0 bottom-0 z-10 flex max-h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t border-line bg-surface shadow-sheet"
       >
         <button
           type="button"
           aria-expanded={sheetOpen}
           aria-controls="hud-conteudo"
           onClick={() => setSheetOpen((open) => !open)}
-          className="focus-ring flex w-full shrink-0 flex-col items-center gap-2 px-4 pb-3 pt-2 outline-offset-[-2px] md:hidden"
+          className="focus-ring flex w-full shrink-0 flex-col items-center gap-2 px-4 pb-3 pt-2 outline-offset-[-2px]"
         >
           <span aria-hidden="true" className="h-1 w-9 rounded-full bg-line-strong" />
           <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold text-ink">
@@ -979,29 +1097,33 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
         <div
           id="hud-conteudo"
-          inert={!isDesktop && !sheetOpen}
-          className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none md:grid-rows-[1fr] ${
+          inert={!sheetOpen}
+          className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${
             sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           }`}
         >
-          <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line md:border-t-0">
-            {/* Cabeçalho do painel (só em telas largas; no celular a alça faz esse papel). */}
-            <header className="hidden items-baseline justify-between gap-3 border-b border-line px-4 pb-3 pt-3.5 md:flex">
-              <p className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Rotas</p>
-              <p className="truncate text-xs text-muted">{handleSummary}</p>
-            </header>
-            {settings.blockOrder.map((id) => (
-              <Fragment key={id}>{blocks[id]}</Fragment>
+          <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line">
+            {/* No celular, a mesma ordem das colunas do desktop (esquerda, direita, soltos). */}
+            {sheetOrder(layoutBlocks, BLOCK_IDS).map((id) => (
+              <Fragment key={id}>{blocks[id]({ variant: "section" })}</Fragment>
             ))}
           </div>
         </div>
       </aside>
+      )}
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onChange={setSettings}
+      />
 
       {toast && (
         <div
           key={toast.id}
           role="status"
-          className="fixed left-1/2 top-4 z-20 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-3.5 py-2 text-[13px] text-on-ink shadow-panel md:absolute md:bottom-6 md:top-auto"
+          className="fixed left-1/2 top-4 z-40 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-3.5 py-2 text-compact text-on-ink shadow-panel md:absolute md:bottom-6 md:top-auto"
         >
           <span>{toast.text}</span>
           {toast.undoStopId && (

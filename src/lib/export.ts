@@ -64,7 +64,8 @@ export function routeText(
   ];
   plan.legs.forEach((leg, i) => {
     const prefix = i < stopCount ? `${i + 1}.` : roundTrip ? "Volta:" : "B.";
-    lines.push(`${prefix} ${leg.to.label} (chega ${formatTime(leg.arriveAt)})`);
+    const stay = leg.dwellSeconds > 0 ? `, fica ${formatDuration(leg.dwellSeconds)}, sai ${formatTime(leg.leaveAt)}` : "";
+    lines.push(`${prefix} ${leg.to.label} (chega ${formatTime(leg.arriveAt)}${stay})`);
   });
   if (links.length > 0) lines.push("");
   links.forEach((link, i) =>

@@ -262,13 +262,15 @@ export async function planArrival(
   arriveAt: Date,
   solveAt: (departAt: Date) => Promise<RouteSolution>,
   maxIterations = 3,
+  /** Tempo fora do volante (permanência nas paradas) que também sai antes da chegada. */
+  extraSeconds: (solution: RouteSolution) => number = () => 0,
 ): Promise<ArrivalPlan> {
   let departAt = arriveAt;
   let solution = await solveAt(departAt);
   let iterations = 1;
 
   for (;;) {
-    const nextDepart = new Date(arriveAt.getTime() - solution.cost * 1000);
+    const nextDepart = new Date(arriveAt.getTime() - (solution.cost + extraSeconds(solution)) * 1000);
     const sameSlot = timeSlot(nextDepart) === timeSlot(departAt);
     departAt = nextDepart;
     if (sameSlot) return { departAt, solution, iterations, converged: true };

@@ -9,9 +9,12 @@ export interface Place {
   source: PlaceSource;
   /** Confiança da leitura do local, de 0 a 1. */
   confidence: number;
-  /** Tempo de permanência na parada. Reservado para uso futuro (sem interface). */
+  /** Tempo de permanência na parada, em minutos (0 = só passa). Início e fim ficam em 0. */
   dwellMinutes: number;
 }
+
+/** Limite do tempo de permanência numa parada (12 h). */
+export const MAX_DWELL_MINUTES = 720;
 
 /** "Sair em" (depart) ou "Chegar até" (arrive). */
 export type TimeMode = "depart" | "arrive";
@@ -21,13 +24,22 @@ export interface PlanLeg {
   to: Place;
   seconds: number;
   arriveAt: Date;
+  /** Tempo parado no destino do trecho (permanência). */
+  dwellSeconds: number;
+  /** Saída do destino do trecho: chegada + permanência. */
+  leaveAt: Date;
   /** true quando o tempo veio da estimativa por distância. */
   estimated: boolean;
 }
 
 export interface Plan {
   legs: PlanLeg[];
+  /** Duração total: direção + permanência nas paradas. */
   totalSeconds: number;
+  /** Só o tempo dirigindo. */
+  driveSeconds: number;
+  /** Soma da permanência nas paradas. */
+  dwellSeconds: number;
   departAt: Date;
   arriveAt: Date;
   hasEstimates: boolean;

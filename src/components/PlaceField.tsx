@@ -90,7 +90,7 @@ export default function PlaceField({
             onClick={() => void submit()}
             disabled={disabled || busy}
             aria-label="Adicionar parada"
-            className="focus-ring grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-ink text-lg font-medium text-on-ink transition-colors hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-40"
+            className="focus-ring grid w-[2.6rem] shrink-0 self-stretch place-items-center rounded-lg bg-ink text-lg font-medium text-on-ink transition-colors hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-40"
           >
             +
           </button>

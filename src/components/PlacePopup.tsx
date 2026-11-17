@@ -65,7 +65,7 @@ export default function PlacePopup({
             </p>
           )}
           {heading ? (
-            <p className="text-[15px] font-semibold leading-snug">{heading}</p>
+            <p className="text-md font-semibold leading-snug">{heading}</p>
           ) : (
             // Enquanto o endereço não chega, um traço pulsando no lugar do título.
             <p className="h-4 w-40 animate-pulse rounded bg-sunken motion-reduce:animate-none">
@@ -110,14 +110,14 @@ export default function PlacePopup({
             >
               <span
                 aria-hidden="true"
-                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white ring-2 ${
+                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-2xs font-semibold text-white ring-2 ${
                   /^d+$/.test(action.badge) ? "bg-accent" : "bg-[#1c1b19]"
                 } ${action.primary ? "ring-on-ink/25" : "ring-line-strong"}`}
               >
                 {action.badge}
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-medium leading-tight">{action.title}</span>
+                <span className="block text-compact font-medium leading-tight">{action.title}</span>
                 <span
                   className={`block truncate text-xs ${action.primary ? "text-on-ink/70" : "text-muted"}`}
                 >
