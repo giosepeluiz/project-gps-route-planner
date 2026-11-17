@@ -197,6 +197,11 @@ MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do Op
 
 ## 🕰️ Histórico de versões
 
+### 🔧 Versão 0.3.1 (beta)
+
+- **Botão ⓘ da atribuição** quadrado, branco e de cantos arredondados, como os outros botões do mapa: no canto inferior direito no computador e no inferior esquerdo no celular.
+- **Ao sair do modo viagem**, o mapa volta à vista 2D, com o norte para cima (pausada, a viagem continua em 3D).
+
 ### 🧭 Versão 0.3.0 (beta): "Seta no mapa"
 
 Melhorias do modo viagem, depois do primeiro teste na rua:

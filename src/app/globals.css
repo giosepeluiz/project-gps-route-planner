@@ -188,8 +188,7 @@ body {
 /* No desktop, os controles ficam ao lado das colunas de blocos grudadas nas bordas. */
 @media (min-width: 768px) {
   /* .maplibregl-map na frente: o CSS do MapLibre carrega depois e venceria com a mesma especificidade. */
-  .maplibregl-map .maplibregl-ctrl-top-right,
-  .maplibregl-map .maplibregl-ctrl-bottom-right {
+  .maplibregl-map .maplibregl-ctrl-top-right {
     right: var(--inset-right, 0px);
     transition: right 200ms ease-out;
   }
@@ -302,18 +301,76 @@ body {
   top: calc(env(safe-area-inset-top) + 4.5rem);
 }
 
-/* Celular: o botão "i" da atribuição fica menor, embaixo à esquerda, acima da gaveta fechada. */
+/*
+ * Atribuição do mapa: botão "i" quadrado de cantos arredondados, branco, no
+ * mesmo visual dos outros botões do mapa. Aberto, mostra o texto ao lado.
+ * Computador: embaixo à direita. Celular: embaixo à esquerda, acima da gaveta.
+ */
+.maplibregl-map {
+  --attrib-size: 29px;
+}
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact {
+  box-sizing: border-box;
+  min-height: var(--attrib-size);
+  min-width: var(--attrib-size);
+  padding: 0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 0.1);
+}
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  top: 0;
+  width: var(--attrib-size);
+  height: var(--attrib-size);
+  border-radius: 8px;
+  background-color: transparent;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 18px;
+}
+.maplibregl-map .maplibregl-ctrl-bottom-right > .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  right: 0;
+  left: auto;
+}
+.maplibregl-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  left: 0;
+  right: auto;
+}
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
+  display: block;
+  padding: 6px 10px;
+  line-height: 1.4;
+}
+/* Sem o anel de foco do MapLibre ao clicar ou tocar (continua para quem usa o teclado). */
+.maplibregl-map .maplibregl-ctrl-attrib-button:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+/* Aberto, o "i" fica centralizado na altura do texto (que pode ter duas linhas). */
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.maplibregl-map .maplibregl-ctrl-bottom-right > .maplibregl-ctrl-attrib.maplibregl-compact-show {
+  padding-right: var(--attrib-size);
+}
+.maplibregl-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact-show {
+  padding-left: var(--attrib-size);
+}
+
+@media (max-width: 1023px), (pointer: coarse) {
+  .maplibregl-map {
+    --attrib-size: 42px;
+  }
+  .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+    background-size: 22px;
+  }
+}
+
 @media (max-width: 767px) {
   .maplibregl-map .maplibregl-ctrl-bottom-left {
     bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
-  }
-  .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact {
-    min-height: 20px;
-    font-size: 10px;
-  }
-  .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
-    width: 20px;
-    height: 20px;
-    background-size: 14px;
   }
 }

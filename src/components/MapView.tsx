@@ -667,10 +667,11 @@ export default function MapView({
         pitch: NAV_PITCH,
         duration: 800,
       });
-    } else if (map.getPitch() !== 0 || map.getBearing() !== 0) {
+    } else if (!tracking && (map.getPitch() !== 0 || map.getBearing() !== 0)) {
+      // Fim da viagem: volta ao mapa plano, com o norte para cima (pausada, continua em 3D).
       map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
     }
-  }, [follow, styleVersion]);
+  }, [follow, tracking, styleVersion]);
 
   // Ligar ou desligar a rotação sem esperar a próxima leitura do GPS.
   useEffect(() => {
@@ -745,7 +746,9 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     const lib = libRef.current;
-    if (!map || !lib || styleVersion === 0 || boundsKey === "" || follow) return;
+    if (!map || !lib || styleVersion === 0 || boundsKey === "" || tracking) return;
+    // Saindo da viagem: o enquadramento da rota já começa no mapa plano.
+    if (map.getPitch() !== 0 || map.getBearing() !== 0) map.jumpTo({ pitch: 0, bearing: 0 });
 
     const coords = boundsKey.split("|").map((pair) => {
       const [lat, lng] = pair.split(",").map(Number);
@@ -766,7 +769,7 @@ export default function MapView({
     } catch (err) {
       console.warn("Não foi possível enquadrar a rota no mapa.", err);
     }
-  }, [boundsKey, layout, fitVersion, styleVersion, size, follow]);
+  }, [boundsKey, layout, fitVersion, styleVersion, size, tracking]);
 
   return (
     <div
@@ -795,7 +798,7 @@ export default function MapView({
       )}
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul
-          className="pointer-events-none absolute bottom-28 left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
+          className="pointer-events-none absolute bottom-[9.5rem] left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
         >
           {!streetLegs && (
             <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">
