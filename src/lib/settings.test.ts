@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { GOOGLE_WAYPOINTS_MOBILE, googleMapsLinks, navigationLinks, routeText, wazeLink } from "./export";
 import { FIXTURE_PLACES as P, mockLegTime } from "./mock-data";
 import { dropTarget, freeRect, placeBlock, sheetOrder } from "./block-layout";
+import { LOCALES, resolveLocale } from "./i18n";
 import { overlayPadding } from "./map-padding";
+import { MESSAGES } from "./messages";
 import { computePlan } from "./plan";
 import {
   BLOCK_IDS,
@@ -162,6 +164,61 @@ describe("enquadramento da rota com os blocos", () => {
       { left: 2100, top: 0, right: 2400, bottom: 300 },
     ]);
     expect(pad).toEqual({ top: 48, left: 48, right: 48, bottom: 840 - 700 + 32 });
+  });
+});
+
+describe("idiomas", () => {
+  it("Sistema segue o aparelho: português de Portugal, do Brasil, inglês e espanhol", () => {
+    expect(resolveLocale("system", ["pt-PT", "en"])).toBe("pt-PT");
+    expect(resolveLocale("system", ["pt-BR"])).toBe("pt-BR");
+    expect(resolveLocale("system", ["pt"])).toBe("pt-BR");
+    expect(resolveLocale("system", ["pt-AO"])).toBe("pt-PT");
+    expect(resolveLocale("system", ["en-US"])).toBe("en-GB");
+    expect(resolveLocale("system", ["es-MX"])).toBe("es-ES");
+    // O primeiro idioma conhecido da lista vence; sem nenhum conhecido, inglês.
+    expect(resolveLocale("system", ["fr-FR", "es-ES", "pt-BR"])).toBe("es-ES");
+    expect(resolveLocale("system", ["fr-FR", "de"])).toBe("en-GB");
+    // A escolha nas configurações vale mais que o aparelho.
+    expect(resolveLocale("en-GB", ["pt-PT"])).toBe("en-GB");
+  });
+
+  it("a escolha de idioma é salva e valores inválidos voltam a Sistema", () => {
+    expect(DEFAULT_SETTINGS.language).toBe("system");
+    expect(normalizeSettings({ version: 2, language: "pt-PT" }).language).toBe("pt-PT");
+    expect(normalizeSettings({ version: 2, language: "fr-FR" }).language).toBe("system");
+  });
+
+  it("os quatro idiomas têm todos os textos (nenhum vazio)", () => {
+    const walk = (value: unknown, path: string, out: string[]) => {
+      if (typeof value === "string") {
+        if (!value.trim()) out.push(path);
+      } else if (value && typeof value === "object") {
+        for (const [k, v] of Object.entries(value)) walk(v, `${path}.${k}`, out);
+      }
+    };
+    const keys = (value: unknown, prefix = ""): string[] =>
+      value && typeof value === "object"
+        ? Object.entries(value).flatMap(([k, v]) => [`${prefix}${k}`, ...keys(v, `${prefix}${k}.`)])
+        : [];
+    const base = keys(MESSAGES["pt-BR"]).sort();
+    for (const locale of LOCALES) {
+      expect(keys(MESSAGES[locale]).sort()).toEqual(base);
+      const empty: string[] = [];
+      walk(MESSAGES[locale], locale, empty);
+      expect(empty).toEqual([]);
+    }
+    expect(MESSAGES["pt-PT"].common.stops(2)).toBe("2 paragens");
+    expect(MESSAGES["en-GB"].common.stops(1)).toBe("1 stop");
+    expect(MESSAGES["es-ES"].actions.share).toBe("Compartir");
+  });
+
+  it("o texto da rota sai no idioma escolhido", () => {
+    const depart = new Date(2026, 10, 17, 9, 0);
+    const plan = computePlan([P.B, { ...P.CC, dwellMinutes: 15 }, P.B], "depart", depart, mockLegTime);
+    const lines = routeText(P.B, plan, 1, true, ["https://exemplo/1"], MESSAGES["en-GB"].routeText).split("\n");
+    expect(lines[0]).toMatch(/^Route: .* \(leave 09:00, arrive /);
+    expect(lines[2]).toBe("1. Costa da Caparica (arrive 09:33, stay 15 min, leave 09:48)");
+    expect(lines[3]).toMatch(/^Return: Barreiro/);
   });
 });
 

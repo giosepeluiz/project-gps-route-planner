@@ -1,4 +1,5 @@
 /** Preferências do usuário, salvas em localStorage. */
+import { isLanguageChoice, type LanguageChoice } from "./i18n";
 import { MAX_DWELL_MINUTES } from "./types";
 
 export type ThemeChoice = "system" | "light" | "dark";
@@ -40,6 +41,8 @@ export interface Settings {
   /** Versão do formato salvo. Na troca de versão, valem os novos padrões. */
   version: 2;
   theme: ThemeChoice;
+  /** Idioma da interface; "system" segue o aparelho. */
+  language: LanguageChoice;
   fontSize: FontSize;
   /** Permanência que cada nova parada recebe (minutos). */
   defaultDwellMinutes: number;
@@ -60,6 +63,7 @@ export const DEFAULT_LAYOUT: BlockLayout = {
 export const DEFAULT_SETTINGS: Settings = {
   version: 2,
   theme: "system",
+  language: "system",
   fontSize: "sm",
   defaultDwellMinutes: 0,
   layout: DEFAULT_LAYOUT,
@@ -133,6 +137,7 @@ export function normalizeSettings(value: unknown): Settings {
   return {
     version: 2,
     theme: oneOf(raw.theme, ["system", "light", "dark"] as const, DEFAULT_SETTINGS.theme),
+    language: isLanguageChoice(raw.language) ? raw.language : DEFAULT_SETTINGS.language,
     fontSize: current
       ? oneOf(raw.fontSize, ["sm", "md", "lg", "xl"] as const, DEFAULT_SETTINGS.fontSize)
       : DEFAULT_SETTINGS.fontSize,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useT } from "./I18nProvider";
 import {
   GOOGLE_WAYPOINTS_DESKTOP,
   GOOGLE_WAYPOINTS_MOBILE,
@@ -83,6 +84,7 @@ export default function ActionsPanel({
   isMobile,
   onNotify,
 }: ActionsPanelProps) {
+  const t = useT();
   const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
   const maxWaypoints = isMobile ? GOOGLE_WAYPOINTS_MOBILE : GOOGLE_WAYPOINTS_DESKTOP;
   const links = googleMapsLinks(sequence, maxWaypoints);
@@ -92,7 +94,7 @@ export default function ActionsPanel({
   const next =
     pending ?? (finalPlace && (finalPlace.id !== start.id || allDone) ? finalPlace : null);
   const nextIsReturn = !pending && next?.id === start.id;
-  const text = plan ? routeText(start, plan, stops.length, roundTrip, links) : null;
+  const text = plan ? routeText(start, plan, stops.length, roundTrip, links, t.routeText) : null;
   // Só existe no navegador (e nem em todos): no servidor vale false.
   const canShare = useSyncExternalStore(
     subscribeNothing,
@@ -104,16 +106,16 @@ export default function ActionsPanel({
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      onNotify("Rota copiada.");
+      onNotify(t.actions.copied);
     } catch {
-      onNotify("Não foi possível copiar a rota.");
+      onNotify(t.actions.copyFailed);
     }
   };
 
   const share = async () => {
     if (!text) return;
     try {
-      await navigator.share({ title: "Rota", text });
+      await navigator.share({ title: t.actions.shareTitle, text });
     } catch {
       // O usuário fechou a folha de compartilhamento: nada a fazer.
     }
@@ -121,9 +123,7 @@ export default function ActionsPanel({
 
   if (links.length === 0) {
     return (
-      <p className="text-sm text-muted">
-        Adicione ao menos uma parada (ou um fim) para abrir a rota em outro aplicativo.
-      </p>
+      <p className="text-sm text-muted">{t.actions.needStops}</p>
     );
   }
 
@@ -132,27 +132,22 @@ export default function ActionsPanel({
       {links.map((link, i) => (
         <a key={link} href={link} target="_blank" rel="noopener noreferrer" className={linkClass}>
           <span>
-            Abrir no Google Maps
+            {t.actions.openGoogle}
             {links.length > 1 && (
-              <span className="block text-xs font-normal text-muted">
-                Parte {i + 1} de {links.length}
-              </span>
+              <span className="block text-xs font-normal text-muted">{t.actions.part(i + 1, links.length)}</span>
             )}
           </span>
           <External />
         </a>
       ))}
       {links.length > 1 && (
-        <p className="text-xs text-muted">
-          O Google Maps aceita até {maxWaypoints} paradas por link{isMobile ? " no celular" : ""}, então a rota
-          foi dividida em partes.
-        </p>
+        <p className="text-xs text-muted">{t.actions.split(maxWaypoints, isMobile)}</p>
       )}
 
       {next && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-line-strong px-2.5 py-2">
           <span className="min-w-0 text-sm font-medium">
-            {nextIsReturn ? "Navegar de volta" : "Navegar até a próxima"}
+            {nextIsReturn ? t.actions.navigateBack : t.actions.navigateNext}
             <span className="block truncate text-xs font-normal text-muted">{next.label}</span>
           </span>
           <span className="flex shrink-0 gap-1">
@@ -162,8 +157,8 @@ export default function ActionsPanel({
                 href={app.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`Navegar com ${app.name}`}
-                aria-label={`Navegar até ${next.label} com ${app.name}`}
+                title={t.actions.navigateWith(app.name)}
+                aria-label={t.actions.navigateTo(next.label, app.name)}
                 className="focus-ring grid h-9 w-9 place-items-center rounded-lg transition-colors duration-150 hover:bg-hover motion-reduce:transition-none"
               >
                 <AppIcon id={app.id} />
@@ -180,7 +175,7 @@ export default function ActionsPanel({
           disabled={!text}
           className={`${linkClass} justify-center disabled:cursor-not-allowed disabled:opacity-50 ${canShare ? "" : "col-span-2"}`}
         >
-          Copiar rota
+          {t.actions.copy}
         </button>
         {canShare && (
           <button
@@ -189,7 +184,7 @@ export default function ActionsPanel({
             disabled={!text}
             className={`${linkClass} justify-center disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            Compartilhar
+            {t.actions.share}
           </button>
         )}
       </div>

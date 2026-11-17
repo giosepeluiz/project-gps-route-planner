@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useT } from "./I18nProvider";
 import { formatLatLng } from "@/lib/format";
 
 interface Action {
@@ -49,8 +52,9 @@ export default function PlacePopup({
   actions,
   footer,
 }: PlacePopupProps) {
+  const t = useT();
   const loading = address === undefined;
-  const heading = title ?? (loading ? null : "Local sem endereço");
+  const heading = title ?? (loading ? null : t.popup.noAddress);
 
   return (
     <div className="flex w-64 max-w-full flex-col gap-3 text-sm text-ink">
@@ -69,7 +73,7 @@ export default function PlacePopup({
           ) : (
             // Enquanto o endereço não chega, um traço pulsando no lugar do título.
             <p className="h-4 w-40 animate-pulse rounded bg-sunken motion-reduce:animate-none">
-              <span className="sr-only">Buscando o endereço…</span>
+              <span className="sr-only">{t.popup.loadingAddress}</span>
             </p>
           )}
           {role && address && address !== title && (
@@ -78,7 +82,7 @@ export default function PlacePopup({
           <button
             type="button"
             onClick={onCopy}
-            title="Copiar coordenadas"
+            title={t.popup.copyCoords}
             className="focus-ring mt-0.5 flex items-center gap-1 rounded font-mono text-xs text-muted hover:text-ink"
           >
             {formatLatLng(lat, lng)}
@@ -86,7 +90,7 @@ export default function PlacePopup({
               <rect x="7" y="7" width="9" height="9" rx="1.500" />
               <path d="M4 13V5a1 1 0 011-1h8" />
             </svg>
-            <span className="sr-only">Copiar coordenadas</span>
+            <span className="sr-only">{t.popup.copyCoords}</span>
           </button>
         </div>
       </header>
@@ -94,7 +98,7 @@ export default function PlacePopup({
       {actions.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-line pt-3">
           <p className="mb-0.5 text-xs font-medium text-muted">
-            O que fazer com este local?
+            {t.popup.whatToDo}
           </p>
           {actions.map((action) => (
             <button
@@ -111,7 +115,7 @@ export default function PlacePopup({
               <span
                 aria-hidden="true"
                 className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-2xs font-semibold text-white ring-2 ${
-                  /^d+$/.test(action.badge) ? "bg-accent" : "bg-[#1c1b19]"
+                  /^\d+$/.test(action.badge) ? "bg-accent" : "bg-[#1c1b19]"
                 } ${action.primary ? "ring-on-ink/25" : "ring-line-strong"}`}
               >
                 {action.badge}

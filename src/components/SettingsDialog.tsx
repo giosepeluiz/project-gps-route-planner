@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import DwellPicker from "./DwellPicker";
+import { useT } from "./I18nProvider";
+import { LOCALE_NAMES, LOCALES, type LanguageChoice } from "@/lib/i18n";
 import {
   DEFAULT_LAYOUT,
   DEFAULT_SETTINGS,
@@ -61,11 +63,17 @@ function Segmented<T extends string>({
 }
 
 /** Uma linha de configuração: nome e explicação curta, com o controle embaixo. */
-function Row({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Row({ title, hint, htmlFor, children }: { title: string; hint?: string; htmlFor?: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2 py-3">
       <div>
-        <p className="text-sm font-medium text-ink">{title}</p>
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-sm font-medium text-ink">
+            {title}
+          </label>
+        ) : (
+          <p className="text-sm font-medium text-ink">{title}</p>
+        )}
         {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
       </div>
       {children}
@@ -82,21 +90,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-const THEMES: Option<ThemeChoice>[] = [
-  { value: "system", label: "Sistema" },
-  { value: "light", label: "Claro" },
-  { value: "dark", label: "Escuro" },
-];
-const FONTS: Option<FontSize>[] = [
-  { value: "sm", label: "Pequeno" },
-  { value: "md", label: "Médio" },
-  { value: "lg", label: "Grande" },
-  { value: "xl", label: "Enorme" },
-];
-
 /** Tela de configurações: diálogo no centro (desktop) ou em tela cheia (celular). */
 export default function SettingsDialog({ open, onClose, settings, onChange }: SettingsDialogProps) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
+  const languageId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -106,6 +104,15 @@ export default function SettingsDialog({ open, onClose, settings, onChange }: Se
   }, [open]);
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => onChange({ ...settings, [key]: value });
+
+  const themes: Option<ThemeChoice>[] = (["system", "light", "dark"] as const).map((value) => ({
+    value,
+    label: t.settings.themes[value],
+  }));
+  const fonts: Option<FontSize>[] = (["sm", "md", "lg", "xl"] as const).map((value) => ({
+    value,
+    label: t.settings.fonts[value],
+  }));
 
   return (
     <dialog
@@ -120,12 +127,12 @@ export default function SettingsDialog({ open, onClose, settings, onChange }: Se
     >
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <h2 id="config-titulo" className="text-base font-semibold">
-          Configurações
+          {t.settings.title}
         </h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fechar configurações"
+          aria-label={t.settings.close}
           className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-hover hover:text-ink"
         >
           <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -135,44 +142,53 @@ export default function SettingsDialog({ open, onClose, settings, onChange }: Se
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
-        <Section title="Aparência">
-          <Row title="Tema">
-            <Segmented label="Tema" options={THEMES} value={settings.theme} onSelect={(v) => set("theme", v)} />
+        <Section title={t.settings.appearance}>
+          <Row title={t.settings.language} hint={t.settings.languageHint} htmlFor={languageId}>
+            <select
+              id={languageId}
+              value={settings.language}
+              onChange={(e) => set("language", e.target.value as LanguageChoice)}
+              className="focus-ring w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink outline-none hover:border-line-strong focus:border-accent"
+            >
+              <option value="system">{t.settings.system}</option>
+              {LOCALES.map((locale) => (
+                <option key={locale} value={locale} lang={locale}>
+                  {LOCALE_NAMES[locale]}
+                </option>
+              ))}
+            </select>
           </Row>
-          <Row title="Tamanho do texto" hint="Pequeno é o padrão, na mesma escala do Google Maps.">
+          <Row title={t.settings.theme}>
+            <Segmented label={t.settings.theme} options={themes} value={settings.theme} onSelect={(v) => set("theme", v)} />
+          </Row>
+          <Row title={t.settings.fontSize} hint={t.settings.fontHint}>
             <Segmented
-              label="Tamanho do texto"
-              options={FONTS}
+              label={t.settings.fontSize}
+              options={fonts}
               value={settings.fontSize}
               onSelect={(v) => set("fontSize", v)}
             />
           </Row>
         </Section>
 
-        <Section title="Rota">
-          <Row
-            title="Permanência padrão"
-            hint="Tempo que cada nova parada recebe. Dá para mudar em cada parada pelo ícone de relógio."
-          >
+        <Section title={t.settings.route}>
+          <Row title={t.settings.defaultDwell} hint={t.settings.defaultDwellHint}>
             <DwellPicker
-              label="Permanência padrão nas novas paradas"
+              label={t.settings.defaultDwellGroup}
               value={settings.defaultDwellMinutes}
               onChange={(minutes) => set("defaultDwellMinutes", minutes)}
             />
           </Row>
         </Section>
 
-        <Section title="Blocos">
-          <Row
-            title="Posição dos blocos"
-            hint="Arraste um bloco pelo título para onde quiser. Perto da borda esquerda ou direita ele gruda numa coluna; perto do topo ou da base, gruda na margem. No celular os blocos ficam na gaveta, na mesma ordem."
-          >
+        <Section title={t.settings.blocks}>
+          <Row title={t.settings.blocksPosition} hint={t.settings.blocksHint}>
             <button
               type="button"
               onClick={() => set("layout", DEFAULT_LAYOUT)}
               className="focus-ring self-start rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium hover:bg-hover"
             >
-              Voltar os blocos ao lugar padrão
+              {t.settings.resetBlocks}
             </button>
           </Row>
         </Section>
@@ -184,14 +200,14 @@ export default function SettingsDialog({ open, onClose, settings, onChange }: Se
           onClick={() => onChange(DEFAULT_SETTINGS)}
           className="focus-ring rounded-lg px-2 py-1.5 text-xs font-medium text-muted hover:bg-hover hover:text-ink"
         >
-          Restaurar tudo
+          {t.settings.resetAll}
         </button>
         <button
           type="button"
           onClick={onClose}
           className="focus-ring rounded-lg bg-ink px-4 py-1.5 text-sm font-medium text-on-ink hover:bg-ink/85"
         >
-          Pronto
+          {t.settings.done}
         </button>
       </footer>
     </dialog>

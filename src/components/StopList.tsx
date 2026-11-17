@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import DwellPicker from "./DwellPicker";
+import { useT } from "./I18nProvider";
 import Grip, { gripButtonClass } from "./Grip";
 import { dragRowClass, useDragReorder } from "./useDragReorder";
 import { formatDuration, formatTime } from "@/lib/format";
@@ -50,6 +51,7 @@ export default function StopList({
   doneIds,
   onToggleDone,
 }: StopListProps) {
+  const t = useT();
   const reorder = useDragReorder(stops.length, onMove);
   /** Parada com o seletor de permanência aberto. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -78,8 +80,8 @@ export default function StopList({
             {/* Alça: arrastar com o mouse ou o dedo; setas do teclado também movem. */}
             <button
               type="button"
-              aria-label={`Arrastar ${stop.label} para reordenar. Com o teclado, use as setas para cima e para baixo.`}
-              title="Arraste para reordenar"
+              aria-label={t.stops.dragAria(stop.label)}
+              title={t.stops.dragTitle}
               className={`${gripButtonClass} ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
               {...reorder.handleProps(i)}
             >
@@ -91,8 +93,8 @@ export default function StopList({
               type="button"
               aria-pressed={done}
               onClick={() => onToggleDone(stop.id)}
-              aria-label={done ? `${stop.label}: concluída. Desfazer` : `Marcar ${stop.label} como concluída`}
-              title={done ? "Concluída (clique para desfazer)" : "Marcar como concluída"}
+              aria-label={done ? t.stops.undoDone(stop.label) : t.stops.markDone(stop.label)}
+              title={done ? t.stops.doneTitle : t.stops.markDoneTitle}
               className={`focus-ring group/done grid h-6 w-6 shrink-0 place-items-center rounded-full text-2xs font-semibold transition-colors duration-150 motion-reduce:transition-none ${
                 done
                   ? "bg-line-strong text-ink-2 hover:bg-faint"
@@ -125,14 +127,13 @@ export default function StopList({
                 className={`flex items-center gap-1.5 truncate whitespace-nowrap text-xs ${done ? "text-faint" : "text-muted"}`}
                 title={
                   leg
-                    ? `Chega às ${formatTime(leg.arriveAt)}${leg.dwellSeconds > 0 ? `, sai às ${formatTime(leg.leaveAt)}` : ""}`
+                    ? `${t.stops.arrives(formatTime(leg.arriveAt))}${leg.dwellSeconds > 0 ? `, ${t.stops.leaves(formatTime(leg.leaveAt))}` : ""}`
                     : undefined
                 }
               >
                 {showLegColors && (
                   <span
                     aria-hidden="true"
-                    title="Cor deste trecho no mapa"
                     className="h-1.5 w-4 shrink-0 rounded-full"
                     style={{ backgroundColor: done ? DONE_LEG_COLOR : legColor(i) }}
                   />
@@ -144,7 +145,7 @@ export default function StopList({
                   {dwellMin > 0 && (
                     <span className="text-ink-2">
                       {" "}
-                      · fica {formatDuration(dwellMin * 60)}
+                      · {t.stops.stays(formatDuration(dwellMin * 60))}
                     </span>
                   )}
                 </span>
@@ -158,10 +159,10 @@ export default function StopList({
               onClick={() => setEditing(isEditing ? null : stop.id)}
               aria-label={
                 dwellMin > 0
-                  ? `Permanência em ${stop.label}: ${formatDuration(dwellMin * 60)}. Alterar`
-                  : `Definir quanto tempo fica em ${stop.label}`
+                  ? t.stops.dwellSet(stop.label, formatDuration(dwellMin * 60))
+                  : t.stops.dwellAsk(stop.label)
               }
-              title="Tempo de permanência"
+              title={t.stops.dwellTitle}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
                 isEditing
                   ? "bg-sunken text-ink"
@@ -177,8 +178,8 @@ export default function StopList({
               type="button"
               aria-pressed={locked}
               onClick={() => onToggleLock(stop.id)}
-              aria-label={locked ? `Destravar ${stop.label}` : `Travar ${stop.label} na posição ${i + 1}`}
-              title={locked ? "Travado nesta posição" : "Travar nesta posição"}
+              aria-label={locked ? t.stops.unlock(stop.label) : t.stops.lock(stop.label, i + 1)}
+              title={locked ? t.stops.lockedTitle : t.stops.lockTitle}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-200 motion-reduce:transition-none ${
  locked
  ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
@@ -194,7 +195,7 @@ export default function StopList({
             <button
               type="button"
               onClick={() => onRemove(stop.id)}
-              aria-label={`Remover ${stop.label}`}
+              aria-label={t.stops.remove(stop.label)}
               className="focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-red-700 dark:hover:text-red-400"
             >
               <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -206,7 +207,7 @@ export default function StopList({
             {isEditing && (
               <div id={pickerId} className="mb-1 ml-[3.25rem] mr-1 mt-1.5">
                 <DwellPicker
-                  label={`Quanto tempo fica em ${stop.label}`}
+                  label={t.stops.dwellGroup(stop.label)}
                   value={dwellMin}
                   onChange={(minutes) => onDwellChange(stop.id, minutes)}
                 />

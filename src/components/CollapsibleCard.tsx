@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useT } from "./I18nProvider";
 
 /** Eventos do título quando o bloco pode ser arrastado por ele. */
 export interface HeaderDrag {
@@ -78,6 +79,7 @@ export default function CollapsibleCard({
   style,
   children,
 }: CollapsibleCardProps) {
+  const t = useT();
   const panelId = `${id}-painel`;
   const sectionRef = useRef<HTMLElement | null>(null);
 
@@ -121,7 +123,7 @@ export default function CollapsibleCard({
           aria-controls={panelId}
           onClick={onToggle}
           {...headerDrag}
-          title={headerDrag ? "Clique para abrir ou fechar. Arraste para mover o bloco." : undefined}
+          title={headerDrag ? t.blocks.dragTitle : undefined}
           className={`focus-ring group flex w-full items-center gap-2 px-4 py-3 text-left outline-offset-[-2px] transition-colors duration-150 hover:bg-hover motion-reduce:transition-none ${
             headerDrag ? "cursor-grab touch-none active:cursor-grabbing" : ""
           }`}

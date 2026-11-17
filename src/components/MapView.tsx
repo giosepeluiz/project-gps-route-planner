@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import { useT } from "./I18nProvider";
 import { DONE_LEG_COLOR, legColor } from "@/lib/leg-colors";
 import { overlayPadding } from "@/lib/map-padding";
 import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
@@ -165,6 +166,7 @@ export default function MapView({
   const handleContextMenu = useEffectEvent((lat: number, lng: number) => onMapContextMenu(lat, lng));
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
+  const t = useT();
   const handleOpenSettings = useEffectEvent(() => onOpenSettings());
   const handleOpenAbout = useEffectEvent(() => onOpenAbout());
   const handleBounds = useEffectEvent((map: MapLibreMap) => {
@@ -268,15 +270,15 @@ export default function MapView({
     const media = window.matchMedia(DESKTOP_QUERY);
     const settings = createButtonsControl([
       {
-        title: "Configurações",
-        label: "Abrir as configurações",
+        title: t.map.settings,
+        label: t.map.openSettings,
         icon: GEAR_ICON,
         opensDialog: true,
         onClick: () => handleOpenSettings(),
       },
       {
-        title: "Sobre",
-        label: "Sobre o planejador de rotas",
+        title: t.map.about,
+        label: t.map.openAbout,
         icon: HELP_ICON,
         opensDialog: true,
         onClick: () => handleOpenAbout(),
@@ -313,7 +315,7 @@ export default function MapView({
       media.removeEventListener("change", place);
       clear();
     };
-  }, [styleVersion]);
+  }, [styleVersion, t]);
 
   const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
 
@@ -332,7 +334,7 @@ export default function MapView({
       element.title = point.title;
       element.setAttribute("role", "button");
       element.tabIndex = 0;
-      element.setAttribute("aria-label", `${point.badge}: ${point.title}. Ver informações.`);
+      element.setAttribute("aria-label", t.map.pinAria(point.badge, point.title));
       // O clique no pin não deve contar como clique no mapa.
       element.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -409,7 +411,7 @@ export default function MapView({
     // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
     map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
     map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
-  }, [points, path, streetLegs, doneKey, styleVersion]);
+  }, [points, path, streetLegs, doneKey, styleVersion, t]);
 
   // Trecho clicado em destaque: os outros ficam semitransparentes e ele passa por cima.
   useEffect(() => {
@@ -529,12 +531,12 @@ export default function MapView({
         ref={containerRef}
         className="h-full w-full"
         role="application"
-        aria-label="Mapa da rota. Clique para ver um local; clique direito ou toque longo para adicionar uma parada."
+        aria-label={t.map.aria}
       />
       {popupEl && popupAt && createPortal(children, popupEl)}
       {status === "loading" && (
         <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted">
-          Carregando o mapa…
+          {t.map.loading}
         </p>
       )}
       {status === "error" && (
@@ -542,7 +544,7 @@ export default function MapView({
           role="alert"
           className="absolute left-1/2 top-1/2 w-72 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-4 text-center text-sm text-ink shadow-panel"
         >
-          Não foi possível carregar o mapa base. Verifique a conexão e recarregue a página.
+          {t.map.error}
         </p>
       )}
       {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
@@ -551,12 +553,12 @@ export default function MapView({
         >
           {!streetLegs && (
             <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">
-              Traçado aproximado (sem rota pelas ruas)
+              {t.map.approximate}
             </li>
           )}
           {status === "fallback" && (
             <li className="w-fit rounded-md bg-amber-50 px-2 py-1 text-amber-900 shadow-panel">
-              Mapa reserva em uso
+              {t.map.fallback}
             </li>
           )}
         </ul>

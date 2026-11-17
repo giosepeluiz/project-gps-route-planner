@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useT } from "./I18nProvider";
 import type { AddressSuggestion } from "@/lib/place-input";
 
 interface PlaceFieldProps {
@@ -35,6 +36,7 @@ export default function PlaceField({
   suggest,
   onPick,
 }: PlaceFieldProps) {
+  const t = useT();
   const inputId = useId();
   const messageId = `${inputId}-msg`;
   const listId = `${inputId}-sugestoes`;
@@ -167,7 +169,7 @@ export default function PlaceField({
             type="button"
             onClick={() => void submit()}
             disabled={disabled || busy}
-            aria-label="Adicionar parada"
+            aria-label={t.stops.add}
             className="focus-ring grid w-[2.6rem] shrink-0 self-stretch place-items-center rounded-lg bg-ink text-lg font-medium text-on-ink transition-colors hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-40"
           >
             +
@@ -180,7 +182,7 @@ export default function PlaceField({
         <ul
           id={listId}
           role="listbox"
-          aria-label="Sugestões de endereço"
+          aria-label={t.field.suggestions}
           hidden={!open}
           className="mt-1 overflow-hidden rounded-lg border border-line bg-surface shadow-panel"
         >
@@ -215,7 +217,7 @@ export default function PlaceField({
 
       {busy && (
         <p id={messageId} role="status" className="mt-1 text-xs text-muted">
-          Buscando o local…
+          {t.field.searching}
         </p>
       )}
       {error && !busy && (

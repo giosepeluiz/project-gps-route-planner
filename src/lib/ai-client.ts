@@ -1,4 +1,5 @@
 /** Cliente das rotas de IA. Toda falha vira "local": a IA nunca bloqueia a interface. */
+import type { Locale } from "./i18n";
 import type { AiTier, ReviewResult } from "./server/ai";
 
 export interface ReviewOutcome {
@@ -36,6 +37,7 @@ export function reviewRequestBody(
   lockedCount: number,
   stopCount?: number,
   exact?: boolean,
+  lang?: Locale,
 ) {
   return {
     labels: labels.map((label) => label.slice(0, 120)),
@@ -44,6 +46,7 @@ export function reviewRequestBody(
     lockedCount,
     ...(stopCount === undefined ? {} : { stopCount }),
     ...(exact === undefined ? {} : { exact }),
+    ...(lang === undefined ? {} : { lang }),
   };
 }
 

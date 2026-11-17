@@ -7,6 +7,8 @@
  * aparece só como sugestão.
  */
 import { z } from "zod";
+import { DEFAULT_LOCALE, type Locale } from "../i18n";
+import { MESSAGES } from "../messages";
 import { CircuitBreaker, withPolicy } from "./resilience";
 
 export type AiTier = "primária" | "backup" | "local";
@@ -191,7 +193,13 @@ export interface ReviewInput {
   stopCount?: number;
   /** true quando a ordem veio da solução exata (Held-Karp): nenhuma outra é mais rápida. */
   exact?: boolean;
+  /** Idioma da interface: o comentário da IA sai nele. */
+  lang?: Locale;
 }
+
+/** Instruções da revisão; "explanation" e "suggestion" saem no idioma pedido. */
+const reviewSystem = (language: string) => REVIEW_SYSTEM.replace("português do Brasil", language) +
+  `\n- Escreva "explanation" e "suggestion" em ${language}.`;
 
 const REVIEW_SYSTEM = `Você revisa a ordem de uma rota de carro já calculada por um algoritmo de otimização (tempo real de carro, não distância em linha reta).
 Responda SOMENTE com JSON no formato {"explanation": "...", "backtracking": true|false, "suggestion": "..." ou null, "suggestedOrder": [números] ou null}.
@@ -251,7 +259,8 @@ export async function reviewRoute(ai: AiService, input: ReviewInput) {
   ]
     .filter(Boolean)
     .join("\n");
-  const result = await ai.run(RouteReview, REVIEW_SYSTEM, user);
+  const language = MESSAGES[input.lang ?? DEFAULT_LOCALE].aiLanguage;
+  const result = await ai.run(RouteReview, reviewSystem(language), user);
   if (!result) return null;
   const { suggestedOrder, ...rest } = result.data;
   // Ordem exata e sem travas: nenhuma reordenação é mais rápida, então não há o

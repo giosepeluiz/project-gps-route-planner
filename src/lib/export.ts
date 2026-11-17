@@ -1,5 +1,6 @@
 /** Ações de saída: links para Google Maps e Waze e a rota em texto. */
 import { formatDuration, formatTime } from "./format";
+import ptBR, { type Messages } from "./messages/pt-BR";
 import type { Place, Plan } from "./types";
 
 interface LatLng {
@@ -77,26 +78,30 @@ export function navigationLinks(point: { lat: number; lng: number }): Navigation
   ];
 }
 
+/** Rota em texto (Copiar e Compartilhar), no idioma das palavras recebidas. */
 export function routeText(
   start: Place,
   plan: Plan,
   stopCount: number,
   roundTrip: boolean,
   links: readonly string[],
+  words: Messages["routeText"] = ptBR.routeText,
 ): string {
   const lines = [
-    `Rota: ${formatDuration(plan.totalSeconds)} (saída ${formatTime(plan.departAt)}, chegada ${formatTime(plan.arriveAt)})`,
-    `A. ${start.label} (saída ${formatTime(plan.departAt)})`,
+    words.header(formatDuration(plan.totalSeconds), formatTime(plan.departAt), formatTime(plan.arriveAt)),
+    words.start(start.label, formatTime(plan.departAt)),
   ];
   plan.legs.forEach((leg, i) => {
-    const prefix = i < stopCount ? `${i + 1}.` : roundTrip ? "Volta:" : "B.";
-    const stay = leg.dwellSeconds > 0 ? `, fica ${formatDuration(leg.dwellSeconds)}, sai ${formatTime(leg.leaveAt)}` : "";
-    lines.push(`${prefix} ${leg.to.label} (chega ${formatTime(leg.arriveAt)}${stay})`);
+    const prefix = i < stopCount ? `${i + 1}.` : roundTrip ? words.back : "B.";
+    const stay = leg.dwellSeconds > 0 ? words.stay(formatDuration(leg.dwellSeconds), formatTime(leg.leaveAt)) : "";
+    lines.push(`${prefix} ${leg.to.label} (${words.arrives(formatTime(leg.arriveAt))}${stay})`);
   });
   if (links.length > 0) lines.push("");
   links.forEach((link, i) =>
     lines.push(
-      links.length === 1 ? `Google Maps: ${link}` : `Google Maps (parte ${i + 1} de ${links.length}): ${link}`,
+      links.length === 1
+        ? `${words.googleMaps}: ${link}`
+        : `${words.googleMaps} (${words.part(i + 1, links.length)}): ${link}`,
     ),
   );
   return lines.join("\n");

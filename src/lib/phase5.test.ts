@@ -260,6 +260,16 @@ describe("aceitar a sugestão da IA", () => {
     expect(locked?.data.suggestedStops).toEqual([0, 2, 1]);
   });
 
+  it("o comentário da IA é pedido no idioma da interface", async () => {
+    const gemini = fakeAi("Gemini", "primária", REVIEW_JSON);
+    await reviewRoute(createAiService([gemini]), { ...input, lang: "en-GB" });
+    expect(gemini.seen[0].system).toContain("British English");
+    expect(gemini.seen[0].system).not.toContain("português do Brasil");
+    const pt = fakeAi("Gemini", "primária", REVIEW_JSON);
+    await reviewRoute(createAiService([pt]), input);
+    expect(pt.seen[0].system).toContain("português do Brasil");
+  });
+
   it("a sugestão só vale se os tempos reais disserem que ela é mais rápida", () => {
     // Como no caso de atravessar o Tejo duas vezes: 25 min a mais.
     expect(judgeSuggestion(7200, 7200 + 25 * 60)).toEqual({ faster: false, diffSeconds: 1500 });

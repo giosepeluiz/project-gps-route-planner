@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { reviewRoute } from "@/lib/server/ai";
 import { getServices } from "@/lib/server/services";
+import { LOCALES } from "@/lib/i18n";
 import { MAX_STOPS } from "@/lib/stops";
 
 const Body = z
@@ -14,6 +15,7 @@ const Body = z
     lockedCount: z.number().int().min(0).max(MAX_STOPS),
     stopCount: z.number().int().min(0).max(MAX_STOPS).optional(),
     exact: z.boolean().optional(),
+    lang: z.enum(LOCALES).optional(),
   })
   .refine((body) => body.legMinutes.length === body.labels.length - 1);
 
