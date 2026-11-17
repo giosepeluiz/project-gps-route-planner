@@ -1,148 +1,291 @@
-# Planejador de rotas multi-parada
+<div align="center">
 
-Site pessoal que planeja a melhor sequência de paradas de carro: um ponto de início, até 20 paradas e, opcionalmente, um ponto final. A especificação completa está em [prompt-claude-code-planejador-de-rotas.md](prompt-claude-code-planejador-de-rotas.md).
+<img src="src/app/icon.svg" width="112" alt="Ícone do Planejador de rotas">
 
-## Estado atual
+# Project GPS Route Planner · Planejador de rotas
 
-| Fase | Conteúdo | Situação |
-| --- | --- | --- |
-| F1 | Estrutura, mapa, layout responsivo e blocos colapsáveis (dados fictícios) | Pronta |
-| F2 | Leitura de locais (coordenadas, links, geocodificação) e `/api/resolve` | Pronta |
-| F3 | Solver (Held-Karp, heurística e modo chegada) | Pronta |
-| F4 | Provedores de matriz e rota, com cache e fallback | Pronta |
-| F5 | Camada de IA com fallback | Pronta |
-| F6 | Ações de saída, rate limit e deploy na Vercel | Pronta (falta só publicar; a senha foi dispensada) |
+### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-## Tempos e rota
+[![Versão](https://img.shields.io/badge/versão-0.1.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://project-gps-route-planner.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Licença MIT](https://img.shields.io/badge/licença-MIT-6ccb5f?style=for-the-badge)](LICENSE)
 
-O navegador envia os locais (só ids e coordenadas) para `POST /api/plan`, que monta a matriz de tempos, roda o solver e devolve a ordem, os trechos, a fonte dos dados e a linha da rota.
+**[🌐 Acessar](https://project-gps-route-planner.vercel.app)** · **[📖 Como usar](#-como-usar-passo-a-passo)** · **[⚙️ Como funciona](#️-como-funciona-por-dentro)** · **[🛠️ Desenvolvedores](#️-para-desenvolvedores)** · **[🤝 Contribuir](#-código-aberto-contribua)**
 
-Cadeia de provedores, sempre visível no bloco Resumo:
+</div>
 
-1. **TomTom** (`TOMTOM_API_KEY`): Matrix Routing v2 com trânsito (ao vivo para saídas na próxima hora, histórico para as demais) e Calculate Route para desenhar a rota real e conferir o tempo.
-2. **OpenRouteService** (`ORS_API_KEY`, opcional): sem previsão de trânsito.
-3. **Estimativa por distância** (haversine × 1.4 ÷ 35 km/h): último recurso, sempre rotulada como estimativa. É o que aparece quando nenhuma chave está configurada.
+> 🇬🇧 **English summary:** *Route planner* finds the best order for a car trip with up to 20 stops, using real traffic times (TomTom), road routes that never cross the sea by ferry (bridges and tunnels are fine), and how long you stay at each stop. Drag stops to lock them in place, mark them as done along the way, and open turn-by-turn navigation in Google Maps, Waze or Apple Maps. An optional AI (Gemini, with Groq as backup) comments on the order, and any suggestion is checked against real travel times before it's offered. Available in Brazilian and European Portuguese, British English and Spanish. Built with Next.js and MapLibre, no Google Maps APIs. Open source under the MIT license.
 
-Cada provedor tem timeout de 8 s, 1 retry e pausa de 60 s após 3 falhas seguidas.
+---
 
-### Duas linhas no mapa
+## 👋 Olá!
 
-- **Azul pontilhada:** retas ligando os pontos, sempre presente.
-- **Colorida:** a rota pelas ruas (TomTom Calculate Route), com uma cor por trecho (nenhuma azul); a mesma cor aparece ao lado de cada parada na lista. Clicar nela mostra a distância em km e o tempo médio daquele trecho. Sem essa geometria, aparece o aviso "Traçado aproximado".
+Planejar um dia com várias paradas de carro parece simples até a terceira parada: qual ordem perde menos tempo no trânsito? Vale a pena atravessar a ponte agora ou na volta? A que horas eu chego, se fico meia hora em cada lugar?
 
-Sem `TOMTOM_API_KEY`, e **só em desenvolvimento** (`npm run dev`), a linha colorida vem do servidor demo público do OSRM, sem trânsito. A política dele não permite uso em produção, então no deploy a linha colorida depende da chave da TomTom.
+O **Planejador de rotas** nasceu para responder isso de um jeito direto: você coloca o início, as paradas e, se quiser, um fim diferente. Ele calcula a melhor ordem com o **trânsito real**, desenha o caminho **pelas ruas** e mostra a que horas você chega e sai de cada lugar. Depois é só abrir a navegação no app que você já usa.
 
-### Sem travessia por mar
+É um projeto pessoal, feito para o dia a dia, sem conta, sem senha e sem anúncios. Ainda está em **beta** até a versão 1.0.
 
-Carro não atravessa o mar: o traçado de cada trecho na TomTom pede para evitar balsas (`avoid=ferries`) e as seções de balsa (`sectionType=ferry`). Como o `avoid` da TomTom é só uma preferência, uma rota que ainda venha com seção de balsa é recusada. Pontes, túneis e trens de carros (como o Eurotúnel) continuam valendo. A matriz de tempos (Matrix v2) não aceita evitar balsas, então essa trava fica no traçado. Quando a matriz com trânsito ao vivo responde "sem rota" (acontece com interdições momentâneas, como numa praça fechada), o pedido é repetido com o trânsito histórico antes de concluir que não há caminho. Quando o provedor responde que não existe caminho de carro entre dois locais, a rota não é calculada e o bloco Paradas mostra o aviso, em vez de cair na estimativa em linha reta.
+## ✨ O que ele faz
 
-Limites: a estimativa por distância sozinha não sabe onde há mar, então esse bloqueio depende de um provedor de rotas responder. O servidor demo do OSRM (desenvolvimento) não aceita excluir balsas; nele, o bloqueio vale para pontos sem estrada por perto ou sem ligação por terra.
+| | |
+|---|---|
+| 🧭 **Melhor ordem de verdade** | Até 10 paradas, a ordem exata (a mais rápida possível); de 11 a 20, uma heurística muito boa |
+| 🚦 **Trânsito real** | Tempos da TomTom com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras) |
+| 🛣️ **Traçado pelas ruas** | Cada trecho numa cor; clique num trecho para ver a distância e o tempo dele |
+| 🌊 **Sem atravessar o mar** | Balsas não contam; pontes, túneis e trens de carros (como o Eurotúnel), sim |
+| ⏱️ **Tempo em cada parada** | Diga quanto tempo fica em cada lugar e o total, as chegadas e as saídas se ajustam |
+| 🔒 **Ordem manual** | Arraste uma parada e ela fica travada ali; o resto continua otimizado em volta |
+| ✅ **Durante a viagem** | Marque as paradas concluídas: ficam riscadas e o trecho fica cinza no mapa |
+| 📲 **Navegação no seu app** | Abra a rota inteira no Google Maps ou navegue até a próxima parada no Google Maps, Waze ou Apple Maps |
+| 🔎 **Busca que entende** | Endereço com sugestões enquanto digita, coordenadas em vários formatos e links de 10 apps de mapas |
+| 🏘️ **Nome da zona** | Coordenadas viram o nome do bairro ou da freguesia, fácil de reconhecer |
+| ✨ **IA que comenta (opcional)** | Explica a ordem e, se sugerir outra, ela é conferida com os tempos reais antes de virar botão |
+| 🌍 **4 idiomas** | Português (Brasil e Portugal), inglês e espanhol; abre no idioma do aparelho |
+| 🌗 **Do seu jeito** | Tema claro ou escuro, tamanho do texto e blocos que você arrasta para onde quiser |
+| 📱 **Computador e celular** | No celular os blocos ficam numa gaveta; dá para adicionar à tela inicial |
 
-**Cota da TomTom:** o plano gratuito tem 2.500 requisições de matriz por mês, e tudo indica que cada célula conta (uma rota com 20 paradas são 441 células). Para poupar: o cache é por par de locais (chave = coordenadas com 4 casas + dia da semana + faixa de 15 minutos + provedor), então uma parada nova só consulta os pares novos; e com o horário em "Agora" a rota não é recalculada sozinha com o passar do tempo, só quando algo muda.
+## 🌐 Acesse
 
+O app roda no navegador, sem instalar nada: **[project-gps-route-planner.vercel.app](https://project-gps-route-planner.vercel.app)**.
 
-## Ordem das paradas
+No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adicionar à Tela de Início** (Safari): ele abre em tela cheia, com o próprio ícone.
 
-A ordem vem sempre do algoritmo (`src/lib/solver.ts`), nunca da IA, e a lista de paradas se reorganiza sozinha quando uma ordem melhor é encontrada.
+> [!NOTE]
+> A rota e as preferências ficam **só no seu navegador**. Nada é salvo num servidor, e uma rota montada no computador não aparece no celular.
 
-- Até 10 paradas: solução exata (Held-Karp), com início e fim fixos.
-- De 11 a 20: heurística (vizinho mais próximo + 2-opt + Or-opt), com aviso de ordem aproximada.
-- **Ordem manual, por local:** arraste uma parada pela alça para reposicioná-la; ela fica travada na posição em que foi solta (cadeado). O cadeado de cada parada trava ou destrava só aquele local. Os locais destravados continuam sendo otimizados em volta dos travados, e o Resumo mostra quanto a rota levaria sem as travas. Com o teclado, as setas para cima e para baixo na alça fazem o mesmo.
-- **Tempo de permanência:** o relógio em cada parada define quanto tempo você fica nela (atalhos de 5 min a 2 h, ou qualquer valor até 12 h). O total do Resumo soma direção e permanência, os horários de chegada e saída de cada parada levam isso em conta, e no "Chegar até" a saída é antecipada. A permanência do último local, onde a rota termina, não conta. A permanência padrão das novas paradas fica nas Configurações.
-- A matriz de tempos é tratada como assimétrica.
-- "Chegar até": a saída é a chegada menos a duração, recalculada em até 3 iterações quando muda de faixa de 15 minutos (entra em uso com os provedores de trânsito, na fase 4).
+## 📖 Como usar, passo a passo
 
-## Camada de IA (opcional)
+### 1. Início, fim e horário
 
-A IA nunca decide a ordem e nunca bloqueia a interface. Ela faz duas coisas:
+1. No bloco **Início e fim**, digite o ponto de partida. Vale endereço, coordenadas (`38.7434, -9.1593`, `38°44'36"N 9°09'33"W`…) ou um link de mapa.
+2. Por padrão a rota volta ao início. Desligue **O local de fim é o mesmo do início** para escolher outro fim (ou nenhum: aí a rota termina na última parada).
+3. Escolha **Sair em** ou **Chegar até** e o horário. Em **Agora**, vale o trânsito ao vivo.
 
-- **Comenta a ordem final** em 2 a 3 frases. Se discordar, pode sugerir outra ordem, que nunca é aplicada sozinha:
-  - A IA só vê os nomes, não o mapa. Por isso a ordem sugerida é calculada com os mesmos tempos reais (tudo travado nela) e o botão **Aceitar sugestão** só aparece se ela for pelo menos 1 minuto mais rápida. Se for mais lenta, o Resumo diz quanto a mais ela levaria e mantém a atual.
-  - Com até 10 paradas e sem travas, a ordem do algoritmo é exata (a mais rápida possível): a IA é avisada disso e qualquer sugestão ou aviso de vai-e-volta é descartado.
-  - Rios e estuários (como o Tejo) só se atravessam por ponte ou túnel, com trânsito lento: a IA é instruída a agrupar as paradas de cada margem e nunca sugerir mais travessias do que a ordem atual.
-  - Aceitar trava cada parada na posição sugerida (dá para destravar pelo cadeado).
-- **Interpreta texto livre:** se o campo "Adicionar parada" não encontrar o que foi digitado (por exemplo "farmácia perto do Colombo e depois Belém"), a IA separa o texto em buscas e cada uma passa pela geocodificação normal.
+### 2. Paradas
 
-Cadeia: Gemini Flash-Lite (`GEMINI_API_KEY`, primária, padrão `gemini-3.5-flash-lite`) → Groq (`GROQ_API_KEY`, backup, padrão `openai/gpt-oss-120b`) → sem IA. O selo no Resumo mostra quem respondeu: Primária ou Backup (com o ícone de IA), ou Local ("Algoritmo local (nenhuma IA respondeu)"). O nome do modelo não aparece na tela. As respostas são validadas com zod, com timeout de 8 s, 1 retry e circuit breaker.
+- **Digite** no campo **Adicionar parada**: a partir de 3 letras aparecem sugestões; escolha com o mouse ou com as setas e Enter.
+- **Clique com o botão direito** no mapa (ou toque longo no celular) para pôr uma parada ali, com **Desfazer**.
+- **Clique** em qualquer ponto do mapa para ver o endereço e escolher: adicionar como parada, usar como início ou como fim.
+- Também dá para escrever uma frase, como *"farmácia perto do Colombo e depois Belém"*: a IA separa os lugares e cada um é buscado normalmente.
 
-Só saem para a IA os rótulos dos locais, a ordem e os minutos de cada trecho (sem coordenadas), ou o texto digitado no caso da interpretação. Os modelos são configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`, porque os nomes mudam com frequência.
+A lista se **reorganiza sozinha** na melhor ordem. Em cada parada:
 
-## Busca de endereços
+| Controle | O que faz |
+|---|---|
+| ⠿ **Alça** | Arraste para mudar a ordem; a parada fica travada onde você soltar |
+| **Número** | Toque para marcar como **concluída** (de novo para desfazer) |
+| 🕐 **Relógio** | Quanto tempo você fica ali: atalhos de 5 min a 2 h, ou qualquer valor |
+| 🔒 **Cadeado** | Trava ou destrava a parada na posição atual |
+| ✕ | Remove a parada |
 
-- **Sugestões enquanto digita:** a partir de 3 letras, depois de uma pausa curta, os campos de endereço mostram sugestões da busca da TomTom (`typeahead`), com preferência pela área visível do mapa. Setas e Enter escolhem; a sugestão já traz as coordenadas, sem nova busca. O Nominatim não entra aqui porque a política de uso dele proíbe autocompletar. Cada pedido gasta cota da TomTom; as respostas ficam um dia em cache. Sem chave da TomTom, não há sugestões e o Enter continua funcionando.
-- **Nome da zona:** um local digitado como coordenadas (ou link com coordenadas) recebe o nome do bairro ou da freguesia e a cidade (ex.: "Campo Pequeno, Lisboa"), pelo Nominatim e, de reserva, pela TomTom. Vale para a lista, o Resumo e o comentário da IA; as coordenadas continuam no balão do mapa.
+### 3. Resumo
 
-## Abrir e compartilhar
+O **Resumo** mostra o tempo total (direção + paradas), a saída e a chegada, quanto você economiza em relação à ordem digitada e de onde vêm os tempos. Com travas, ele diz quanto a rota levaria sem elas.
 
-- **Abrir no Google Maps:** link de rota na ordem otimizada. O Google aceita até 9 paradas por link (3 nos navegadores de celular); acima disso a rota é dividida em partes encadeadas.
-- **Navegar até a próxima:** ícones do Google Maps, do Waze e do Apple Maps abrem a navegação de carro até a próxima parada ainda não concluída (com todas concluídas, até o fim ou de volta ao início). O bloco começa sempre recolhido.
+Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confere com os tempos reais**: o botão **Aceitar sugestão** só aparece se a sugestão for mesmo mais rápida (com até 10 paradas e sem travas, a ordem já é a melhor possível e a IA nem sugere).
 
-## Durante a viagem
+### 4. No mapa
 
-- **Concluir uma parada:** toque no número dela na lista. O nome fica riscado e cinza, o trecho que chega nela fica cinza no mapa, e a parada é travada na posição, para a ordem não mudar embaixo do que já foi feito. Tocar de novo desfaz.
-- **Ver um trecho:** ao clicar num trecho colorido, ele fica em destaque e os outros ficam semitransparentes enquanto o balão estiver aberto.
+- **Linha azul pontilhada:** as retas entre os pontos.
+- **Linha colorida:** o caminho pelas ruas, uma cor por trecho. Clique num trecho para ver a distância e o tempo; os outros ficam semitransparentes.
+- Trechos de paradas concluídas ficam **cinza**.
+- O mapa se reenquadra quando a rota muda, sempre no espaço que os blocos deixam livre.
 
-## Sobre
+### 5. Abrir e compartilhar
 
-O botão "?", ao lado da engrenagem, abre a tela Sobre: autoria, contatos, serviços e IAs usados (com o estado de cada um), privacidade e informações técnicas. Até a versão 1.0 o app é beta, e o Sobre indica isso.
-- **Copiar rota** em texto e **Compartilhar** (onde o navegador oferece compartilhamento).
+| Ação | O que faz |
+|---|---|
+| **Abrir no Google Maps** | A rota inteira, na ordem otimizada (dividida em partes se tiver paradas demais para um link) |
+| **Navegar até a próxima** | Ícones do **Google Maps**, **Waze** e **Apple Maps**, direto para a próxima parada não concluída |
+| **Copiar rota** | O roteiro em texto, com horários, no idioma da interface |
+| **Compartilhar** | A folha de compartilhamento do celular (onde o navegador oferece) |
 
-## Configurações
+### 6. Personalizar
 
-A engrenagem junto do zoom abre a tela de Configurações (em tela cheia no celular). Ela guarda no navegador o tema (sistema, claro ou escuro), o tamanho do texto, a permanência padrão das novas paradas e a posição dos blocos. "Restaurar tudo" desfaz tudo.
+- **⚙️ Configurações** (ao lado do zoom): idioma, tema, tamanho do texto, tempo padrão nas paradas novas e voltar os blocos ao lugar padrão.
+- **Blocos:** no computador, arraste cada bloco pelo título. Perto da borda esquerda ou direita ele gruda numa coluna; perto do topo ou da base, gruda na margem.
+- **❓ Sobre:** autoria, contatos, serviços e IAs em uso (com o estado de cada um) e as informações técnicas, com um botão para copiá-las.
 
-- **Idioma:** português (Brasil), português (Portugal), inglês (Reino Unido) e espanhol (Espanha). Em "Sistema", segue o idioma do aparelho (português de Angola, Moçambique e outros países lusófonos fora do Brasil vira o de Portugal; idiomas desconhecidos viram inglês). O comentário da IA e o texto da rota copiado saem no idioma escolhido. Os textos ficam em `src/lib/messages/`, um arquivo por idioma; o TypeScript e um teste conferem que todos têm as mesmas chaves.
-- **Texto:** "Pequeno" é o padrão, na escala do Google Maps (14 px no texto principal, 12 px no secundário). Os tamanhos maiores escalam a interface inteira.
-- **Blocos:** no desktop, cada bloco é um cartão sobre o mapa, arrastável pelo título. Perto da borda esquerda ou direita ele gruda numa coluna, na posição em que foi solto; perto do topo ou da base, gruda na margem; no resto da tela fica solto onde foi largado. Os controles do mapa ficam ao lado das colunas. No celular os blocos ficam na gaveta, na mesma ordem. "Voltar os blocos ao lugar padrão" fica nas Configurações.
-- **Enquadramento:** o mapa reenquadra a rota quando os locais mudam ou quando um bloco muda de lugar, usando o espaço que os blocos deixam livre. Abrir ou fechar um bloco, ou o Resumo crescer com o comentário da IA, não mexe no zoom.
+> 💾 **Tudo fica guardado no navegador:** a rota, as travas, as paradas concluídas, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos.
 
-## Acesso e segurança
+## 🌍 Idiomas
 
-- **Sem senha:** o site é aberto (decisão de 2026-11-17). Quem tiver o endereço consegue usar, e cada uso consome as cotas das chaves configuradas.
-- **Limite de requisições:** 60 por minuto por IP nas rotas `/api` (`RATE_LIMIT_PER_MIN`). O contador fica na memória de cada instância do servidor, então na Vercel é uma proteção simples, não uma garantia.
-- Entradas validadas com zod, chaves só no servidor e lista fixa de domínios no `/api/resolve`.
+| Idioma | Quando aparece |
+|---|---|
+| 🇧🇷 Português (Brasil) | Aparelho em português do Brasil |
+| 🇵🇹 Português (Portugal) | Aparelho em português de Portugal, Angola, Moçambique e outros países lusófonos |
+| 🇬🇧 English (UK) | Aparelho em inglês, ou em qualquer idioma que o app ainda não tem |
+| 🇪🇸 Español | Aparelho em espanhol |
 
-## Publicar na Vercel
+O idioma pode ser trocado em **Configurações → Idioma**. O comentário da IA e o texto da rota copiada saem no idioma escolhido.
 
-1. Suba o repositório para o GitHub e importe o projeto na Vercel (framework Next.js, sem ajustes de build).
-2. Em Settings > Environment Variables, cadastre no mínimo `TOMTOM_API_KEY`. Recomendadas: `GEMINI_API_KEY`, `GROQ_API_KEY` e `NOMINATIM_USER_AGENT` com um contato real. Opcionais: `ORS_API_KEY`, `MAPTILER_KEY`, `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
-3. Faça o deploy. Sem `TOMTOM_API_KEY` em produção não há linha pelas ruas (o OSRM de demonstração só vale em desenvolvimento) e os tempos são estimativa.
+## 🔐 Privacidade
 
-## Como usar o mapa
+- **Sem conta, sem senha e sem rastreamento.** A rota e as preferências ficam só no seu navegador.
+- Para calcular a rota, o servidor recebe **só as coordenadas** e o tempo em cada parada; os nomes ficam no seu aparelho.
+- A IA recebe **só os nomes dos lugares, a ordem e os minutos de cada trecho** (nunca coordenadas), ou o texto que você digitou para ela separar.
+- As **chaves dos serviços ficam no servidor** e nunca chegam ao navegador.
 
-- **Clique esquerdo** em qualquer ponto: abre um balão com o endereço e as coordenadas (clicáveis para copiar) e pergunta o que fazer com o local: adicionar como parada, definir como início ou definir como fim.
-- **Clique direito** (ou toque longo no celular): adiciona um pin como parada, com "Desfazer".
-- **Clique em um pin**: mostra os dados daquele local.
+## ⚙️ Como funciona por dentro
 
-## Entrada de locais
+### Tempos de viagem
 
-Os campos aceitam endereço, coordenadas (decimal, DMS, DDM, com hemisférios e vírgula decimal) e links de Google Maps, Waze, Apple Maps, TomTom, HERE, Yandex, Organic Maps, OpenStreetMap, Bing e `geo:`.
+O navegador manda os locais para `POST /api/plan`, que monta a matriz de tempos, roda o algoritmo e devolve a ordem, os trechos e o traçado. A fonte dos tempos aparece sempre no Resumo:
 
-- Coordenadas e links que já trazem a posição são lidos no navegador, sem rede.
-- Links curtos (`maps.app.goo.gl`, `waze.com/ul/h…`, `maps.apple/p/…`) passam por `GET /api/resolve?u=…`, que só acessa uma lista fixa de domínios de mapas, valida cada redirecionamento e tem timeout curto.
-- Endereços passam por `GET /api/geocode?q=…`: Nominatim (no máximo 1 requisição por segundo, sem autocomplete) e, se falhar, TomTom Geocoding. Os resultados ficam 30 dias em cache.
+1. **TomTom Matrix Routing v2**, com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras).
+2. **OpenRouteService**, sem previsão de trânsito, se a TomTom falhar.
+3. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
 
-## Como rodar
+Cada serviço tem tempo limite de 8 s, uma nova tentativa e um *circuit breaker* que o pausa por 60 s depois de 3 falhas seguidas. O cache é por par de locais e faixa de 15 minutos, então uma parada nova só consulta os pares novos.
+
+### A ordem das paradas
+
+A ordem vem **sempre do algoritmo** (`src/lib/solver.ts`), nunca da IA:
+
+- **Até 10 paradas:** solução exata por programação dinâmica (Held-Karp), com início e fim fixos.
+- **De 11 a 20:** vizinho mais próximo + 2-opt + Or-opt, com aviso de ordem aproximada.
+- **Travas:** as paradas travadas ficam na posição; as outras são otimizadas em volta.
+- **Chegar até:** a saída é a chegada menos a duração; como o trânsito depende da hora, o cálculo se repete até a saída ficar na mesma faixa de 15 minutos (no máximo 3 vezes).
+
+### Sem atravessar o mar
+
+Carro não anda sobre a água. O traçado de cada trecho pede à TomTom para evitar balsas e marcar os trechos de balsa; como o "evitar" dela é só uma preferência, **uma rota que ainda venha com balsa é recusada**. Pontes, túneis e trens de carros continuam valendo. Quando não existe caminho por terra, o app avisa em vez de inventar um tempo.
+
+Um detalhe: com trânsito ao vivo, uma interdição momentânea (uma praça fechada, por exemplo) pode fazer a TomTom dizer "sem rota". Antes de acreditar, o app confere com o trânsito histórico.
+
+### A IA (opcional)
+
+| | Serviço | Modelo padrão |
+|---|---|---|
+| Primária | Google Gemini (AI Studio) | `gemini-3.5-flash-lite` |
+| Reserva | Groq | `openai/gpt-oss-120b` |
+
+As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tela nunca fica esperando a IA. Ela é instruída a agrupar as paradas de cada margem de um rio (como o Tejo) e nunca sugerir mais travessias que a ordem atual; e, de qualquer forma, **nenhuma sugestão aparece sem passar pelos tempos reais**.
+
+### Busca de endereços
+
+- **Coordenadas e links** com a posição são lidos no próprio navegador. Formatos: decimal, graus-minutos-segundos e graus-minutos, com vírgula ou ponto; links de Google Maps, Waze, Apple Maps, TomTom, HERE, Yandex, Organic Maps, OpenStreetMap, Bing e `geo:`.
+- **Links curtos** passam por `/api/resolve`, que só acessa uma lista fixa de domínios de mapas.
+- **Endereços** usam o Nominatim (OpenStreetMap), no máximo 1 pedido por segundo, com a TomTom de reserva. Ficam 30 dias em cache.
+- **Sugestões enquanto digita** vêm da TomTom (o Nominatim não permite autocompletar), com pausa, mínimo de 3 letras e cache de um dia.
+
+### Mapa
+
+MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
+
+## 🕰️ Histórico de versões
+
+### 🌱 Versão 0.1.0 (beta): "Primeira viagem"
+
+A primeira versão pública, construída em fases:
+
+- **F1 · Estrutura:** mapa, layout para computador e celular, blocos recolhíveis.
+- **F2 · Locais:** coordenadas em vários formatos, links de 10 apps de mapas e geocodificação com reserva.
+- **F3 · Algoritmo:** ordem exata até 10 paradas, heurística até 20 e o modo "Chegar até".
+- **F4 · Tempos reais:** TomTom com trânsito, OpenRouteService e estimativa, com cache, reserva e traçado pelas ruas sem balsas.
+- **F5 · IA:** comentário da ordem e leitura de texto livre, com Gemini e Groq.
+- **F6 · Saída:** Google Maps, navegação até a próxima parada, copiar e compartilhar, limite de uso por IP.
+
+E depois disso, ainda na 0.1.0: tempo de permanência em cada parada, travas por parada, paradas concluídas, blocos arrastáveis com "ímã" nas bordas, tela de configurações, sugestões de endereço enquanto digita, nome da zona para coordenadas, sugestão da IA conferida com os tempos reais, tela Sobre e **quatro idiomas**.
+
+> A versão **1.0** marca o fim do beta, quando o app estiver testado no dia a dia o suficiente.
+
+## 🛠️ Para desenvolvedores
+
+**Stack:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, MapLibre GL JS 6, zod, Vitest e ESLint.
+
+### Rodar localmente
 
 ```bash
 npm install
-npm run dev
+cp .env.example .env.local    # e preencha as chaves que tiver
+npm run dev                    # http://localhost:3000
 ```
 
-As chaves ficam em `.env.local` (fora do git); copie de [.env.example](.env.example). Depois de alterar esse arquivo, reinicie o servidor.
+Nenhuma chave é obrigatória em desenvolvimento: sem `TOMTOM_API_KEY` os tempos são estimativa (e o traçado vem do servidor de demonstração do OSRM, só em desenvolvimento); sem as chaves de IA o selo fica em "Local".
 
-Observação: esta cópia do projeto fica no Google Drive, onde o `npm install` falha. Nesse caso, instale em uma pasta de disco local e copie o `node_modules` para cá.
+```bash
+npm run typecheck   # TypeScript
+npm run lint        # ESLint
+npm test            # Vitest
+npm run build       # build de produção
+```
 
-Abra http://localhost:3000.
+### Variáveis de ambiente
 
-Outros comandos: `npm run lint`, `npm run typecheck`, `npm test` e `npm run build`.
+| Variável | Para quê | |
+|---|---|---|
+| `TOMTOM_API_KEY` | Tempos com trânsito, traçado pelas ruas, sugestões e busca reserva | Recomendada |
+| `GEMINI_API_KEY` | IA primária | Opcional |
+| `GROQ_API_KEY` | IA reserva | Opcional |
+| `ORS_API_KEY` | Tempos de reserva (sem trânsito) | Opcional |
+| `GEMINI_MODEL` · `GROQ_MODEL` | Trocar o modelo de IA sem mexer no código | Opcional |
+| `NOMINATIM_USER_AGENT` | Identificação do app no Nominatim | Recomendada |
+| `UPSTASH_REDIS_REST_URL` · `UPSTASH_REDIS_REST_TOKEN` | Cache compartilhado entre instâncias | Opcional |
+| `MAP_FALLBACK_STYLE_URL` · `MAPTILER_KEY` | Mapa reserva | Opcional |
+| `RATE_LIMIT_PER_MIN` | Limite de pedidos por minuto por IP (padrão 60) | Opcional |
 
-## Stack
+Veja o [`.env.example`](.env.example), com o link de onde criar cada chave.
 
-- Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest e ESLint.
-- Mapa: MapLibre GL JS com tiles do OpenFreeMap (sem chave). Nenhuma API do Google.
-- O worker do MapLibre é copiado para `public/maplibre/` por `scripts/copy-maplibre-worker.mjs` (roda sozinho no `postinstall`, `dev` e `build`).
+### Publicação
 
-## Variáveis de ambiente
+O repositório está ligado à **Vercel**: cada `git push` na `main` publica uma versão nova sozinho, e cada branch ou Pull Request ganha um endereço de pré-visualização. As chaves ficam nas variáveis de ambiente do projeto na Vercel, nunca no código.
 
-Veja [.env.example](.env.example). Em desenvolvimento nenhuma é obrigatória: sem `TOMTOM_API_KEY` os tempos são estimativa e a geocodificação usa só o Nominatim; sem chaves de IA o selo fica em "Local"; sem as do Upstash o cache fica em memória.
+### Estrutura
+
+| Pasta / arquivo | O que tem |
+|---|---|
+| `src/app/` | Página, ícones, manifesto e as rotas da API (`/api/plan`, `/api/geocode`, `/api/suggest`, `/api/reverse`, `/api/resolve`, `/api/ai/*`, `/api/status`) |
+| `src/components/RoutePlanner.tsx` | A tela principal: estado da rota, blocos e mapa |
+| `src/components/` | Mapa, lista de paradas, campos, balão, configurações, Sobre e afins |
+| `src/lib/solver.ts` | O algoritmo da ordem (Held-Karp, heurística e "Chegar até") |
+| `src/lib/server/` | Matriz de tempos, traçado, geocodificação, sugestões, IA, cache e resiliência |
+| `src/lib/messages/` | Os textos dos quatro idiomas (um arquivo por idioma) |
+| `src/proxy.ts` | Limite de pedidos por IP nas rotas `/api` |
+| `docs/ESPECIFICACAO.md` | A especificação original do projeto |
+
+## 🤝 Código aberto: contribua!
+
+Este projeto é de **código aberto**, sob a **[licença MIT](LICENSE)**. Você pode usar, estudar, modificar e distribuir à vontade, inclusive em projetos comerciais, desde que mantenha o aviso de direitos autorais.
+
+Encontrou um bug? Tem uma ideia? Quer traduzir para outro idioma? **Toda contribuição é bem-vinda!**
+
+1. Faça um **fork** do projeto.
+2. Crie uma branch para a sua alteração: `git checkout -b minha-melhoria`
+3. Faça o commit: `git commit -m "Adiciona tal coisa"`
+4. Envie para o seu fork: `git push origin minha-melhoria`
+5. Abra um **Pull Request** contando o que mudou.
+
+Prefere só avisar? Abra uma **[Issue](https://github.com/giosepeluiz/project-gps-route-planner/issues)**. Mais detalhes em **[CONTRIBUTING](CONTRIBUTING.md)**.
+
+## 👤 Autor
+
+<table>
+<tr>
+<td>
+
+Desenvolvido por **Giosepe Luiz dos Santos**, com colaboração do **Anthropic Claude Fable 5.2** e **Opus 5.5**.
+
+[![Instagram](https://img.shields.io/badge/Instagram-giosepeluiz-E4405F?style=flat-square&logo=instagram&logoColor=white)](https://instagram.com/giosepeluiz)
+[![GitHub](https://img.shields.io/badge/GitHub-giosepeluiz-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/giosepeluiz)
+[![Facebook](https://img.shields.io/badge/Facebook-giosepeluiz-1877F2?style=flat-square&logo=facebook&logoColor=white)](https://facebook.com/giosepeluiz)
+[![E-mail](https://img.shields.io/badge/E--mail-contato%40arqueirover.de-6ccb5f?style=flat-square&logo=maildotru&logoColor=white)](mailto:contato@arqueirover.de)
+
+Mapa: [OpenFreeMap](https://openfreemap.org) e dados © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright). Tempos e traçado: [TomTom](https://developer.tomtom.com) e [OpenRouteService](https://openrouteservice.org). Busca: [Nominatim](https://nominatim.org).
+
+</td>
+</tr>
+</table>
+
+## 💬 Para terminar
+
+Se o Planejador de rotas te poupou alguns minutos de trânsito (ou uma volta desnecessária pela ponte), deixe uma ⭐ no repositório: isso ajuda outras pessoas a encontrá-lo. E se fizer algo legal com o código, me conta!
+
+<div align="center">
+
+*Feito com ☕ entre o Brasil e Portugal.*
+
+</div>
