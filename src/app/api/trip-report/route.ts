@@ -1,18 +1,23 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { mailerFromEnv } from "@/lib/server/mailer";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 import { readJsonLimited } from "@/lib/server/read-json";
-import { isTrivialTrip, REPORT_COOLDOWN_MS, reportText, TripReportRequest } from "@/lib/trip-report";
+import { reportHtml, reportSubject, reportText } from "@/lib/report-email";
+import { getServices } from "@/lib/server/services";
+import { analyzeTrip } from "@/lib/server/trip-analysis";
+import { isTrivialTrip, REPORT_COOLDOWN_MS, TripReportRequest } from "@/lib/trip-report";
 
 /** Um envio a cada 30 minutos por IP: o e-mail não vira ferramenta de spam. */
 const limiter = createRateLimiter({ limit: 1, windowMs: REPORT_COOLDOWN_MS });
 const MAX_BODY = 16_000;
+/** A análise da IA e o envio rodam depois da resposta; este é o limite deles. */
+export const maxDuration = 60;
 
 /**
  * POST /api/trip-report
- * Recebe as estatísticas anônimas da viagem (validadas campo a campo) e envia
- * por e-mail em texto puro para o autor; com `copyTo`, a pessoa recebe a mesma
- * mensagem em CC.
+ * Recebe as estatísticas anônimas da viagem (validadas campo a campo), pede uma
+ * análise técnica à IA (opcional) e envia por e-mail, no idioma do app, em texto
+ * e HTML escapado, para o autor; com `copyTo`, a pessoa recebe a mesma mensagem em CC.
  */
 export async function POST(request: NextRequest) {
   const mailer = mailerFromEnv();
@@ -35,12 +40,17 @@ export async function POST(request: NextRequest) {
       { status: 429, headers: { "Retry-After": String(limit.retryAfterS) } },
     );
   }
-  const sent = await mailer.send({
-    subject: `Estatísticas de viagem · Planejador de Rotas ${report.appVersion}`,
-    text: reportText(report),
-    cc: copyTo,
+  const logoUrl = `${request.nextUrl.origin}/email-logo.png`;
+  // A análise da IA pode levar vários segundos: a pessoa não espera por ela.
+  // Com a IA fora do ar, o e-mail sai sem a análise.
+  after(async () => {
+    const analysis = await analyzeTrip(getServices().ai, report).catch(() => null);
+    await mailer.send({
+      subject: reportSubject(report),
+      text: reportText(report, analysis),
+      html: reportHtml(report, analysis, logoUrl),
+      cc: copyTo,
+    });
   });
-  return sent
-    ? NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } })
-    : NextResponse.json({ error: "Falha no envio." }, { status: 502 });
+  return NextResponse.json({ ok: true }, { status: 202, headers: { "Cache-Control": "no-store" } });
 }

@@ -77,52 +77,8 @@ export const TripReportRequest = z.strictObject({
   copyTo: z.email().max(254).nullable(),
 });
 
-const dash = "-";
-const min = (s: number | null) => (s === null ? dash : `${Math.round(s / 60)} min`);
-const km = (m: number | null) => (m === null ? dash : `${(m / 1000).toFixed(1)} km`);
-const yesNo = (v: boolean) => (v ? "sim" : "não");
-
-/** Corpo do e-mail, em texto puro (sem HTML), igual para o autor e para a cópia. */
-export function reportText(r: TripReport): string {
-  const t = r.trip;
-  const d = r.device;
-  const lines = [
-    "Estatísticas anônimas de uma viagem do Planejador de Rotas.",
-    "Não contém localização, nomes de lugares nem dados pessoais.",
-    "",
-    `Versão do app: ${r.appVersion}`,
-    `Idioma: ${r.locale}`,
-    "",
-    "VIAGEM",
-    `Tempo: previsto ${min(t.plannedSeconds)} · real ${min(t.actualSeconds)}`,
-    `Distância: prevista ${km(t.plannedMeters)} · percorrida ${km(t.actualMeters)}`,
-    `Paradas: ${t.stopsDone} concluídas de ${t.stopsPlanned}`,
-    `Ida e volta: ${yesNo(t.roundTrip)} · com fim: ${yesNo(t.hasEnd)}`,
-    `Tempo parado: ${min(t.stoppedSeconds)}`,
-    `Velocidade média em movimento: ${t.averageKmh === null ? dash : `${t.averageKmh.toFixed(0)} km/h`}`,
-    `Botão pausar: ${t.pausesUsed} vez(es), ${min(t.pausedSeconds)}`,
-    `Parado mais de 5 min no mesmo lugar sem pausar: ${t.longStillCount} vez(es), ${min(t.longStillSeconds)}`,
-    `Pausas para descanso planejadas: ${t.restBreaks} (${t.restBreakMinutes} min)`,
-    `Recálculos por sair da rota: ${t.reroutes}`,
-    `Mapa girando com a viagem: ${yesNo(t.headingUp)}`,
-    `Precisão média do GPS: ${t.averageGpsAccuracyM === null ? dash : `${Math.round(t.averageGpsAccuracyM)} m`}`,
-    "",
-    "TRECHOS (previsto · real)",
-    ...t.legs.map(
-      (leg, i) =>
-        `${i + 1}. direção ${min(leg.plannedSeconds)} · ${min(leg.actualSeconds)}; distância ${km(leg.plannedMeters)}; permanência ${min(leg.plannedDwellSeconds)} · ${min(leg.actualDwellSeconds)}${leg.restBreak ? "; com pausa para descanso" : ""}`,
-    ),
-    "",
-    "APARELHO",
-    `Modelo: ${d.model || dash}`,
-    `Sistema: ${d.platform || dash}`,
-    `Navegador: ${d.browser || dash}`,
-    `Tela: ${d.screen} · janela ${d.viewport} · densidade ${d.pixelRatio}`,
-    `Toque: ${yesNo(d.touch)} · orientação ${d.orientation} · instalado como app: ${yesNo(d.standalone)}`,
-    `Tema: ${d.theme} · tamanho do texto: ${d.fontSize}`,
-  ];
-  return lines.join("\n");
-}
+/** Texto do e-mail (no idioma do app): ver report-email.ts. */
+export { reportText } from "./report-email";
 
 /** Depois de um envio, novo envio só depois deste tempo (no aparelho e no servidor). */
 export const REPORT_COOLDOWN_MS = 30 * 60_000;

@@ -238,7 +238,7 @@ const enGB: Messages = {
       preview: "See what will be sent",
       copy: "Email me a copy",
       email: "Your email",
-      emailNote: "Used only to send the copy, which goes out with the message to the author.",
+      emailNote: "Used only to send the copy, which goes out with the message to the author. It includes a technical analysis of the trip by AI.",
       send: "Send",
       notNow: "Not now",
       sending: "Sending…",

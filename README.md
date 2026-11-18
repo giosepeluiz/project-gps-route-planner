@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.4.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.5.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -110,7 +110,7 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 - **Seta na direção do movimento:** a seta e o mapa giram para o lado em que o carro está indo (a direção do GPS), como no Waze.
 - **No celular**, ao iniciar a viagem a gaveta recolhe e mostra só a próxima parada.
 - **Ao concluir**, uma janela mostra as **estatísticas**: tempo, chegada e distância previstos × reais, paradas concluídas, tempo parado e velocidade média em movimento. Um resumo fica também no aviso de viagem concluída.
-- **Estatísticas anônimas (opcional):** na mesma janela, o app pergunta se você quer enviar os números da viagem para ajudar a melhorar o planejador. Vão só números (distâncias, tempos previstos e reais de cada trecho e parada, uso do pausar, paradas longas sem pausar, pausas para descanso, recálculos) e dados técnicos do aparelho (modelo, tela, navegador): **nada de localização, nomes de lugares ou dados pessoais**. Dá para ver o texto antes de enviar e, se quiser, receber uma cópia por e-mail. Depois de um envio, a opção some por 30 minutos, e viagens quase sem distância ou tempo não são enviadas.
+- **Estatísticas anônimas (opcional):** na mesma janela, o app pergunta se você quer enviar os números da viagem para ajudar a melhorar o planejador. Vão só números (distâncias, tempos previstos e reais de cada trecho e parada, uso do pausar, paradas longas sem pausar, pausas para descanso, recálculos) e dados técnicos do aparelho (modelo, tela, navegador): **nada de localização, nomes de lugares ou dados pessoais**. Dá para ver o texto antes de enviar e, se quiser, receber uma cópia por e-mail. O e-mail chega no idioma do app, com logo, tabelas e valores coloridos (verde, âmbar ou vermelho conforme o desvio do previsto) e uma **análise técnica feita por IA**, que compara o tempo real com o calculado trecho a trecho. Depois de um envio, a opção some por 30 minutos, e viagens quase sem distância ou tempo não são enviadas.
 
 ### 5. No mapa
 
@@ -167,13 +167,13 @@ O idioma pode ser trocado em **Configurações → Idioma**. O comentário da IA
 - Para calcular a rota, o servidor recebe **só as coordenadas** e o tempo em cada parada; os nomes ficam no seu aparelho.
 - A IA recebe **só os nomes dos lugares, a ordem e os minutos de cada trecho** (nunca coordenadas), ou o texto que você digitou para ela separar.
 - As **chaves dos serviços ficam no servidor** e nunca chegam ao navegador.
-- As **estatísticas anônimas** só saem se você aceitar, em texto puro, sem localização nem nomes.
+- As **estatísticas anônimas** só saem se você aceitar, sem localização nem nomes. A IA da análise recebe só os números.
 
 ### Segurança
 
 - Todo pedido à API é **validado campo a campo** (zod), com **tamanho máximo** do corpo e **limite de pedidos por IP**.
 - O **link da rota** só aceita coordenadas, minutos e pausas; qualquer outra coisa é recusada (não há como injetar HTML ou texto).
-- O **e-mail** das estatísticas é **só texto** (sem HTML nem anexos), vai para um destino fixo e aceita a cópia em CC apenas para um e-mail válido. Um envio a cada 30 minutos por IP.
+- O **e-mail** das estatísticas tem uma versão em texto e outra em HTML montada no servidor, com **todo valor escapado** (inclusive o texto da IA, que ainda é validado e limpo de `<` e `>`); sem anexos nem scripts. Vai para um destino fixo e aceita a cópia em CC apenas para um e-mail válido. Um envio a cada 30 minutos por IP.
 - Os **links de mapas** são resolvidos só em uma lista fixa de serviços, conferindo cada redirecionamento.
 - Cabeçalhos de segurança: **Content-Security-Policy** (scripts só do próprio site, conexões só com o próprio servidor e o servidor de mapas), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` e HSTS.
 
@@ -225,6 +225,13 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 📊 Versão 0.5.0 (beta)
+
+- **E-mail das estatísticas reformulado:** logo e nome do app no topo, tabelas com fonte maior, previsto × real × diferença com cores (verde até 10% de desvio, âmbar até 25%, vermelho acima) e detalhes por trecho e do aparelho.
+- **Análise técnica por IA** no e-mail: veredito, resumo e pontos de atenção, comparando o tempo real com o calculado no total e em cada trecho (Gemini, com o Groq de reserva; sem IA, o e-mail sai sem a análise).
+- **E-mail no idioma do app:** português do Brasil, de Portugal, inglês ou espanhol, inclusive o nome ("Route Planner", "Planificador de Rutas"…).
+- O envio passa a rodar em segundo plano: o app confirma na hora, sem esperar a IA.
 
 ### 🛣️ Versão 0.4.2 (beta)
 

@@ -238,7 +238,7 @@ const ptPT: Messages = {
       preview: "Ver o que será enviado",
       copy: "Receber uma cópia por e-mail",
       email: "O seu e-mail",
-      emailNote: "Usado apenas para enviar a cópia, que segue com a mensagem para o autor.",
+      emailNote: "Usado apenas para enviar a cópia, que segue com a mensagem para o autor. Inclui uma análise técnica da viagem feita por IA.",
       send: "Enviar",
       notNow: "Agora não",
       sending: "A enviar…",

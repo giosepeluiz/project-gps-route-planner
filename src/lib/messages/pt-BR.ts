@@ -245,7 +245,7 @@ const ptBR = {
       preview: "Ver o que será enviado",
       copy: "Receber uma cópia por e-mail",
       email: "Seu e-mail",
-      emailNote: "Usado só para mandar a cópia, que vai junto com a mensagem para o autor.",
+      emailNote: "Usado só para mandar a cópia, que vai junto com a mensagem para o autor. Ela traz uma análise técnica da viagem feita por IA.",
       send: "Enviar",
       notNow: "Agora não",
       sending: "Enviando…",

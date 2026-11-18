@@ -17,7 +17,7 @@ export interface AiProvider {
   name: string;
   tier: Exclude<AiTier, "local">;
   /** Devolve o texto JSON gerado pelo modelo. */
-  generateJson(system: string, user: string, signal: AbortSignal): Promise<string>;
+  generateJson(system: string, user: string, signal: AbortSignal, maxTokens?: number): Promise<string>;
 }
 
 type FetchFn = typeof fetch;
@@ -34,7 +34,7 @@ export function createGemini(apiKey: string, model: string, fetchFn: FetchFn = f
   return {
     name: `Gemini (${model})`,
     tier: "primária",
-    async generateJson(system, user, signal) {
+    async generateJson(system, user, signal, maxTokens = 1024) {
       const res = await fetchFn(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
@@ -43,7 +43,7 @@ export function createGemini(apiKey: string, model: string, fetchFn: FetchFn = f
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
+            generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens },
           }),
           signal,
           cache: "no-store",
@@ -73,7 +73,7 @@ export function createGroq(apiKey: string, model: string, fetchFn: FetchFn = fet
   return {
     name: `Groq (${model})`,
     tier: "backup",
-    async generateJson(system, user, signal) {
+    async generateJson(system, user, signal, maxTokens = 1024) {
       const res = await fetchFn("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -84,7 +84,7 @@ export function createGroq(apiKey: string, model: string, fetchFn: FetchFn = fet
             { role: "user", content: user },
           ],
           response_format: { type: "json_object" },
-          max_completion_tokens: 1024,
+          max_completion_tokens: maxTokens,
           ...(model.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
         }),
         signal,
@@ -107,7 +107,12 @@ export interface AiResult<T> {
 
 export interface AiService {
   /** Tenta cada provedor em ordem. null = nenhuma IA respondeu (segue o algoritmo local). */
-  run<T>(schema: z.ZodType<T>, system: string, user: string): Promise<AiResult<T> | null>;
+  run<T>(
+    schema: z.ZodType<T>,
+    system: string,
+    user: string,
+    options?: { timeoutMs?: number; maxTokens?: number },
+  ): Promise<AiResult<T> | null>;
 }
 
 /** Alguns modelos embrulham o JSON em cercas de código; tira antes de ler. */
@@ -126,14 +131,14 @@ export function createAiService(
   const breakers = new Map(providers.map((p) => [p.name, new CircuitBreaker(p.name, 3, 60_000, now)]));
 
   return {
-    async run(schema, system, user) {
+    async run(schema, system, user, options = {}) {
       for (const provider of providers) {
         try {
           // Resposta fora do formato também conta como falha (e ganha 1 retry).
           const data = await withPolicy(
             breakers.get(provider.name)!,
-            async (signal) => schema.parse(parseModelJson(await provider.generateJson(system, user, signal))),
-            { timeoutMs, retries },
+            async (signal) => schema.parse(parseModelJson(await provider.generateJson(system, user, signal, options.maxTokens))),
+            { timeoutMs: options.timeoutMs ?? timeoutMs, retries },
           );
           return { data, tier: provider.tier, provider: provider.name };
         } catch (err) {

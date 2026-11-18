@@ -1,13 +1,13 @@
 /**
  * Envio das estatísticas anônimas por e-mail, pela API da Resend
- * (POST https://api.resend.com/emails). Só texto puro: nada de HTML nem anexos,
- * então não há como o conteúdo virar página, script ou vírus. Destinatário fixo
+ * (POST https://api.resend.com/emails). Texto puro e uma versão em HTML montada
+ * só no servidor, com todo valor escapado; sem anexos nem scripts. Destinatário fixo
  * (o autor); a cópia, quando pedida, vai em CC para o e-mail que a pessoa digitou.
  */
 import { CircuitBreaker, withPolicy } from "./resilience";
 
 export interface Mailer {
-  send(message: { subject: string; text: string; cc: string | null }): Promise<boolean>;
+  send(message: { subject: string; text: string; html?: string; cc: string | null }): Promise<boolean>;
 }
 
 type FetchFn = typeof fetch;
@@ -23,14 +23,14 @@ export function createResendMailer(
 ): Mailer {
   const breaker = new CircuitBreaker("resend", 3, 60_000);
   return {
-    async send({ subject, text, cc }) {
+    async send({ subject, text, html, cc }) {
       try {
         const res = await withPolicy(breaker, (signal) =>
           fetchFn("https://api.resend.com/emails", {
             method: "POST",
             signal,
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from, to: [to], ...(cc ? { cc: [cc] } : {}), subject, text }),
+            body: JSON.stringify({ from, to: [to], ...(cc ? { cc: [cc] } : {}), subject, text, ...(html ? { html } : {}) }),
           }).then((r) => {
             if (!r.ok) throw new Error(`Resend HTTP ${r.status}`);
             return r;

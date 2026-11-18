@@ -238,7 +238,7 @@ const esES: Messages = {
       preview: "Ver lo que se enviará",
       copy: "Recibir una copia por correo",
       email: "Tu correo",
-      emailNote: "Solo se usa para enviarte la copia, que va junto con el mensaje al autor.",
+      emailNote: "Solo se usa para enviarte la copia, que va junto con el mensaje al autor. Incluye un análisis técnico del viaje hecho por IA.",
       send: "Enviar",
       notNow: "Ahora no",
       sending: "Enviando…",
