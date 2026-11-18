@@ -62,6 +62,8 @@ interface MapViewProps {
   tracking?: boolean;
   /** Mapa girando com a direção da viagem (senão, norte para cima). */
   headingUp?: boolean;
+  /** Celular ou tablet: na viagem, a câmera chega bem perto da seta. */
+  compact?: boolean;
   /** Viagem no celular/tablet: o cabeçalho ocupa o topo e os botões descem para baixo dele. */
   navHeader?: boolean;
   /** Botão de girar o mapa junto das configurações (só na viagem). */
@@ -106,7 +108,21 @@ const STREET_LAYER = "rota-ruas-linha";
 const DESKTOP_QUERY = "(min-width: 768px)";
 /** Inclinação da câmera na viagem (visão 3D, como nos GPS). */
 const NAV_PITCH = 55;
-const NAV_ZOOM = 16.5;
+/** Zoom da viagem: bem perto no celular e no tablet (como no Waze), um pouco mais aberto no computador. */
+const NAV_ZOOM_COMPACT = 18.6;
+const NAV_ZOOM_DESKTOP = 16.5;
+/** Quanto a câmera anda até o zoom e a inclinação da viagem a cada quadro (aproximação suave). */
+const CAMERA_EASE = 0.045;
+
+/** Tamanho da seta conforme o zoom: pequena com o mapa aberto, grande bem perto. */
+const arrowSize = (zoom: number) => Math.round(Math.min(76, Math.max(30, 30 + (zoom - 13) * 8)));
+
+/**
+ * Espessura da linha da rota conforme o zoom (o MapLibre interpola sozinho,
+ * acompanhando a aproximação da câmera).
+ */
+const STREET_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 4, 14, 6, 16, 10, 18, 18, 20, 30];
+const CASING_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 7, 14, 9, 16, 15, 18, 26, 20, 42];
 /** Depois de a pessoa arrastar o mapa na viagem, a câmera espera antes de voltar a seguir. */
 const FOLLOW_PAUSE_MS = 8_000;
 
@@ -244,6 +260,7 @@ export default function MapView({
   follow = false,
   tracking = false,
   headingUp = false,
+  compact = false,
   rotateControl = null,
   navHeader = false,
   layout,
@@ -273,6 +290,8 @@ export default function MapView({
   const rawRef = useRef<LngLat | null>(null);
   const lastFixAtRef = useRef<number | null>(null);
   const followPauseRef = useRef(0);
+  /** Zoom que a câmera busca na viagem; null depois que a pessoa ajusta o zoom com os dedos. */
+  const zoomTargetRef = useRef<number | null>(null);
   const followRef = useRef(follow);
   const headingUpRef = useRef(headingUp);
   const trackingRef = useRef(tracking);
@@ -384,6 +403,18 @@ export default function MapView({
       // Arrastar o mapa na viagem pausa o "seguir" por alguns segundos.
       map.on("dragstart", () => {
         followPauseRef.current = Date.now() + FOLLOW_PAUSE_MS;
+      });
+      // Zoom feito pela pessoa (pinça, roda, botões) vale até o fim da viagem.
+      map.on("zoomstart", (event) => {
+        if ((event as { originalEvent?: Event }).originalEvent) zoomTargetRef.current = null;
+      });
+      // A seta cresce e diminui junto com o zoom.
+      map.on("zoom", () => {
+        const element = meMarkerRef.current?.getElement();
+        if (!element) return;
+        const size = `${arrowSize(map?.getZoom() ?? 14)}px`;
+        element.style.width = size;
+        element.style.height = size;
       });
       map.on("load", () => map && handleBounds(map));
     });
@@ -542,7 +573,7 @@ export default function MapView({
         type: "line",
         source: STREET_SOURCE,
         layout: round,
-        paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.9 },
+        paint: { "line-color": "#ffffff", "line-width": CASING_WIDTH, "line-opacity": 0.9 },
       });
       map.addLayer({
         id: STREET_LAYER,
@@ -550,7 +581,7 @@ export default function MapView({
         source: STREET_SOURCE,
         layout: round,
         // Cada trecho tem a sua cor (nenhuma azul, que é a das retas).
-        paint: { "line-color": ["get", "color"], "line-width": 5 },
+        paint: { "line-color": ["get", "color"], "line-width": STREET_WIDTH },
       });
       map.addLayer({
         id: STRAIGHT_LAYER,
@@ -597,6 +628,8 @@ export default function MapView({
       const element = document.createElement("div");
       element.className = "pin-me";
       element.innerHTML = ARROW_SVG;
+      element.style.width = `${arrowSize(map.getZoom())}px`;
+      element.style.height = element.style.width;
       element.title = t.gps.here;
       element.setAttribute("role", "img");
       element.setAttribute("aria-label", t.gps.here);
@@ -643,15 +676,25 @@ export default function MapView({
       const bearing = lerpAngle(previous, wanted, 0.18);
       shownRef.current = { lng: position[0], lat: position[1], bearing };
       marker.setLngLat(position).setRotation(bearing);
+      let cameraMoving = false;
       if (followRef.current && Date.now() >= followPauseRef.current) {
+        const zoomNow = map.getZoom();
+        const pitchNow = map.getPitch();
+        const zoomTarget = zoomTargetRef.current ?? zoomNow;
+        const zoom = Math.abs(zoomTarget - zoomNow) < 0.01 ? zoomTarget : zoomNow + (zoomTarget - zoomNow) * CAMERA_EASE;
+        const pitch = Math.abs(NAV_PITCH - pitchNow) < 0.1 ? NAV_PITCH : pitchNow + (NAV_PITCH - pitchNow) * CAMERA_EASE;
+        cameraMoving = zoom !== zoomTarget || pitch !== NAV_PITCH;
         map.jumpTo({
           center: position,
           bearing: headingUpRef.current ? bearing : 0,
-          pitch: NAV_PITCH,
+          zoom,
+          pitch,
           padding: navPadding,
         });
       }
-      if (t < 1 || Math.abs(angleDelta(bearing, wanted)) > 0.5) frame = window.requestAnimationFrame(step);
+      if (t < 1 || cameraMoving || Math.abs(angleDelta(bearing, wanted)) > 0.5) {
+        frame = window.requestAnimationFrame(step);
+      }
     };
     frame = window.requestAnimationFrame(step);
     return () => window.cancelAnimationFrame(frame);
@@ -663,18 +706,21 @@ export default function MapView({
     if (!map || styleVersion === 0) return;
     if (follow) {
       followPauseRef.current = 0;
+      // Só aproxima: se a pessoa já estava mais perto, fica onde está.
+      zoomTargetRef.current = Math.max(map.getZoom(), compact ? NAV_ZOOM_COMPACT : NAV_ZOOM_DESKTOP);
       const shown = shownRef.current;
+      // Primeiro passo da aproximação, já centralizando na seta (o resto segue a cada quadro).
       map.easeTo({
         ...(shown ? { center: [shown.lng, shown.lat] as LngLat } : {}),
-        zoom: Math.max(map.getZoom(), NAV_ZOOM),
-        pitch: NAV_PITCH,
-        duration: 800,
+        zoom: map.getZoom() + (zoomTargetRef.current - map.getZoom()) * 0.35,
+        pitch: NAV_PITCH * 0.5,
+        duration: 1200,
       });
     } else if (!tracking && (map.getPitch() !== 0 || map.getBearing() !== 0)) {
       // Fim da viagem: volta ao mapa plano, com o norte para cima (pausada, continua em 3D).
       map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
     }
-  }, [follow, tracking, styleVersion]);
+  }, [follow, tracking, compact, styleVersion]);
 
   // Ligar ou desligar a rotação sem esperar a próxima leitura do GPS.
   useEffect(() => {

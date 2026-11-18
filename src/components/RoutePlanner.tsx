@@ -1984,6 +1984,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         follow={tripRunning}
         tracking={tripActive}
         headingUp={headingUp}
+        compact={isCompact}
         navHeader={isCompact && !!tripHeader}
         rotateControl={tripActive ? { pressed: headingUp, onToggle: () => setHeadingUp((on) => !on) } : null}
         columnInsets={columnInsets}
