@@ -25,6 +25,8 @@ interface ActionsPanelProps {
   /** true em telas estreitas: o Google Maps aceita menos paradas por link no celular. */
   isMobile: boolean;
   onNotify: (text: string) => void;
+  /** Caminho do link compartilhável da rota (/r/…), ou null. */
+  sharePath: string | null;
 }
 
 const subscribeNothing = () => () => {};
@@ -111,6 +113,7 @@ export default function ActionsPanel({
   plan,
   isMobile,
   onNotify,
+  sharePath,
 }: ActionsPanelProps) {
   const t = useT();
   const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
@@ -130,6 +133,20 @@ export default function ActionsPanel({
     () => false,
   );
 
+  /** Endereço completo do link (só no navegador, no clique). */
+  const shareUrl = () => (sharePath ? `${window.location.origin}${sharePath}` : null);
+
+  const copyLink = async () => {
+    const url = shareUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      onNotify(t.actions.linkCopied);
+    } catch {
+      onNotify(t.actions.copyFailed);
+    }
+  };
+
   const copy = async () => {
     if (!text) return;
     try {
@@ -143,7 +160,8 @@ export default function ActionsPanel({
   const share = async () => {
     if (!text) return;
     try {
-      await navigator.share({ title: t.actions.shareTitle, text });
+      const url = shareUrl();
+      await navigator.share({ title: t.actions.shareTitle, text, ...(url ? { url } : {}) });
     } catch {
       // O usuário fechou a folha de compartilhamento: nada a fazer.
     }
@@ -194,6 +212,16 @@ export default function ActionsPanel({
             ))}
           </span>
         </div>
+      )}
+
+      {sharePath && (
+        <button type="button" onClick={() => void copyLink()} className={`${linkClass} justify-center`}>
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8.5 11.5a3 3 0 004.2.2l2.5-2.5a3 3 0 00-4.2-4.2l-1 1" />
+            <path d="M11.5 8.5a3 3 0 00-4.2-.2L4.8 10.8a3 3 0 004.2 4.2l1-1" />
+          </svg>
+          {t.actions.copyLink}
+        </button>
       )}
 
       <div className="grid grid-cols-2 gap-2">

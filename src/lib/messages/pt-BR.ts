@@ -105,6 +105,11 @@ const ptBR = {
   },
 
   summary: {
+    parts: {
+      driving: (d: string) => `${d} dirigindo`,
+      atStops: (d: string) => `${d} nas paradas`,
+      resting: (d: string) => `${d} de pausa`,
+    },
     distance: "Distância total",
     moreInfo: "Mais informações sobre o cálculo",
     totalRoundTrip: "Tempo total, ida e volta",
@@ -187,6 +192,9 @@ const ptBR = {
   },
 
   actions: {
+    copyLink: "Copiar link da rota",
+    linkCopied: "Link da rota copiado.",
+    opened: "Rota aberta pelo link.",
     openGoogle: "Abrir no Google Maps",
     part: (i: number, n: number) => `Parte ${i} de ${n}`,
     split: (max: number, mobile: boolean) =>
@@ -231,6 +239,21 @@ const ptBR = {
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Levou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
     seeStats: "Ver estatísticas",
+    report: {
+      title: "Enviar estatísticas anônimas?",
+      body: "Ajude a melhorar o planejador. Vão só números da viagem (distâncias, tempos previstos e reais, paradas e pausas) e dados técnicos do aparelho (modelo, tela e navegador). Nada de localização, nomes de lugares ou dados pessoais.",
+      preview: "Ver o que será enviado",
+      copy: "Receber uma cópia por e-mail",
+      email: "Seu e-mail",
+      emailNote: "Usado só para mandar a cópia, que vai junto com a mensagem para o autor.",
+      send: "Enviar",
+      notNow: "Agora não",
+      sending: "Enviando…",
+      sent: "Obrigado! As estatísticas foram enviadas.",
+      failed: "Não foi possível enviar agora. Tente mais tarde.",
+      invalidEmail: "Confira o e-mail.",
+      unavailable: "O envio de estatísticas não está disponível neste servidor.",
+    },
     stats: {
       title: "Viagem concluída",
       lead: "Veja como foi em relação ao previsto.",
@@ -288,6 +311,40 @@ const ptBR = {
     help: "Ajuda",
     restart: "Ver o tutorial de novo",
     restartHint: "Dicas rápidas sobre cada parte da tela.",
+  },
+
+  resume: {
+    title: "Continuar de onde parou?",
+    body: (stops: string) => `Há uma rota guardada neste navegador (${stops}).`,
+    continue: "Continuar",
+    fresh: "Começar nova rota",
+    note: "Começar do zero apaga a rota, as paradas e as pausas guardadas. As configurações ficam.",
+  },
+
+  breaks: {
+    label: "Pausa para descanso",
+    addButton: "Pausa para descanso",
+    dialogTitle: "Nova pausa para descanso",
+    howLong: "Quanto tempo de pausa?",
+    where: "Em que trecho?",
+    taken: (leg: string) => `${leg} (já tem uma pausa)`,
+    note: "Depois dá para arrastar a pausa para outro trecho e mudar o tempo pelo relógio. Ela fica travada no lugar, e duas pausas não podem ficar juntas.",
+    cancel: "Cancelar",
+    add: "Adicionar",
+    meta: (d: string) => `${d} · travada neste trecho`,
+    changeTime: (d: string) => `Tempo da pausa: ${d}. Alterar`,
+    timeTitle: "Tempo da pausa",
+    lockedTitle: "Travada neste trecho (arraste para mover)",
+    remove: "Remover pausa",
+    dragAria: "Arrastar a pausa para outro trecho. Com o teclado, use as setas para cima e para baixo.",
+    adjacent: "Duas pausas não podem ficar juntas.",
+    edge: "Não há trecho depois da última parada (a rota não tem fim).",
+    added: "Pausa adicionada.",
+    noLegs: "Defina o início e ao menos uma parada para pôr uma pausa.",
+    leg: (from: string, to: string) => `Entre ${from} e ${to}`,
+    startName: "o início",
+    endName: "o fim",
+    backName: "a volta ao início",
   },
 
   map: {

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.1.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.4.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -87,6 +87,8 @@ A lista se **reorganiza sozinha** na melhor ordem. Em cada parada:
 | 🔒 **Cadeado** | Trava ou destrava a parada na posição atual |
 | ✕ | Remove a parada |
 
+**☕ Pausa para descanso:** o botão **+ Pausa para descanso** abre uma janela que pergunta quanto tempo de pausa e em que trecho ela fica. A pausa funciona como uma parada sem local: entra na lista, soma o tempo dela aos horários e já começa **travada** no trecho escolhido. Depois dá para arrastá-la para outro trecho e mudar o tempo pelo relógio. Pode haver quantas pausas quiser, mas **duas não podem ficar juntas**.
+
 ### 3. Resumo
 
 O **Resumo** mostra o tempo total (direção + paradas), a saída, a chegada, a **distância total** e quanto você economiza em relação à ordem digitada. O ícone **ⓘ** explica de onde vêm os tempos e se a ordem é exata. Com travas, ele diz quanto a rota levaria sem elas.
@@ -103,7 +105,10 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 - **Saiu da rota?** Duas leituras seguidas longe da linha pedem uma rota nova na hora, saindo **no sentido em que o carro já está** (sem mandar dar meia-volta). Fora isso, a rota é recalculada com o trânsito a cada 2 minutos (ou antes, se você andar mais de 3 km), para poupar a cota dos serviços.
 - **No celular e no tablet**, um cabeçalho mostra a **hora de chegada**, o **tempo** e os **km** que faltam até a próxima parada; o nome dela fica no rodapé. Os botões do mapa ficam maiores.
 - **⏸ Pausar** e **⏹ Encerrar** a qualquer momento. Ao chegar numa parada, a viagem pausa sozinha; **▶ Retomar viagem** marca a parada como concluída e segue para a próxima.
+- **Seta na direção do movimento:** a seta e o mapa giram para o lado em que o carro está indo (a direção do GPS), como no Waze.
+- **No celular**, ao iniciar a viagem a gaveta recolhe e mostra só a próxima parada.
 - **Ao concluir**, uma janela mostra as **estatísticas**: tempo, chegada e distância previstos × reais, paradas concluídas, tempo parado e velocidade média em movimento. Um resumo fica também no aviso de viagem concluída.
+- **Estatísticas anônimas (opcional):** na mesma janela, o app pergunta se você quer enviar os números da viagem para ajudar a melhorar o planejador. Vão só números (distâncias, tempos previstos e reais de cada trecho e parada, uso do pausar, paradas longas sem pausar, pausas para descanso, recálculos) e dados técnicos do aparelho (modelo, tela, navegador): **nada de localização, nomes de lugares ou dados pessoais**. Dá para ver o texto antes de enviar e, se quiser, receber uma cópia por e-mail. Depois de um envio, a opção some por 30 minutos, e viagens quase sem distância ou tempo não são enviadas.
 
 ### 5. No mapa
 
@@ -119,7 +124,20 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 | **Abrir no Google Maps** | A rota inteira, na ordem otimizada (dividida em partes se tiver paradas demais para um link) |
 | **Navegar até a próxima** | Ícones do **Google Maps**, **Waze** e **Apple Maps**, direto para a próxima parada não concluída |
 | **Copiar rota** | O roteiro em texto, com horários, no idioma da interface |
-| **Compartilhar** | A folha de compartilhamento do celular (onde o navegador oferece) |
+| **Compartilhar** | A folha de compartilhamento do celular (onde o navegador oferece), com o link da rota |
+| **Copiar link da rota** | Um endereço que abre a mesma rota em qualquer aparelho |
+
+**Link da rota.** São aceitos dois formatos; o link leva só coordenadas, tempos e pausas (os nomes são buscados de novo por quem abre):
+
+```text
+https://rotas.arqueirover.de/r/<início>/<fim>/<parada1>/<parada2>/…
+https://rotas.arqueirover.de/?s=<início>&e=<fim>&p1=<parada1>&p2=<parada2>…
+```
+
+- **Local:** `lat,lng` com ponto decimal, como `38.7075,-9.1364`. O tempo de permanência vai depois de `@`, em minutos: `38.7253,-9.15@10`.
+- **Fim:** `s` volta ao início; `-` (ou, nos parâmetros, não pôr o `e`) termina na última parada; ou as coordenadas de outro lugar.
+- **Pausa para descanso:** `b20` (20 minutos) no lugar de uma parada.
+- Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10/b20/38.7445,-9.1745`.
 
 ### 7. Personalizar
 
@@ -128,7 +146,7 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 - **Tutorial:** na primeira visita, balões azuis explicam cada parte da tela (com **Pular tutorial**). Para ver de novo: Configurações → Ajuda.
 - **❓ Sobre:** autoria, contatos, serviços e IAs em uso (com o estado de cada um) e as informações técnicas, com um botão para copiá-las.
 
-> 💾 **Tudo fica guardado no navegador:** a rota, o horário de saída ou de chegada, as travas, as paradas concluídas, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos.
+> 💾 **Tudo fica guardado no navegador:** a rota, o horário de saída ou de chegada, as travas, as paradas concluídas, as pausas para descanso, o tempo em cada parada, o idioma, o tema, o tamanho do texto e a posição dos blocos. Ao abrir de novo, o app pergunta se você quer **continuar de onde parou** ou **começar uma nova rota** (que apaga tudo, menos as configurações).
 
 ## 🌍 Idiomas
 
@@ -147,6 +165,15 @@ O idioma pode ser trocado em **Configurações → Idioma**. O comentário da IA
 - Para calcular a rota, o servidor recebe **só as coordenadas** e o tempo em cada parada; os nomes ficam no seu aparelho.
 - A IA recebe **só os nomes dos lugares, a ordem e os minutos de cada trecho** (nunca coordenadas), ou o texto que você digitou para ela separar.
 - As **chaves dos serviços ficam no servidor** e nunca chegam ao navegador.
+- As **estatísticas anônimas** só saem se você aceitar, em texto puro, sem localização nem nomes.
+
+### Segurança
+
+- Todo pedido à API é **validado campo a campo** (zod), com **tamanho máximo** do corpo e **limite de pedidos por IP**.
+- O **link da rota** só aceita coordenadas, minutos e pausas; qualquer outra coisa é recusada (não há como injetar HTML ou texto).
+- O **e-mail** das estatísticas é **só texto** (sem HTML nem anexos), vai para um destino fixo e aceita a cópia em CC apenas para um e-mail válido. Um envio a cada 30 minutos por IP.
+- Os **links de mapas** são resolvidos só em uma lista fixa de serviços, conferindo cada redirecionamento.
+- Cabeçalhos de segurança: **Content-Security-Policy** (scripts só do próprio site, conexões só com o próprio servidor e o servidor de mapas), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` e HSTS.
 
 ## ⚙️ Como funciona por dentro
 
@@ -196,6 +223,15 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### ☕ Versão 0.4.0 (beta): "Pausa para o café"
+
+- **Pausas para descanso:** sem local, com o tempo somado aos horários, travadas num trecho e arrastáveis como as paradas (duas não podem ficar juntas).
+- **Link compartilhável da rota** em dois formatos (`/r/início/fim/paradas…` e `?s=…&e=…&p1=…`), com fim opcional e só coordenadas, tempos e pausas.
+- **Estatísticas anônimas da viagem**, opcionais, por e-mail em texto puro, com cópia para quem quiser e intervalo de 30 minutos entre envios.
+- **Continuar ou começar do zero** ao abrir o app com uma rota guardada.
+- **Modo viagem:** a seta e o mapa seguem o sentido do movimento; no celular a gaveta recolhe ao iniciar a viagem.
+- **Segurança:** política de conteúdo (CSP) e outros cabeçalhos, limite de tamanho nos pedidos à API e validação estrita de tudo que entra.
 
 ### 🔧 Versão 0.3.1 (beta)
 
@@ -276,6 +312,7 @@ npm run build       # build de produção
 | `UPSTASH_REDIS_REST_URL` · `UPSTASH_REDIS_REST_TOKEN` | Cache compartilhado entre instâncias | Opcional |
 | `MAP_FALLBACK_STYLE_URL` · `MAPTILER_KEY` | Mapa reserva | Opcional |
 | `RATE_LIMIT_PER_MIN` | Limite de pedidos por minuto por IP (padrão 60) | Opcional |
+| `RESEND_API_KEY` · `REPORT_EMAIL_FROM` · `REPORT_EMAIL_TO` | Envio das estatísticas anônimas por e-mail ([Resend](https://resend.com); o remetente precisa ser de um domínio verificado) | Opcional |
 
 Veja o [`.env.example`](.env.example), com o link de onde criar cada chave.
 
@@ -287,11 +324,11 @@ O repositório está ligado à **Vercel**: cada `git push` na `main` publica uma
 
 | Pasta / arquivo | O que tem |
 |---|---|
-| `src/app/` | Página, ícones, manifesto e as rotas da API (`/api/plan`, `/api/geocode`, `/api/suggest`, `/api/reverse`, `/api/resolve`, `/api/ai/*`, `/api/status`) |
+| `src/app/` | Página, ícones, manifesto e as rotas da API (`/api/plan`, `/api/geocode`, `/api/suggest`, `/api/reverse`, `/api/resolve`, `/api/ai/*`, `/api/trip-report`, `/api/status`) e o link `/r/…` |
 | `src/components/RoutePlanner.tsx` | A tela principal: estado da rota, blocos e mapa |
 | `src/components/` | Mapa, lista de paradas, campos, balão, configurações, Sobre e afins |
 | `src/lib/solver.ts` | O algoritmo da ordem (Held-Karp, heurística e "Chegar até") |
-| `src/lib/server/` | Matriz de tempos, traçado, geocodificação, sugestões, IA, cache e resiliência |
+| `src/lib/server/` | Matriz de tempos, traçado, geocodificação, sugestões, IA, e-mail das estatísticas, cache e resiliência |
 | `src/lib/messages/` | Os textos dos quatro idiomas (um arquivo por idioma) |
 | `src/proxy.ts` | Limite de pedidos por IP nas rotas `/api` |
 | `docs/ESPECIFICACAO.md` | A especificação original do projeto |

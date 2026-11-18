@@ -101,6 +101,11 @@ const esES: Messages = {
   },
 
   summary: {
+    parts: {
+      driving: (d: string) => `${d} conduciendo`,
+      atStops: (d: string) => `${d} en las paradas`,
+      resting: (d: string) => `${d} de descanso`,
+    },
     distance: "Distancia total",
     moreInfo: "Más información sobre el cálculo",
     totalRoundTrip: "Tiempo total, ida y vuelta",
@@ -181,6 +186,9 @@ const esES: Messages = {
   },
 
   actions: {
+    copyLink: "Copiar enlace de la ruta",
+    linkCopied: "Enlace de la ruta copiado.",
+    opened: "Ruta abierta desde el enlace.",
     openGoogle: "Abrir en Google Maps",
     part: (i, n) => `Parte ${i} de ${n}`,
     split: (max, mobile) =>
@@ -224,6 +232,21 @@ const esES: Messages = {
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Tardó ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} recorridos`,
     seeStats: "Ver estadísticas",
+    report: {
+      title: "¿Enviar estadísticas anónimas?",
+      body: "Ayuda a mejorar el planificador. Solo se envían cifras del viaje (distancias, tiempos previstos y reales, paradas y descansos) y datos técnicos del dispositivo (modelo, pantalla y navegador). Nada de ubicación, nombres de lugares ni datos personales.",
+      preview: "Ver lo que se enviará",
+      copy: "Recibir una copia por correo",
+      email: "Tu correo",
+      emailNote: "Solo se usa para enviarte la copia, que va junto con el mensaje al autor.",
+      send: "Enviar",
+      notNow: "Ahora no",
+      sending: "Enviando…",
+      sent: "¡Gracias! Las estadísticas se enviaron.",
+      failed: "No se pudo enviar ahora. Inténtalo más tarde.",
+      invalidEmail: "Revisa el correo.",
+      unavailable: "El envío de estadísticas no está disponible en este servidor.",
+    },
     stats: {
       title: "Viaje completado",
       lead: "Así fue en comparación con lo previsto.",
@@ -281,6 +304,40 @@ const esES: Messages = {
     help: "Ayuda",
     restart: "Ver el tutorial otra vez",
     restartHint: "Consejos rápidos sobre cada parte de la pantalla.",
+  },
+
+  resume: {
+    title: "¿Seguir donde lo dejaste?",
+    body: (stops: string) => `Hay una ruta guardada en este navegador (${stops}).`,
+    continue: "Continuar",
+    fresh: "Empezar una ruta nueva",
+    note: "Empezar de cero borra la ruta, las paradas y las pausas guardadas. Los ajustes se mantienen.",
+  },
+
+  breaks: {
+    label: "Pausa para descansar",
+    addButton: "Pausa para descansar",
+    dialogTitle: "Nueva pausa para descansar",
+    howLong: "¿Cuánto dura la pausa?",
+    where: "¿En qué tramo?",
+    taken: (leg: string) => `${leg} (ya tiene una pausa)`,
+    note: "Después puedes arrastrar la pausa a otro tramo y cambiar su duración con el reloj. Queda bloqueada en su sitio, y dos pausas no pueden ir juntas.",
+    cancel: "Cancelar",
+    add: "Añadir",
+    meta: (d: string) => `${d} · bloqueada en este tramo`,
+    changeTime: (d: string) => `Duración de la pausa: ${d}. Cambiar`,
+    timeTitle: "Duración de la pausa",
+    lockedTitle: "Bloqueada en este tramo (arrastra para moverla)",
+    remove: "Quitar pausa",
+    dragAria: "Arrastrar la pausa a otro tramo. Con el teclado, usa las flechas arriba y abajo.",
+    adjacent: "Dos pausas no pueden ir juntas.",
+    edge: "No hay tramo después de la última parada (la ruta no tiene fin).",
+    added: "Pausa añadida.",
+    noLegs: "Define el inicio y al menos una parada para añadir una pausa.",
+    leg: (from: string, to: string) => `Entre ${from} y ${to}`,
+    startName: "el inicio",
+    endName: "el final",
+    backName: "la vuelta al inicio",
   },
 
   map: {

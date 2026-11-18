@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { readJsonLimited } from "@/lib/server/read-json";
 import { z } from "zod";
 import { parsePlaces } from "@/lib/server/ai";
 import { getServices } from "@/lib/server/services";
@@ -11,12 +12,10 @@ const Body = z.object({ text: z.string().trim().min(3).max(600) });
  * lista de buscas. Sem IA, responde { tier: "local", places: [] }.
  */
 export async function POST(request: NextRequest) {
-  let json: unknown;
-  try {
-    json = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Corpo inválido." }, { status: 400 });
-  }
+  // Corpo limitado: um pedido gigante é recusado antes de ser lido inteiro.
+  const body = await readJsonLimited(request, 4000);
+  if (!body.ok) return NextResponse.json({ error: "Corpo inválido." }, { status: body.status });
+  const json = body.value;
   const parsed = Body.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Informe um texto para interpretar." }, { status: 400 });

@@ -21,13 +21,15 @@ interface DwellPickerProps {
   onChange: (minutes: number) => void;
   /** Foca a lista ao aparecer (seletor aberto pelo relógio da parada). */
   autoFocus?: boolean;
+  /** Sem a opção "Nenhum" (pausa para descanso: sempre tem algum tempo). */
+  noZero?: boolean;
 }
 
 /**
  * Tempo de permanência: lista com os valores comuns e "Outro…", que mostra o
  * seletor de horas e minutos para qualquer valor até 12 h.
  */
-export default function DwellPicker({ label, value, onChange, autoFocus = false }: DwellPickerProps) {
+export default function DwellPicker({ label, value, onChange, autoFocus = false, noZero = false }: DwellPickerProps) {
   const t = useT();
   /** true depois de escolher "Outro…" (mesmo que o valor coincida com uma opção). */
   const [custom, setCustom] = useState(() => !DWELL_PRESETS.includes(value));
@@ -37,7 +39,9 @@ export default function DwellPicker({ label, value, onChange, autoFocus = false 
   // Valor fora da grade de 5 min (de versões antigas) continua selecionável.
   const minuteOptions = MINUTES.includes(minutes) ? MINUTES : [...MINUTES, minutes].sort((a, b) => a - b);
 
-  const setTime = (h: number, m: number) => onChange(Math.min(h * 60 + m, MAX_DWELL_MINUTES));
+  const setTime = (h: number, m: number) =>
+    onChange(Math.max(noZero ? 1 : 0, Math.min(h * 60 + m, MAX_DWELL_MINUTES)));
+  const presets = noZero ? DWELL_PRESETS.filter((m) => m > 0) : DWELL_PRESETS;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -55,7 +59,7 @@ export default function DwellPicker({ label, value, onChange, autoFocus = false 
         }}
         className={selectClass}
       >
-        {DWELL_PRESETS.map((m) => (
+        {presets.map((m) => (
           <option key={m} value={m}>
             {m === 0 ? t.dwell.none : formatDuration(m * 60)}
           </option>

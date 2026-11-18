@@ -574,7 +574,8 @@ export default function MapView({
 
   // Seta da posição atual (viagem). Ela desliza de uma leitura do GPS para a
   // seguinte (sem pulos), gruda na linha da rota quando está perto dela, gira
-  // com a direção da via e leva junto a câmera e o corte da linha percorrida.
+  // para o lado em que o carro está indo e leva junto a câmera e o corte da
+  // linha percorrida.
   const meLat = me?.lat;
   const meLng = me?.lng;
   const meAt = me?.at;
@@ -628,7 +629,9 @@ export default function MapView({
         const { data, snapped } = withProgress(streets, raw, meAccuracy);
         if (snapped) {
           position = snapped.point;
-          wanted = snapped.bearing;
+          // A seta e o mapa apontam para onde o carro está indo (direção do GPS),
+          // como no Waze. A direção da via só vale enquanto o GPS não sabe a dele.
+          if (meHeading === null) wanted = snapped.bearing;
         }
         // A linha é redesenhada ~10 vezes por segundo (mais que isso só pesa no celular).
         if (now - lastLineAt >= 100 || t === 1) {

@@ -10,6 +10,7 @@ import { DONE_LEG_COLOR, legColor } from "@/lib/leg-colors";
 import type { Locks } from "@/lib/locks";
 import { dwellSecondsOf } from "@/lib/plan";
 import type { Place, PlanLeg } from "@/lib/types";
+import { rowsOf, type RestBreak } from "@/lib/breaks";
 
 function ClockIcon() {
   return (
@@ -28,7 +29,6 @@ interface StopListProps {
   locks: Locks;
   /** true quando a rota pelas ruas está no mapa (a cor do trecho aparece na lista). */
   showLegColors: boolean;
-  onMove: (from: number, to: number) => void;
   onToggleLock: (id: string) => void;
   onRemove: (id: string) => void;
   /** Muda a permanência (minutos) da parada. */
@@ -37,6 +37,22 @@ interface StopListProps {
   doneIds: ReadonlySet<string>;
   /** Marca ou desmarca a parada como concluída (toque no número). */
   onToggleDone: (id: string) => void;
+  /** Pausas para descanso, cada uma num trecho. */
+  breaks: readonly RestBreak[];
+  /** Arrastar uma linha (parada ou pausa), em índices da lista com as duas. */
+  onMoveRow: (from: number, to: number) => void;
+  onBreakChange: (id: string, minutes: number) => void;
+  onRemoveBreak: (id: string) => void;
+}
+
+function CupIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h9v4a4 4 0 01-4 4H8a4 4 0 01-4-4z" />
+      <path d="M13 9h1.5a2 2 0 010 4H13" />
+      <path d="M7 3.5c0 1 1 1 1 2M10 3.5c0 1 1 1 1 2" />
+    </svg>
+  );
 }
 
 export default function StopList({
@@ -44,24 +60,107 @@ export default function StopList({
   legs,
   locks,
   showLegColors,
-  onMove,
   onToggleLock,
   onRemove,
   onDwellChange,
   doneIds,
   onToggleDone,
+  breaks,
+  onMoveRow,
+  onBreakChange,
+  onRemoveBreak,
 }: StopListProps) {
   const t = useT();
-  const reorder = useDragReorder(stops.length, onMove);
+  const rows = rowsOf(stops, breaks);
+  const reorder = useDragReorder(rows.length, onMoveRow);
   /** Parada com o seletor de permanência aberto. */
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
     <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
-      {stops.map((stop, i) => {
+      {rows.map((row, r) => {
+        if (row.kind === "break") {
+          const brk = row.brk;
+          const dragging = reorder.draggingIndex === r;
+          const isEditing = editing === brk.id;
+          const pickerId = `pausa-${brk.id}`;
+          return (
+            <li
+              key={brk.id}
+              ref={reorder.rowRef(r)}
+              style={{ transform: `translateY(${reorder.offsetOf(r)}px)` }}
+              className={`relative rounded-lg border border-dashed border-line-strong bg-sunken/60 py-1 pl-0.5 pr-1 ${dragRowClass(dragging, reorder.draggingIndex !== null)}`}
+            >
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-label={t.breaks.dragAria}
+                  title={t.stops.dragTitle}
+                  className={`${gripButtonClass} ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+                  {...reorder.handleProps(r)}
+                >
+                  <Grip />
+                </button>
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  <CupIcon />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-compact font-medium text-ink">{t.breaks.label}</span>
+                  <span className="block truncate text-xs text-muted">{t.breaks.meta(formatDuration(brk.minutes * 60))}</span>
+                </span>
+                <button
+                  type="button"
+                  aria-expanded={isEditing}
+                  aria-controls={pickerId}
+                  onClick={() => setEditing(isEditing ? null : brk.id)}
+                  aria-label={t.breaks.changeTime(formatDuration(brk.minutes * 60))}
+                  title={t.breaks.timeTitle}
+                  className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
+                    isEditing ? "bg-sunken text-ink" : "text-accent hover:bg-hover"
+                  }`}
+                >
+                  <ClockIcon />
+                </button>
+                <span
+                  title={t.breaks.lockedTitle}
+                  className="grid h-8 w-7 shrink-0 place-items-center rounded-lg text-amber-700 dark:text-amber-300"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="9" width="12" height="8" rx="2" fill="currentColor" fillOpacity={0.25} />
+                    <path d="M7 9V6a3 3 0 016 0v3" />
+                  </svg>
+                  <span className="sr-only">{t.breaks.lockedTitle}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveBreak(brk.id)}
+                  aria-label={t.breaks.remove}
+                  className="focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-red-700 dark:hover:text-red-400"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M5 5l10 10M15 5L5 15" />
+                  </svg>
+                </button>
+              </div>
+              {isEditing && (
+                <div id={pickerId} className="mb-1 ml-[3.25rem] mr-1 mt-1.5">
+                  <DwellPicker
+                    label={t.breaks.timeTitle}
+                    value={brk.minutes}
+                    autoFocus
+                    noZero
+                    onChange={(minutes) => onBreakChange(brk.id, minutes)}
+                  />
+                </div>
+              )}
+            </li>
+          );
+        }
+        const stop = row.stop;
+        const i = row.index;
         const leg = legs?.[i];
         const locked = locks[stop.id] !== undefined;
-        const dragging = reorder.draggingIndex === i;
+        const dragging = reorder.draggingIndex === r;
         const dwellMin = dwellSecondsOf(stop) / 60;
         const isEditing = editing === stop.id;
         const done = doneIds.has(stop.id);
@@ -69,8 +168,8 @@ export default function StopList({
         return (
           <li
             key={stop.id}
-            ref={reorder.rowRef(i)}
-            style={{ transform: `translateY(${reorder.offsetOf(i)}px)` }}
+            ref={reorder.rowRef(r)}
+            style={{ transform: `translateY(${reorder.offsetOf(r)}px)` }}
             className={`relative rounded-lg py-1.5 pl-0.5 pr-1 ${dragRowClass(
               dragging,
               reorder.draggingIndex !== null,
@@ -83,7 +182,7 @@ export default function StopList({
               aria-label={t.stops.dragAria(stop.label)}
               title={t.stops.dragTitle}
               className={`${gripButtonClass} ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-              {...reorder.handleProps(i)}
+              {...reorder.handleProps(r)}
             >
               <Grip />
             </button>

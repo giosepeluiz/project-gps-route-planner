@@ -97,6 +97,32 @@ import {
 } from "@/lib/trip";
 import { projectOnLine, remainingFraction } from "@/lib/route-progress";
 import TripStatsDialog from "./TripStatsDialog";
+import BreakDialog, { type LegOption } from "./BreakDialog";
+import ResumeDialog from "./ResumeDialog";
+import {
+  breakSecondsByLeg,
+  freeLegs,
+  legCountOf,
+  moveRow,
+  normalizeBreaks,
+  rowsOf,
+  shiftBreaksAfterRemoval,
+  type RestBreak,
+} from "@/lib/breaks";
+import { parseSharedRoute, sharedPath, type SharedItem, type SharedPoint, type SharedRoute } from "@/lib/share-link";
+import {
+  newTrack,
+  trackArrive,
+  trackFix,
+  trackLeave,
+  trackPause,
+  trackReroute,
+  trackResume,
+  tripReportOf,
+  type PlannedLeg,
+  type TripTrack,
+} from "@/lib/trip-track";
+import type { TripReport } from "@/lib/trip-report";
 
 const BLOCKS_KEY = "rotas:blocos";
 /** Blocos abertos por padrão. */
@@ -187,6 +213,20 @@ function LocateIcon({ busy }: { busy: boolean }) {
   );
 }
 
+/** Rota guardada com algo preenchido, lida direto do localStorage (antes da hidratação). */
+function readSavedRoute(): RouteState | null {
+  try {
+    const raw = window.localStorage.getItem(ROUTE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRouteState(parsed)) return null;
+    const route = normalizeRoute(parsed);
+    return route.start || route.end || route.stops.length > 0 ? route : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Tutorial do primeiro uso: guardado como visto depois de concluir ou pular. */
 const TOUR_KEY = "rotas:tutorial:v1";
 
@@ -205,7 +245,12 @@ const herePlace = (point: { lat: number; lng: number }, label: string): Place =>
 const nowMs = () => Date.now();
 
 /** Horários de uma sequência já ordenada, com os tempos que o servidor devolveu. */
-function planAlong(sequence: readonly Place[], response: PlanResponse, anchor: Date) {
+function planAlong(
+  sequence: readonly Place[],
+  response: PlanResponse,
+  anchor: Date,
+  breaks: ReadonlyMap<number, number> = new Map(),
+) {
   if (response.legSeconds.length !== sequence.length - 1) return null;
   const known = new Map<string, number>();
   response.legSeconds.forEach((seconds, i) => known.set(`${sequence[i].id}>${sequence[i + 1].id}`, seconds));
@@ -213,7 +258,18 @@ function planAlong(sequence: readonly Place[], response: PlanResponse, anchor: D
     const seconds = known.get(`${from.id}>${to.id}`);
     return seconds === undefined ? estimateLegTime(from, to) : { seconds, estimated: response.source.estimated };
   };
-  return computePlan([...sequence], "depart", anchor, legTimeFn);
+  return computePlan([...sequence], "depart", anchor, legTimeFn, breaks);
+}
+
+/** Xícara: pausa para descanso. */
+function CupIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h9v4a4 4 0 01-4 4H8a4 4 0 01-4-4z" />
+      <path d="M13 9h1.5a2 2 0 010 4H13" />
+      <path d="M7 3.5c0 1 1 1 1 2M10 3.5c0 1 1 1 1 2" />
+    </svg>
+  );
 }
 
 interface Toast {
@@ -221,6 +277,8 @@ interface Toast {
   text: string;
   /** Parada que o botão "Desfazer" remove. */
   undoStopId?: string;
+  /** Desfazer uma ação qualquer (ex.: a rota aberta por um link). */
+  undo?: () => void;
 }
 
 /** Balão aberto no mapa: um ponto livre ou um local da rota (`placeId`). */
@@ -333,6 +391,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const notifyUndo = (text: string, undo: () => void) =>
+    setToast((previous) => ({ id: (previous?.id ?? 0) + 1, text, undo }));
   const notify = (text: string, undoStopId?: string) =>
     // O id muda a cada aviso, para a animação e o tempo de exibição recomeçarem.
     setToast((previous) => ({ id: (previous?.id ?? 0) + 1, text, undoStopId }));
@@ -422,14 +482,21 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return currentMinute === null ? null : new Date(currentMinute * 60_000);
   }, [dateTime, currentMinute]);
 
+  /** Pausas para descanso válidas para a rota atual (uma por trecho, travadas). */
+  const legCount = legCountOf(typedStops.length, finalPlace !== null);
+  const breaks = useMemo(
+    () => normalizeBreaks(route.breaks ?? [], typedStops.length, finalPlace !== null),
+    [route.breaks, typedStops.length, finalPlace],
+  );
+  const breakMap = useMemo(() => breakSecondsByLeg(breaks), [breaks]);
+
   const plan = useMemo(() => {
-    // Sem caminho de carro, não há tempos para mostrar.
     // Sem início ainda não há rota; sem caminho de carro, não há tempos para mostrar.
     if (!start || planStatus === "no-route") return null;
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
     const sequence = sequenceOf(stops);
-    return computePlan(sequence, timeMode, anchor, legTime);
-  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus]);
+    return computePlan(sequence, timeMode, anchor, legTime, breakMap);
+  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus, breakMap]);
 
   /** Distância total da rota: pelas ruas, quando o provedor devolve; senão, estimada. */
   const totalDistance = useMemo(
@@ -455,18 +522,135 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   const displayedIds = stops.map((s) => s.id);
 
-  const removeStop = (id: string) =>
+  const removeStop = (id: string) => {
+    const position = displayedIds.indexOf(id);
     setRoute((prev) => ({
       ...prev,
       stops: prev.stops.filter((s) => s.id !== id),
       locks: removeFromLocks(displayedIds, locks, id),
+      // As pausas depois da parada removida sobem um trecho (continuam no mesmo lugar da rota).
+      breaks: position === -1 ? prev.breaks : shiftBreaksAfterRemoval(breaks, position),
     }));
-
-  /** Arrastar e soltar: a parada solta fica travada naquela posição. */
-  const handleMove = (from: number, to: number) => {
-    const moved = moveStop(displayedIds, locks, from, to);
-    setRoute((prev) => ({ ...prev, locks: moved.locks }));
   };
+
+  /**
+   * Arrastar e soltar uma linha da lista (parada ou pausa). A parada solta fica
+   * travada naquela posição; a pausa muda de trecho. Duas pausas juntas não valem.
+   */
+  const handleMoveRow = (from: number, to: number) => {
+    const result = moveRow(rowsOf(stops, breaks), from, to, legCount);
+    if (!result.ok) {
+      notify(result.reason === "adjacent" ? t.breaks.adjacent : t.breaks.edge);
+      return;
+    }
+    const nextLocks = result.stopMove
+      ? moveStop(displayedIds, locks, result.stopMove.from, result.stopMove.to).locks
+      : locks;
+    setRoute((prev) => ({ ...prev, locks: nextLocks, breaks: result.breaks }));
+  };
+
+  /** Pergunta "continuar ou começar do zero" (o texto é o resumo do que está guardado). */
+  const [resumeAsk, setResumeAsk] = useState<string | null>(null);
+  /** Começar do zero: apaga tudo deste app no navegador, menos as configurações. */
+  const startFresh = () => {
+    try {
+      const keep = new Set([SETTINGS_KEY, TOUR_KEY, "rotas:relatorio:enviado"]);
+      const keys = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i));
+      for (const key of keys) if (key?.startsWith("rotas:") && !keep.has(key)) window.localStorage.removeItem(key);
+    } catch {
+      // Sem acesso ao localStorage: não há o que apagar.
+    }
+    window.location.reload();
+  };
+
+  // ---------- Pausas para descanso ----------
+  const [breakDialog, setBreakDialog] = useState(false);
+  const legName = (i: number) => {
+    const from = i === 0 ? t.breaks.startName : `${i}. ${stops[i - 1]?.label ?? ""}`;
+    const to = i < stops.length ? `${i + 1}. ${stops[i].label}` : endSame ? t.breaks.backName : t.breaks.endName;
+    return t.breaks.leg(from, to);
+  };
+  const breakOptions: LegOption[] = Array.from({ length: legCount }, (_, i) => ({
+    value: i,
+    label: legName(i),
+    disabled: !freeLegs(breaks, legCount).includes(i),
+  }));
+  const addBreak = (minutes: number, after: number) => {
+    const brk: RestBreak = { id: crypto.randomUUID(), minutes, after };
+    setRoute((prev) => ({ ...prev, breaks: [...breaks, brk] }));
+    notify(t.breaks.added);
+  };
+  const setBreakMinutes = (id: string, minutes: number) =>
+    setRoute((prev) => ({
+      ...prev,
+      breaks: breaks.map((b) => (b.id === id ? { ...b, minutes: Math.max(1, Math.min(Math.round(minutes), MAX_DWELL_MINUTES)) } : b)),
+    }));
+  const removeBreak = (id: string) => setRoute((prev) => ({ ...prev, breaks: breaks.filter((b) => b.id !== id) }));
+
+  // ---------- Link compartilhável ----------
+  const shareRoute = useMemo<SharedRoute | null>(() => {
+    if (!start) return null;
+    const point = (p: Place): SharedPoint => ({ lat: p.lat, lng: p.lng, dwellMinutes: 0 });
+    const items: SharedItem[] = rowsOf(stops, breaks).map((row) =>
+      row.kind === "stop"
+        ? { kind: "stop", lat: row.stop.lat, lng: row.stop.lng, dwellMinutes: row.stop.dwellMinutes }
+        : { kind: "break", minutes: row.brk.minutes },
+    );
+    return { start: point(start), end: endSame ? "start" : end ? point(end) : "none", items };
+  }, [start, end, endSame, stops, breaks]);
+  const sharePath = shareRoute ? sharedPath(shareRoute) : null;
+
+  // Abriu por um link (/r/… ou ?s=…): a rota do link entra no lugar da atual,
+  // com "Desfazer" para voltar. O endereço é limpo logo em seguida.
+  const linkReadRef = useRef(false);
+  useEffect(() => {
+    if (linkReadRef.current) return;
+    linkReadRef.current = true;
+    const { pathname, search } = window.location;
+    const looksShared = pathname.startsWith("/r/") || new URLSearchParams(search).has("s");
+    if (!looksShared) {
+      // Abriu normalmente com uma rota guardada: pergunta se continua ou começa do zero.
+      const saved = readSavedRoute();
+      if (saved) window.setTimeout(() => setResumeAsk(t.common.stops(saved.stops.length)), 0);
+      return;
+    }
+    window.history.replaceState(null, "", "/");
+    const shared = parseSharedRoute(pathname, search);
+    if (!shared) return;
+    const toPlace = (p: SharedPoint): Place => ({
+      id: crypto.randomUUID(),
+      // O nome vem depois, pela busca do nome da zona (o link nunca traz texto).
+      label: formatLatLng(p.lat, p.lng),
+      lat: p.lat,
+      lng: p.lng,
+      source: "coords",
+      confidence: 1,
+      dwellMinutes: p.dwellMinutes,
+    });
+    const sharedStops: Place[] = [];
+    const sharedBreaks: RestBreak[] = [];
+    for (const item of shared.items) {
+      if (item.kind === "stop") sharedStops.push(toPlace(item));
+      else sharedBreaks.push({ id: crypto.randomUUID(), minutes: item.minutes, after: sharedStops.length });
+    }
+    const next: RouteState = {
+      start: toPlace({ ...shared.start, dwellMinutes: 0 }),
+      endSame: shared.end === "start",
+      end: shared.end === "start" || shared.end === "none" ? null : toPlace({ ...shared.end, dwellMinutes: 0 }),
+      stops: sharedStops,
+      breaks: sharedBreaks,
+      timeMode: "depart",
+      dateTime: null,
+    };
+    const previous = storedRoute;
+    // Fora do corpo do efeito: o aviso e a troca acontecem logo depois da montagem.
+    window.setTimeout(() => {
+      setRoute(next);
+      notifyUndo(t.actions.opened, () => setStoredRoute(previous));
+    }, 0);
+    // Só na montagem: o link é lido uma vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Local digitado como coordenadas (ou link com coordenadas): troca o rótulo
   // pelo nome da zona (bairro ou freguesia, e a cidade), para ficar fácil de
@@ -539,6 +723,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [statsOpen, setStatsOpen] = useState(false);
   const lastReplanRef = useRef<Fix | null>(null);
   const lastFixRef = useRef<Fix | null>(null);
+  /** Registro da viagem para as estatísticas anônimas (só números). */
+  const trackRef = useRef<TripTrack | null>(null);
+  const plannedLegsRef = useRef<PlannedLeg[]>([]);
+  const [reportDraft, setReportDraft] = useState<TripReport["trip"] | null>(null);
   const offRouteRef = useRef(0);
   const tripLogRef = useRef<TripLog | null>(null);
   const baselineRef = useRef<TripBaseline | null>(null);
@@ -553,7 +741,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     if (!tripActive || !tripOrigin) return null;
     const route = remainingRoute(herePlace(tripOrigin, t.gps.here), pendingStops, finalPlace);
     if (route.stops.length === 0 && !route.end) return null;
+    // Pausas dos trechos que faltam: o trecho j da viagem é o trecho (concluídas + j) da rota.
+    const offset = stops.length - pendingStops.length;
+    const remainingBreaks = new Map(
+      [...breakMap].filter(([leg]) => leg >= offset).map(([leg, seconds]) => [leg - offset, seconds] as [number, number]),
+    );
     return {
+      breakMap: remainingBreaks,
       // A direção do carro faz a rota nova sair para a frente, sem mandar dar meia-volta.
       body: JSON.stringify(
         planRequestBody({ ...route, mode: "depart", dateTime: null, heading: tripOrigin.heading ?? null }),
@@ -561,10 +755,11 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       sequence: [route.start, ...route.stops, ...(route.end ? [route.end] : [])],
       at: tripOrigin.at,
     };
-  }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here]);
+  }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here, stops.length, breakMap]);
   const [tripRemote, setTripRemote] = useState<{
     body: string;
     sequence: Place[];
+    breakMap: Map<number, number>;
     at: number;
     outcome: PlanOutcome;
   } | null>(null);
@@ -577,8 +772,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       setRerouting(false);
       // O primeiro cálculo da viagem é o "previsto" das estatísticas.
       if (!baselineRef.current && result.kind === "ok") {
-        const along = planAlong(tripRequest.sequence, result.plan, new Date(tripRequest.at));
+        const along = planAlong(tripRequest.sequence, result.plan, new Date(tripRequest.at), tripRequest.breakMap);
         if (along) {
+          plannedLegsRef.current = along.legs.map((leg, i) => ({
+            seconds: leg.seconds,
+            meters: result.plan.streetLegs?.[i]?.meters ?? null,
+            dwellSeconds: leg.dwellSeconds,
+            restBreak: leg.breakSeconds > 0,
+          }));
           baselineRef.current = {
             seconds: along.totalSeconds,
             arriveAt: along.arriveAt.getTime(),
@@ -595,7 +796,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     if (!tripActive || tripRemote?.outcome.kind !== "ok") return null;
     const tripPlan = tripRemote.outcome.plan;
     const sequence = tripRemote.sequence;
-    const along = planAlong(sequence, tripPlan, new Date(tripRemote.at));
+    const along = planAlong(sequence, tripPlan, new Date(tripRemote.at), tripRemote.breakMap);
     if (!along) return null;
     return {
       sequence,
@@ -637,9 +838,29 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     };
   }, [tripView, fix]);
 
-  const finishTrip = (at: number) => {
+  const finishTrip = (at: number, arrivedAtEnd = true) => {
     const log = tripLogRef.current ?? newTripLog(at);
-    setTripStats(summarizeTrip(log, baselineRef.current, at, stopsDoneRef.current));
+    const summary = summarizeTrip(log, baselineRef.current, at, stopsDoneRef.current);
+    setTripStats(summary);
+    if (trackRef.current) {
+      const track = arrivedAtEnd ? trackArrive(trackRef.current, at) : trackRef.current;
+      setReportDraft(
+        tripReportOf(
+          track,
+          summary,
+          plannedLegsRef.current,
+          {
+            stopsPlanned: stops.length,
+            roundTrip: endSame,
+            hasEnd: finalPlace !== null,
+            restBreaks: breaks.length,
+            restBreakMinutes: breaks.reduce((sum, b) => sum + b.minutes, 0),
+            headingUp,
+          },
+          at,
+        ),
+      );
+    }
     setStatsOpen(true);
     setTrip({ status: "finished" });
   };
@@ -651,6 +872,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     lastFixRef.current = next;
     setFix(next);
     if (tripLogRef.current) tripLogRef.current = logFix(tripLogRef.current, next);
+    if (trackRef.current) trackRef.current = trackFix(trackRef.current, next);
 
     // Saiu da rota? Mede a distância até a linha do trecho atual; duas leituras
     // seguidas longe dela pedem uma rota nova já, saindo na direção do carro.
@@ -662,7 +884,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       lastReplanRef.current = next;
       offRouteRef.current = 0;
       setTripOrigin(next);
-      if (reroute) setRerouting(true);
+      if (reroute) {
+        setRerouting(true);
+        if (trackRef.current) trackRef.current = trackReroute(trackRef.current);
+      }
     }
 
     if (!target) {
@@ -673,6 +898,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     // Chegou: numa parada, pausa até a pessoa retomar; no ponto final, a viagem acaba.
     if (stops.some((s) => s.id === target.id)) {
       if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, next.at);
+      if (trackRef.current) trackRef.current = trackArrive(trackRef.current, next.at);
       setTrip({ status: "arrived", arrivedId: target.id });
     } else {
       finishTrip(next.at);
@@ -725,14 +951,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       return;
     }
     clearTrip();
-    tripLogRef.current = newTripLog(nowMs());
+    const startedAt = nowMs();
+    tripLogRef.current = newTripLog(startedAt);
+    trackRef.current = newTrack(startedAt);
+    plannedLegsRef.current = [];
     setTripStats(null);
+    setReportDraft(null);
+    // No celular, a gaveta recolhe e mostra só a próxima parada.
+    if (!isDesktop) setSheetOpen(false);
     // No celular e no tablet o mapa gira com a viagem, como nos GPS; no computador, só se a pessoa ligar.
     setHeadingUp(isCompact);
     setTrip({ status: "running" });
   };
   const pauseTrip = () => {
-    if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, nowMs());
+    const now = nowMs();
+    if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, now);
+    if (trackRef.current) trackRef.current = trackPause(trackRef.current, now);
     setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
   };
   const resumeTrip = () => {
@@ -744,9 +978,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       stopsDoneRef.current += 1;
       // Era a última parada e a rota termina nela: a viagem acaba na hora em que chegou.
       if (!tripTarget(stops, new Set([...doneIds, arrivedId]), finalPlace)) {
-        finishTrip(tripLogRef.current?.stoppedSince ?? now);
+        finishTrip(tripLogRef.current?.stoppedSince ?? now, false);
         return;
       }
+      if (trackRef.current) trackRef.current = trackLeave(trackRef.current, now);
+    } else if (trackRef.current) {
+      trackRef.current = trackResume(trackRef.current, now);
     }
     if (tripLogRef.current) tripLogRef.current = logGo(tripLogRef.current, now);
     lastReplanRef.current = null;
@@ -1401,7 +1638,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             {...options}
           >
             <div className="flex flex-col gap-3">
-              {stops.length === 0 ? (
+              {stops.length === 0 && breaks.length === 0 ? (
                 <p className="text-sm text-muted">
                   {t.stops.empty}
                 </p>
@@ -1415,7 +1652,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     legs={plan?.legs}
                     locks={locks}
                     showLegColors={streetLegs !== null}
-                    onMove={handleMove}
+                    breaks={breaks}
+                    onMoveRow={handleMoveRow}
+                    onBreakChange={setBreakMinutes}
+                    onRemoveBreak={removeBreak}
                     onToggleLock={handleToggleLock}
                     onRemove={removeStop}
                     onDwellChange={setDwell}
@@ -1446,6 +1686,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 suggest={suggestAddresses}
                 onPick={(s) => tryAddStop(placeFromSuggestion(s))}
               />
+
+              <button
+                type="button"
+                onClick={() => (start && legCount > 0 ? setBreakDialog(true) : notify(t.breaks.noLegs))}
+                className="focus-ring flex items-center justify-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2 text-compact font-medium text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink motion-reduce:transition-none"
+              >
+                <CupIcon />+ {t.breaks.addButton}
+              </button>
             </div>
           </CollapsibleCard>
     ),
@@ -1462,6 +1710,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               <p className="text-sm text-muted">{t.empty.actions}</p>
             ) : (
             <ActionsPanel
+              sharePath={sharePath}
               start={start}
               stops={stops}
               doneIds={doneIds}
@@ -1492,10 +1741,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   <p className="text-display font-semibold leading-none tracking-[-0.02em] text-ink">{totalText}</p>
                   <p className="mt-1.5 text-xs text-muted">
                     {endSame ? t.summary.totalRoundTrip : t.summary.total}
-                    {plan && dwellTotal > 0 && (
+                    {plan && (dwellTotal > 0 || plan.breakSeconds > 0) && (
                       <>
                         {": "}
-                        {t.summary.split(formatDuration(plan.driveSeconds), formatDuration(dwellTotal))}
+                        {[
+                          t.summary.parts.driving(formatDuration(plan.driveSeconds)),
+                          dwellTotal > 0 ? t.summary.parts.atStops(formatDuration(dwellTotal)) : null,
+                          plan.breakSeconds > 0 ? t.summary.parts.resting(formatDuration(plan.breakSeconds)) : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" + ")}
                       </>
                     )}
                   </p>
@@ -1526,7 +1781,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
               <div className="flex items-start justify-between gap-2">
                 <p className="text-compact text-ink-2">
-                  {t.summary.typed(formatDuration(typedSeconds + dwellTotal))}{" "}
+                  {t.summary.typed(formatDuration(typedSeconds + dwellTotal + (plan?.breakSeconds ?? 0)))}{" "}
                   {savedMinutes > 0 ? (
                     <span className="font-medium text-emerald-700 dark:text-emerald-400">
                       {t.summary.saved(savedMinutes)}
@@ -1894,7 +2149,30 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
       <TripWarningDialog open={tripWarning} onAccept={beginTrip} onCancel={() => setTripWarning(false)} />
 
-      <TripStatsDialog open={statsOpen} stats={tripStats} onClose={() => setStatsOpen(false)} />
+      <TripStatsDialog
+        open={statsOpen}
+        stats={tripStats}
+        reportTrip={reportDraft}
+        locale={locale}
+        theme={theme}
+        fontSize={settings.fontSize}
+        onClose={() => setStatsOpen(false)}
+      />
+
+      {resumeAsk && (
+        <ResumeDialog summary={resumeAsk} onContinue={() => setResumeAsk(null)} onFresh={startFresh} />
+      )}
+
+      {breakDialog && (
+        <BreakDialog
+          options={breakOptions}
+          onConfirm={(minutes, after) => {
+            addBreak(minutes, after);
+            setBreakDialog(false);
+          }}
+          onCancel={() => setBreakDialog(false)}
+        />
+      )}
 
       {tripHeader}
 
@@ -1925,6 +2203,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           className="fixed left-1/2 top-4 z-40 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-3.5 py-2 text-compact text-on-ink shadow-panel md:absolute md:bottom-6 md:top-auto"
         >
           <span>{toast.text}</span>
+          {toast.undo && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.undo?.();
+                setToast(null);
+              }}
+              className="focus-ring -my-0.5 rounded px-1.5 py-0.5 font-semibold text-on-ink hover:bg-on-ink/15"
+            >
+              {t.common.undo}
+            </button>
+          )}
           {toast.undoStopId && (
             <button
               type="button"

@@ -1,5 +1,6 @@
 /** Estado da rota guardado no navegador (localStorage). */
 import { MAX_STOPS } from "./stops";
+import { isRestBreak, type RestBreak } from "./breaks";
 import type { Place, TimeMode } from "./types";
 
 export interface RouteState {
@@ -16,6 +17,8 @@ export interface RouteState {
   timeMode: TimeMode;
   /** Data e hora escolhidas (valor do datetime-local), ou null para "agora". */
   dateTime?: string | null;
+  /** Pausas para descanso, cada uma travada num trecho da visita. */
+  breaks?: RestBreak[];
 }
 
 export const ROUTE_KEY = "rotas:rota:v2";
@@ -53,7 +56,8 @@ export function isRouteState(value: unknown): value is RouteState {
     r.stops.length <= MAX_STOPS &&
     r.stops.every(isPlace) &&
     (r.timeMode === "depart" || r.timeMode === "arrive") &&
-    (r.dateTime === undefined || r.dateTime === null || typeof r.dateTime === "string")
+    (r.dateTime === undefined || r.dateTime === null || typeof r.dateTime === "string") &&
+    (r.breaks === undefined || (Array.isArray(r.breaks) && r.breaks.length <= 50 && r.breaks.every(isRestBreak)))
   );
 }
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { readJsonLimited } from "@/lib/server/read-json";
 import { z } from "zod";
 import { reviewRoute } from "@/lib/server/ai";
 import { getServices } from "@/lib/server/services";
@@ -25,12 +26,10 @@ const Body = z
  * { tier: "local" } e a interface segue só com o algoritmo.
  */
 export async function POST(request: NextRequest) {
-  let json: unknown;
-  try {
-    json = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Corpo inválido." }, { status: 400 });
-  }
+  // Corpo limitado: um pedido gigante é recusado antes de ser lido inteiro.
+  const body = await readJsonLimited(request, 16000);
+  if (!body.ok) return NextResponse.json({ error: "Corpo inválido." }, { status: body.status });
+  const json = body.value;
   const parsed = Body.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Dados da rota inválidos." }, { status: 400 });

@@ -1,3 +1,6 @@
+import { freeLegs, moveRow, normalizeBreaks, rowsOf, shiftBreaksAfterRemoval, type RestBreak } from "./breaks";
+import { parseSharedRoute, sharedPath, sharedQuery } from "./share-link";
+import { computePlan, estimateLegTime } from "./plan";
 import { describe, expect, it } from "vitest";
 import { placeBeside } from "./floating";
 import { planRequestBody } from "./plan-client";
@@ -216,5 +219,95 @@ describe("pedido da rota e estado guardado", () => {
     expect(isRouteState({ ...route, dateTime: null })).toBe(true);
     expect(isRouteState(route)).toBe(true);
     expect(isRouteState({ ...route, dateTime: 5 })).toBe(false);
+  });
+});
+
+describe("pausas para descanso", () => {
+  const stops = [S1, S2];
+  const brk = (id: string, after: number, minutes = 15): RestBreak => ({ id, after, minutes });
+
+  it("aparecem na lista antes da parada do trecho delas", () => {
+    const rows = rowsOf(stops, [brk("p", 1), brk("q", 2)]);
+    expect(rows.map((r) => (r.kind === "stop" ? r.stop.id : r.brk.id))).toEqual(["S1", "p", "S2", "q"]);
+  });
+
+  it("arrastar uma pausa muda o trecho; duas juntas não valem", () => {
+    const rows = rowsOf(stops, [brk("p", 1)]); // S1, p, S2
+    const up = moveRow(rows, 1, 0, 3); // p, S1, S2
+    expect(up).toEqual({ ok: true, stopMove: null, breaks: [brk("p", 0)] });
+    const two = rowsOf(stops, [brk("p", 1), brk("q", 2)]); // S1, p, S2, q
+    expect(moveRow(two, 3, 2, 3)).toEqual({ ok: false, reason: "adjacent" }); // S1, p, q, S2
+    // Sem fim, não há trecho depois da última parada.
+    expect(moveRow(rows, 1, 2, 2)).toEqual({ ok: false, reason: "edge" });
+  });
+
+  it("arrastar uma parada por cima da pausa troca a parada de lugar e a pausa fica", () => {
+    const rows = rowsOf(stops, [brk("p", 1)]); // S1, p, S2
+    const moved = moveRow(rows, 0, 2, 3); // p, S2, S1
+    expect(moved).toEqual({ ok: true, stopMove: { from: 0, to: 1 }, breaks: [brk("p", 0)] });
+  });
+
+  it("normaliza: dentro dos trechos, uma por trecho (somando), em ordem", () => {
+    expect(normalizeBreaks([brk("a", 5), brk("b", 0)], 2, true)).toEqual([brk("b", 0), brk("a", 2)]);
+    expect(normalizeBreaks([brk("a", 1, 10), brk("b", 1, 20)], 2, false)).toEqual([brk("a", 1, 30)]);
+    expect(normalizeBreaks([brk("a", 0)], 0, false)).toEqual([]);
+    expect(shiftBreaksAfterRemoval([brk("a", 0), brk("b", 2)], 1)).toEqual([brk("a", 0), brk("b", 1)]);
+    expect(freeLegs([brk("a", 1)], 3)).toEqual([0, 2]);
+  });
+
+  it("somam ao horário de chegada do trecho e ao total", () => {
+    const at = new Date(0);
+    const plain = computePlan([A, S1, S2, A], "depart", at, estimateLegTime);
+    const withBreak = computePlan([A, S1, S2, A], "depart", at, estimateLegTime, new Map([[1, 900]]));
+    expect(withBreak.totalSeconds).toBe(plain.totalSeconds + 900);
+    expect(withBreak.breakSeconds).toBe(900);
+    expect(withBreak.legs[0].arriveAt).toEqual(plain.legs[0].arriveAt);
+    expect(withBreak.legs[1].arriveAt.getTime()).toBe(plain.legs[1].arriveAt.getTime() + 900_000);
+    expect(withBreak.legs[1].breakSeconds).toBe(900);
+  });
+});
+
+describe("link compartilhável", () => {
+  it("lê o formato de caminho, com fim, sem fim e ida e volta", () => {
+    const r = parseSharedRoute("/r/38.7075,-9.1364/-/38.72,-9.15@15/b20/38.75,-9.2", "")!;
+    expect(r.start).toEqual({ lat: 38.7075, lng: -9.1364, dwellMinutes: 0 });
+    expect(r.end).toBe("none");
+    expect(r.items).toEqual([
+      { kind: "stop", lat: 38.72, lng: -9.15, dwellMinutes: 15 },
+      { kind: "break", minutes: 20 },
+      { kind: "stop", lat: 38.75, lng: -9.2, dwellMinutes: 0 },
+    ]);
+    expect(parseSharedRoute("/r/38.7,-9.1/s/38.72,-9.15", "")!.end).toBe("start");
+    expect(parseSharedRoute("/r/38.7,-9.1/38.8,-9.3/38.72,-9.15", "")!.end).toEqual({ lat: 38.8, lng: -9.3, dwellMinutes: 0 });
+    // Vírgula codificada também vale.
+    expect(parseSharedRoute("/r/38.7%2C-9.1/-/38.72%2C-9.15", "")).not.toBeNull();
+  });
+
+  it("lê o formato de parâmetros (p1… ou s1…), com e sem fim", () => {
+    const r = parseSharedRoute("/", "?s=38.7,-9.1&p2=38.75,-9.2&p1=38.72,-9.15")!;
+    expect(r.end).toBe("none");
+    expect(r.items.map((i) => (i.kind === "stop" ? i.lat : 0))).toEqual([38.72, 38.75]);
+    expect(parseSharedRoute("/", "?s=38.7,-9.1&e=s&s1=38.72,-9.15")!.end).toBe("start");
+  });
+
+  it("recusa qualquer coisa que não seja coordenada, tempo ou pausa (sem HTML, sem texto)", () => {
+    expect(parseSharedRoute("/r/38.7,-9.1/-/<script>alert(1)</script>", "")).toBeNull();
+    expect(parseSharedRoute("/", "?s=38.7,-9.1&p1=%3Cimg%20src=x%20onerror=alert(1)%3E")).toBeNull();
+    expect(parseSharedRoute("/", "?s=javascript:alert(1)")).toBeNull();
+    expect(parseSharedRoute("/r/91,0/-/38.72,-9.15", "")).toBeNull(); // latitude fora do mundo
+    expect(parseSharedRoute("/r/38.7,-9.1/-/38.72,-9.15@999", "")).toBeNull(); // mais de 12 h
+    expect(parseSharedRoute("/r/38.7,-9.1/-/b0", "")).toBeNull();
+    expect(parseSharedRoute("/r/%E0%A4%A/-/1,1", "")).toBeNull(); // codificação inválida
+    const many = Array.from({ length: 21 }, (_, i) => `38.${i + 10},-9.1`).join("/");
+    expect(parseSharedRoute(`/r/38.7,-9.1/-/${many}`, "")).toBeNull(); // mais de 20 paradas
+    expect(parseSharedRoute("/", "")).toBeNull();
+  });
+
+  it("gera os dois formatos e eles voltam à mesma rota", () => {
+    const route = parseSharedRoute("/r/38.70751,-9.13642/s/38.72,-9.15@15/b20/38.75,-9.2", "")!;
+    expect(sharedPath(route)).toBe("/r/38.70751,-9.13642/s/38.72,-9.15@15/b20/38.75,-9.2");
+    const query = sharedQuery(route);
+    expect(query).toBe("/?s=38.70751,-9.13642&e=s&p1=38.72,-9.15@15&p2=b20&p3=38.75,-9.2");
+    expect(parseSharedRoute("/", query.slice(1))).toEqual(route);
   });
 });

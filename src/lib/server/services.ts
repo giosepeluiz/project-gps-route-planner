@@ -41,6 +41,8 @@ export interface ServiceStatus {
   sharedCache: boolean;
   mapFallback: boolean;
   rateLimitPerMinute: number;
+  /** Envio das estatísticas anônimas da viagem por e-mail. */
+  tripReport: boolean;
 }
 
 export const geminiModel = () => process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
@@ -57,6 +59,7 @@ export function serviceStatus(): ServiceStatus {
     sharedCache: has("UPSTASH_REDIS_REST_URL") && has("UPSTASH_REDIS_REST_TOKEN"),
     mapFallback: has("MAP_FALLBACK_STYLE_URL") || has("MAPTILER_KEY"),
     rateLimitPerMinute: apiLimitPerMinute(),
+    tripReport: has("RESEND_API_KEY") && has("REPORT_EMAIL_FROM"),
   };
 }
 

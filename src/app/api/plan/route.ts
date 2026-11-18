@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { readJsonLimited } from "@/lib/server/read-json";
 import { z } from "zod";
 import { NoRouteError } from "@/lib/server/matrix";
 import { planRoute, type PlanPoint } from "@/lib/server/plan";
@@ -33,12 +34,10 @@ const Body = z.object({
  * de cada trecho, a fonte dos dados e a geometria da rota.
  */
 export async function POST(request: NextRequest) {
-  let json: unknown;
-  try {
-    json = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Corpo inválido." }, { status: 400 });
-  }
+  // Corpo limitado: um pedido gigante é recusado antes de ser lido inteiro.
+  const body = await readJsonLimited(request, 32000);
+  if (!body.ok) return NextResponse.json({ error: "Corpo inválido." }, { status: body.status });
+  const json = body.value;
   const parsed = Body.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Dados da rota inválidos." }, { status: 400 });

@@ -28,6 +28,8 @@ export interface PlanLeg {
   dwellSeconds: number;
   /** Saída do destino do trecho: chegada + permanência. */
   leaveAt: Date;
+  /** Pausa para descanso no caminho deste trecho (já somada à chegada). */
+  breakSeconds: number;
   /** true quando o tempo veio da estimativa por distância. */
   estimated: boolean;
 }
@@ -40,6 +42,8 @@ export interface Plan {
   driveSeconds: number;
   /** Soma da permanência nas paradas. */
   dwellSeconds: number;
+  /** Soma das pausas para descanso. */
+  breakSeconds: number;
   departAt: Date;
   arriveAt: Date;
   hasEstimates: boolean;

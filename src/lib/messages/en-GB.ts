@@ -101,6 +101,11 @@ const enGB: Messages = {
   },
 
   summary: {
+    parts: {
+      driving: (d: string) => `${d} driving`,
+      atStops: (d: string) => `${d} at stops`,
+      resting: (d: string) => `${d} resting`,
+    },
     distance: "Total distance",
     moreInfo: "More about this calculation",
     totalRoundTrip: "Total time, round trip",
@@ -181,6 +186,9 @@ const enGB: Messages = {
   },
 
   actions: {
+    copyLink: "Copy route link",
+    linkCopied: "Route link copied.",
+    opened: "Route opened from the link.",
     openGoogle: "Open in Google Maps",
     part: (i, n) => `Part ${i} of ${n}`,
     split: (max, mobile) =>
@@ -224,6 +232,21 @@ const enGB: Messages = {
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Took ${actual}${planned ? ` (planned ${planned})` : ""} · ${km} travelled`,
     seeStats: "See statistics",
+    report: {
+      title: "Send anonymous statistics?",
+      body: "Help improve the planner. Only trip figures are sent (distances, planned and actual times, stops and breaks) plus technical device details (model, screen and browser). No location, place names or personal data.",
+      preview: "See what will be sent",
+      copy: "Email me a copy",
+      email: "Your email",
+      emailNote: "Used only to send the copy, which goes out with the message to the author.",
+      send: "Send",
+      notNow: "Not now",
+      sending: "Sending…",
+      sent: "Thank you! The statistics were sent.",
+      failed: "Couldn't send right now. Please try later.",
+      invalidEmail: "Please check the email address.",
+      unavailable: "Sending statistics isn't available on this server.",
+    },
     stats: {
       title: "Trip complete",
       lead: "Here's how it went compared with the plan.",
@@ -281,6 +304,40 @@ const enGB: Messages = {
     help: "Help",
     restart: "Show the tutorial again",
     restartHint: "Quick tips about each part of the screen.",
+  },
+
+  resume: {
+    title: "Pick up where you left off?",
+    body: (stops: string) => `There's a route saved in this browser (${stops}).`,
+    continue: "Continue",
+    fresh: "Start a new route",
+    note: "Starting over deletes the saved route, stops and breaks. Your settings stay.",
+  },
+
+  breaks: {
+    label: "Rest break",
+    addButton: "Rest break",
+    dialogTitle: "New rest break",
+    howLong: "How long is the break?",
+    where: "On which leg?",
+    taken: (leg: string) => `${leg} (already has a break)`,
+    note: "You can drag the break to another leg later and change its length with the clock. It stays locked in place, and two breaks can't sit next to each other.",
+    cancel: "Cancel",
+    add: "Add",
+    meta: (d: string) => `${d} · locked on this leg`,
+    changeTime: (d: string) => `Break length: ${d}. Change`,
+    timeTitle: "Break length",
+    lockedTitle: "Locked on this leg (drag to move)",
+    remove: "Remove break",
+    dragAria: "Drag the break to another leg. With the keyboard, use the up and down arrows.",
+    adjacent: "Two breaks can't sit next to each other.",
+    edge: "There's no leg after the last stop (the route has no end).",
+    added: "Break added.",
+    noLegs: "Set the start and at least one stop to add a break.",
+    leg: (from: string, to: string) => `Between ${from} and ${to}`,
+    startName: "the start",
+    endName: "the end",
+    backName: "the return to the start",
   },
 
   map: {

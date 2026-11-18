@@ -34,17 +34,21 @@ export function computePlan(
   mode: TimeMode,
   at: Date,
   legTime: LegTimeFn,
+  /** Pausa para descanso (segundos) por trecho: índice do trecho → tempo. */
+  breaks: ReadonlyMap<number, number> = new Map(),
 ): Plan {
   const times = sequence.slice(1).map((to, i) => legTime(sequence[i], to));
   const dwells = sequence.map((place, i) => (i === 0 || i === sequence.length - 1 ? 0 : dwellSecondsOf(place)));
   const driveSeconds = times.reduce((sum, t) => sum + t.seconds, 0);
   const dwellSeconds = dwells.reduce((sum, s) => sum + s, 0);
-  const totalSeconds = driveSeconds + dwellSeconds;
+  const legBreaks = times.map((_, i) => breaks.get(i) ?? 0);
+  const breakSeconds = legBreaks.reduce((sum, s) => sum + s, 0);
+  const totalSeconds = driveSeconds + dwellSeconds + breakSeconds;
   const departAt = mode === "depart" ? at : new Date(at.getTime() - totalSeconds * 1000);
 
   let clock = departAt.getTime();
   const legs: PlanLeg[] = times.map((t, i) => {
-    clock += t.seconds * 1000;
+    clock += (t.seconds + legBreaks[i]) * 1000;
     const arriveAt = new Date(clock);
     const dwell = dwells[i + 1];
     clock += dwell * 1000;
@@ -55,6 +59,7 @@ export function computePlan(
       arriveAt,
       dwellSeconds: dwell,
       leaveAt: new Date(clock),
+      breakSeconds: legBreaks[i],
       estimated: t.estimated,
     };
   });
@@ -64,6 +69,7 @@ export function computePlan(
     totalSeconds,
     driveSeconds,
     dwellSeconds,
+    breakSeconds,
     departAt,
     arriveAt: new Date(clock),
     hasEstimates: times.some((t) => t.estimated),
