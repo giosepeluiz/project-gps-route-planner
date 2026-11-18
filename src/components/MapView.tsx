@@ -64,6 +64,13 @@ interface MapViewProps {
   headingUp?: boolean;
   /** Celular ou tablet: na viagem, a câmera chega bem perto da seta. */
   compact?: boolean;
+  /**
+   * Na viagem: true com o carro andando (câmera de perto, em 3D, seguindo a
+   * seta); false parado (visão geral em 2D da rota que falta).
+   */
+  driving?: boolean;
+  /** Pontos da visão geral: a posição atual e o que falta da rota, em [lng, lat]. */
+  overview?: [number, number][];
   /** Viagem no celular/tablet: o cabeçalho ocupa o topo e os botões descem para baixo dele. */
   navHeader?: boolean;
   /** Botão de girar o mapa junto das configurações (só na viagem). */
@@ -121,8 +128,8 @@ const arrowSize = (zoom: number) => Math.round(Math.min(76, Math.max(30, 30 + (z
  * Espessura da linha da rota conforme o zoom (o MapLibre interpola sozinho,
  * acompanhando a aproximação da câmera).
  */
-const STREET_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 4, 14, 6, 16, 10, 18, 18, 20, 30];
-const CASING_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 7, 14, 9, 16, 15, 18, 26, 20, 42];
+const STREET_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 4, 14, 5.5, 16, 8.5, 18, 15, 20, 25];
+const CASING_WIDTH: ExpressionSpecification = ["interpolate", ["exponential", 1.6], ["zoom"], 10, 7, 14, 8.5, 16, 13, 18, 22, 20, 36];
 /** Depois de a pessoa arrastar o mapa na viagem, a câmera espera antes de voltar a seguir. */
 const FOLLOW_PAUSE_MS = 8_000;
 
@@ -261,6 +268,8 @@ export default function MapView({
   tracking = false,
   headingUp = false,
   compact = false,
+  driving = true,
+  overview = [],
   rotateControl = null,
   navHeader = false,
   layout,
@@ -295,10 +304,14 @@ export default function MapView({
   const followRef = useRef(follow);
   const headingUpRef = useRef(headingUp);
   const trackingRef = useRef(tracking);
+  const drivingRef = useRef(driving);
+  /** Câmera da visão geral (carro parado), recalculada quando a rota que falta muda. */
+  const overviewCameraRef = useRef<{ center: LngLat; zoom: number } | null>(null);
   useEffect(() => {
     followRef.current = follow;
     headingUpRef.current = headingUp;
     trackingRef.current = tracking;
+    drivingRef.current = driving;
   });
   /** Muda a cada estilo carregado, para redesenhar a rota depois de uma troca de estilo. */
   const [styleVersion, setStyleVersion] = useState(0);
@@ -678,18 +691,40 @@ export default function MapView({
       marker.setLngLat(position).setRotation(bearing);
       let cameraMoving = false;
       if (followRef.current && Date.now() >= followPauseRef.current) {
+        const ease = (now: number, to: number, eps: number) =>
+          Math.abs(to - now) < eps ? to : now + (to - now) * CAMERA_EASE;
+        const overviewCamera = drivingRef.current ? null : overviewCameraRef.current;
         const zoomNow = map.getZoom();
         const pitchNow = map.getPitch();
-        const zoomTarget = zoomTargetRef.current ?? zoomNow;
-        const zoom = Math.abs(zoomTarget - zoomNow) < 0.01 ? zoomTarget : zoomNow + (zoomTarget - zoomNow) * CAMERA_EASE;
-        const pitch = Math.abs(NAV_PITCH - pitchNow) < 0.1 ? NAV_PITCH : pitchNow + (NAV_PITCH - pitchNow) * CAMERA_EASE;
-        cameraMoving = zoom !== zoomTarget || pitch !== NAV_PITCH;
+        const bearingNow = map.getBearing();
+        // Andando: perto, em 3D, seguindo a seta. Parado: a rota que falta, em 2D, com o norte para cima.
+        const zoomTarget = overviewCamera ? overviewCamera.zoom : (zoomTargetRef.current ?? zoomNow);
+        const pitchTarget = overviewCamera ? 0 : NAV_PITCH;
+        const bearingTarget = overviewCamera || !headingUpRef.current ? 0 : bearing;
+        const zoom = ease(zoomNow, zoomTarget, 0.01);
+        const pitch = ease(pitchNow, pitchTarget, 0.1);
+        const nextBearing =
+          Math.abs(angleDelta(bearingNow, bearingTarget)) < 0.2 ? bearingTarget : lerpAngle(bearingNow, bearingTarget, 0.12);
+        // O centro também desliza, para a troca entre os dois modos não dar um salto.
+        const centerNow = map.getCenter();
+        const centerTarget = overviewCamera ? overviewCamera.center : position;
+        const k = overviewCamera ? CAMERA_EASE : 0.25;
+        const center: LngLat = [
+          centerNow.lng + (centerTarget[0] - centerNow.lng) * k,
+          centerNow.lat + (centerTarget[1] - centerNow.lat) * k,
+        ];
+        cameraMoving =
+          zoom !== zoomTarget ||
+          pitch !== pitchTarget ||
+          nextBearing !== bearingTarget ||
+          Math.abs(center[0] - centerTarget[0]) + Math.abs(center[1] - centerTarget[1]) > 1e-6;
         map.jumpTo({
-          center: position,
-          bearing: headingUpRef.current ? bearing : 0,
+          center,
+          bearing: nextBearing,
           zoom,
           pitch,
-          padding: navPadding,
+          // O centro da visão geral já desconta as margens (cameraForBounds): sem margem de novo.
+          padding: overviewCamera ? { top: 0, bottom: 0, left: 0, right: 0 } : navPadding,
         });
       }
       if (t < 1 || cameraMoving || Math.abs(angleDelta(bearing, wanted)) > 0.5) {
@@ -699,6 +734,36 @@ export default function MapView({
     frame = window.requestAnimationFrame(step);
     return () => window.cancelAnimationFrame(frame);
   }, [meLat, meLng, meAt, meHeading, meAccuracy, layout, styleVersion, t]);
+
+  const overviewKey = overview.map(([lng, lat]) => `${lng.toFixed(4)},${lat.toFixed(4)}`).join("|");
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!map || !lib || styleVersion === 0 || overviewKey === "") {
+      overviewCameraRef.current = null;
+      return;
+    }
+    const coords = overviewKey.split("|").map((pair) => pair.split(",").map(Number) as LngLat);
+    const bounds = coords.reduce((acc, c) => acc.extend(c), new lib.LngLatBounds(coords[0], coords[0]));
+    try {
+      const camera = map.cameraForBounds(bounds, { padding: routePadding(map, layout), maxZoom: 16 });
+      if (camera?.center && camera.zoom !== undefined) {
+        const c = lib.LngLat.convert(camera.center);
+        // Enquadra só o que falta (a partir de onde o carro está), por isso fica mais perto que a rota inteira.
+        overviewCameraRef.current = { center: [c.lng, c.lat], zoom: camera.zoom };
+      }
+    } catch {
+      overviewCameraRef.current = null;
+    }
+  }, [overviewKey, layout, styleVersion, size]);
+
+  // Ao começar a andar (ou ao voltar a parar), a câmera troca de modo; o zoom
+  // que a pessoa tiver ajustado deixa de valer na troca.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !follow) return;
+    zoomTargetRef.current = driving ? (compact ? NAV_ZOOM_COMPACT : NAV_ZOOM_DESKTOP) : null;
+  }, [driving, follow, compact]);
 
   // Começo e fim do "seguir": aproxima em 3D ao iniciar e volta ao mapa plano, com o norte para cima, no fim.
   useEffect(() => {

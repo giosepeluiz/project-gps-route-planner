@@ -44,6 +44,7 @@ import {
   type ReviewOutcome,
 } from "@/lib/ai-client";
 import { legColor } from "@/lib/leg-colors";
+import { haversineMeters } from "@/lib/geo";
 import { cleanLocks, moveStop, removeFromLocks, toggleLock } from "@/lib/locks";
 import { EMPTY_ROUTE, fixedPlacesOf, isRouteState, normalizeRoute, ROUTE_KEY, type RouteState } from "@/lib/route-state";
 import { optimizeStops } from "@/lib/optimize";
@@ -727,12 +728,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const trackRef = useRef<TripTrack | null>(null);
   const plannedLegsRef = useRef<PlannedLeg[]>([]);
   const [reportDraft, setReportDraft] = useState<TripReport["trip"] | null>(null);
+  /**
+   * Saída deduzida (ms): quando a viagem começa no meio do caminho, a hora em
+   * que saiu do ponto anterior é estimada pela posição atual na linha do trecho.
+   */
+  const [tripDepartAt, setTripDepartAt] = useState<number | null>(null);
+  /** Carro andando (com folga, para não ficar trocando a câmera a cada semáforo). */
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef({ fastFixes: 0, slowSince: null as number | null });
   const offRouteRef = useRef(0);
   const tripLogRef = useRef<TripLog | null>(null);
   const baselineRef = useRef<TripBaseline | null>(null);
   /** Paradas concluídas durante a viagem. */
   const stopsDoneRef = useRef(0);
   const target = start ? tripTarget(stops, doneIds, finalPlace) : null;
+  /** Índice, na rota planejada, do trecho que chega na próxima parada. */
+  const targetLeg = (() => {
+    if (!target) return 0;
+    const i = stops.findIndex((s) => s.id === target.id);
+    return i === -1 ? stops.length : i;
+  })();
   const pendingStops = useMemo(() => stops.filter((s) => !doneIds.has(s.id)), [stops, doneIds]);
 
   // Rota que falta, saindo da posição atual: as paradas pendentes na ordem combinada e o fim.
@@ -869,7 +884,43 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     // Direção: a do GPS em movimento, ou a do deslocamento; parado, fica a última conhecida.
     const heading = headingFrom(lastFixRef.current, raw, gps) ?? lastFixRef.current?.heading ?? null;
     const next: Fix = { ...raw, heading };
+    const previousFix = lastFixRef.current;
     lastFixRef.current = next;
+
+    // Andando ou parado: velocidade do GPS, ou a do deslocamento entre leituras.
+    const dt = previousFix ? (next.at - previousFix.at) / 1000 : 0;
+    const speed =
+      gps.speed !== null && Number.isFinite(gps.speed)
+        ? gps.speed
+        : previousFix && dt > 0
+          ? haversineMeters(previousFix, next) / dt
+          : 0;
+    const motion = movingRef.current;
+    if (speed >= 2.8) {
+      // ~10 km/h em duas leituras seguidas: começou a andar.
+      motion.fastFixes += 1;
+      motion.slowSince = null;
+      if (motion.fastFixes >= 2) setMoving(true);
+    } else {
+      motion.fastFixes = 0;
+      if (speed < 1) {
+        motion.slowSince ??= next.at;
+        // Parado há uns 8 s (não só freando): volta a mostrar a rota inteira.
+        if (next.at - motion.slowSince >= 8_000) setMoving(false);
+      }
+    }
+
+    // Começou a viagem no meio do caminho: deduz a hora em que saiu do ponto
+    // anterior pela fração do trecho já percorrida (aproximado, pelo tempo do trecho).
+    if (!previousFix && serverPlan?.streetLegs) {
+      const line = serverPlan.streetLegs[targetLeg]?.coordinates;
+      const legSeconds = serverPlan.legSeconds[targetLeg];
+      const projection = line ? projectOnLine([next.lng, next.lat], line) : null;
+      if (projection && legSeconds && projection.distanceM <= 300) {
+        const done = 1 - remainingFraction(projection);
+        if (done > 0.03) setTripDepartAt(next.at - Math.round(done * legSeconds * 1000));
+      }
+    }
     setFix(next);
     if (tripLogRef.current) tripLogRef.current = logFix(tripLogRef.current, next);
     if (trackRef.current) trackRef.current = trackFix(trackRef.current, next);
@@ -943,6 +994,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setTripRemote(null);
     setRerouting(false);
     setInfo(null);
+    setTripDepartAt(null);
+    setMoving(false);
+    movingRef.current = { fastFixes: 0, slowSince: null };
   };
   const beginTrip = () => {
     setTripWarning(false);
@@ -1214,13 +1268,35 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [tripView, sequenceOf, stops, serverPlan, plan],
   );
   const mapPath = useMemo<[number, number][]>(
-    () => (tripView ? (tripView.server.streetLegs ? [] : tripView.sequence.map((p) => [p.lng, p.lat])) : path),
-    [tripView, path],
+    () =>
+      tripView
+        ? tripView.server.streetLegs
+          ? []
+          : tripView.sequence.map((p) => [p.lng, p.lat])
+        : tripActive && streetLegs
+          ? []
+          : path,
+    [tripView, tripActive, streetLegs, path],
   );
   const mapStreetLegs = useMemo(
-    () => (tripView ? (tripView.server.streetLegs?.map((leg) => leg.coordinates) ?? null) : streetLegs),
-    [tripView, streetLegs],
+    () =>
+      tripView
+        ? (tripView.server.streetLegs?.map((leg) => leg.coordinates) ?? null)
+        : tripActive && streetLegs
+          ? streetLegs.slice(targetLeg)
+          : streetLegs,
+    [tripView, tripActive, streetLegs, targetLeg],
   );
+  const mapLegColors = useMemo(
+    () => (!tripView && tripActive ? view.colors.slice(targetLeg) : view.colors),
+    [tripView, tripActive, view.colors, targetLeg],
+  );
+  /** Pontos da visão geral (carro parado): onde está e o que falta. */
+  const overviewPoints = useMemo<[number, number][]>(() => {
+    if (!tripActive) return [];
+    const rest = tripView ? tripView.sequence.slice(1) : sequenceOf(stops).slice(targetLeg + 1);
+    return [...(fix ? [[fix.lng, fix.lat] as [number, number]] : []), ...rest.map((p) => [p.lng, p.lat] as [number, number])];
+  }, [tripActive, tripView, sequenceOf, stops, targetLeg, fix]);
 
   // Conteúdo do balão quando o clique foi em um trecho da linha verde.
   const legDetails = (() => {
@@ -1765,11 +1841,20 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-line">
                 <div className="px-3 py-2">
                   <dt className="text-2xs font-medium text-muted">{t.summary.departure}</dt>
-                  <dd className="text-md font-semibold text-ink">{plan ? formatTime(plan.departAt) : "—"}</dd>
+                  <dd className="text-md font-semibold text-ink">
+                    {/* Na viagem começada no meio do caminho, a saída é deduzida (aproximada). */}
+                    {tripActive && tripDepartAt !== null
+                      ? `≈ ${formatTime(new Date(tripDepartAt))}`
+                      : plan
+                        ? formatTime(plan.departAt)
+                        : "—"}
+                  </dd>
                 </div>
                 <div className="border-l border-line px-3 py-2">
                   <dt className="text-2xs font-medium text-muted">{t.summary.arrival}</dt>
-                  <dd className="text-md font-semibold text-ink">{arriveText}</dd>
+                  <dd className="text-md font-semibold text-ink">
+                    {tripActive && live ? formatTimeWithDay(live.endArriveAt, live.startedAt) : arriveText}
+                  </dd>
                 </div>
                 <div className="col-span-2 border-t border-line px-3 py-2">
                   <dt className="text-2xs font-medium text-muted">{t.summary.distance}</dt>
@@ -1978,8 +2063,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         streetLegs={mapStreetLegs}
         onLegClick={handleLegClick}
         selectedLeg={info?.leg ?? null}
-        doneLegs={tripView ? [] : doneLegs}
-        legColors={view.colors}
+        doneLegs={tripActive ? [] : doneLegs}
+        legColors={mapLegColors}
+        driving={moving}
+        overview={overviewPoints}
         me={meOnMap}
         follow={tripRunning}
         tracking={tripActive}

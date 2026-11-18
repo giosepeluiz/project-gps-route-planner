@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.4.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.4.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -99,7 +99,8 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 
 **▶ Iniciar viagem**, no Resumo, acompanha a viagem pelo GPS do aparelho. Antes de começar, um aviso lembra que o planejador **não é um GPS de navegação**: conduza com o seu app de navegação preferido (o botão **Ciente** começa a viagem).
 
-- **Zoom de perto:** no celular e no tablet, ao iniciar a viagem a câmera se aproxima bem da seta, como no Waze; a seta e a linha engrossam junto com o zoom.
+- **Zoom de perto:** no celular e no tablet, com o carro andando a câmera se aproxima bem da seta, como no Waze; a seta e a linha engrossam junto com o zoom. Parado, o mapa se afasta em 2D e mostra o que falta da rota.
+- **Começou no meio do caminho?** A linha começa onde você está e a saída é deduzida pela posição.
 - **Seta no mapa, em 3D:** a sua posição aparece como uma seta que desliza entre as leituras do GPS (sem pulos), gruda na via da rota quando está perto dela e aponta para onde a via segue. O mapa se inclina, como nos GPS.
 - **Linha que acompanha o carro:** o pedaço do trecho que você já percorreu some junto com a seta, e o tempo e a distância até a próxima parada vão diminuindo ao vivo.
 - **Girar o mapa:** com o botão de bússola (junto das configurações), a direção da viagem fica para cima. No celular e no tablet ele já começa ligado; no computador, começa com o norte para cima.
@@ -224,6 +225,12 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🛣️ Versão 0.4.2 (beta)
+
+- **Viagem começada no meio do caminho:** a linha começa onde o carro está (o caminho já feito some) e a hora de saída é deduzida pela posição (aparece com ≈ no Resumo).
+- **Parado, visão geral; andando, de perto:** com o carro parado, o mapa se afasta em 2D e mostra o que falta da rota; quando ele volta a andar (acima de ~10 km/h), a câmera volta a se aproximar em 3D.
+- **Linha um pouco mais fina** de perto.
 
 ### 🔍 Versão 0.4.1 (beta)
 
