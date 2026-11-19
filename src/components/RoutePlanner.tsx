@@ -2071,15 +2071,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               <div className="flex flex-col gap-1.5 border-t border-line pt-3" aria-live="polite">
                 <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
                   {(aiTier !== "local" || aiLoading) && <AiBadge />}
-                  <Badge>
-                    {aiLoading
-                      ? t.ai.loading
-                      : aiOutcome?.review
-                        ? t.ai.comment
-                        : stops.length < 2
-                          ? t.ai.localOnly
-                          : t.ai.noAi}
-                  </Badge>
+                  {/* O símbolo já diz que é da IA: com o comentário pronto, não precisa de texto. */}
+                  {aiLoading ? (
+                    <span>{t.ai.loading}</span>
+                  ) : aiOutcome?.review ? null : (
+                    <Badge>{stops.length < 2 ? t.ai.localOnly : t.ai.noAi}</Badge>
+                  )}
                 </p>
                 {aiOutcome?.review && (
                   <>

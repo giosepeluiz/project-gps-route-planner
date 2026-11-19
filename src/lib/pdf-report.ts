@@ -357,7 +357,7 @@ td.r, th.r { text-align: right; white-space: nowrap; }
 .kpi b { font-size: 13pt; }
 .map { width: 100%; border-radius: 10px; border: 1px solid ${C.line}; display: block; max-height: 120mm; object-fit: contain; background: ${C.soft}; }
 .pill { display: inline-block; border: 1.5px solid; border-radius: 99px; padding: 0 7px; font-weight: 700; font-size: 8.5pt; }
-.ai { display: inline-flex; align-items: center; gap: 3px; background: ${C.brand}; color: #fff; border-radius: 6px; padding: 1px 6px; font-size: 8pt; font-weight: 800; letter-spacing: .04em; }
+.ai { display: inline-flex; align-items: center; gap: 3px; border: 1.5px solid ${C.brand}; color: ${C.brand}; border-radius: 6px; padding: 1px 6px; font-size: 8pt; font-weight: 800; letter-spacing: .04em; }
 .box { border: 1px solid ${C.line}; border-radius: 10px; padding: 10px 12px; background: ${C.soft}; break-inside: avoid; }
 .finding { border-left: 4px solid; padding: 4px 10px; margin: 8px 0; background: #fff; border-radius: 6px; break-inside: avoid; }
 .finding b { display: block; }

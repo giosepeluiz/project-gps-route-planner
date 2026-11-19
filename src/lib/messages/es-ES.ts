@@ -144,7 +144,7 @@ const esES: Messages = {
   ai: {
     tiers: { primária: "Principal", backup: "Reserva", local: "Local" },
     badgeLoading: "IA",
-    loading: "Consultando a la IA…",
+    loading: "Consultando…",
     comment: "Comentario de la IA",
     localOnly: "Algoritmo local",
     noAi: "Algoritmo local (ninguna IA ha respondido)",

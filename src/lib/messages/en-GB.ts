@@ -144,7 +144,7 @@ const enGB: Messages = {
   ai: {
     tiers: { primária: "Primary", backup: "Backup", local: "Local" },
     badgeLoading: "AI",
-    loading: "Asking the AI…",
+    loading: "Consulting…",
     comment: "AI comment",
     localOnly: "Local algorithm",
     noAi: "Local algorithm (no AI replied)",

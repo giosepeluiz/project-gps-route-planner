@@ -144,7 +144,7 @@ const ptPT: Messages = {
   ai: {
     tiers: { primária: "Primária", backup: "Reserva", local: "Local" },
     badgeLoading: "IA",
-    loading: "A consultar a IA…",
+    loading: "A consultar…",
     comment: "Comentário da IA",
     localOnly: "Algoritmo local",
     noAi: "Algoritmo local (nenhuma IA respondeu)",

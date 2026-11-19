@@ -150,7 +150,7 @@ const ptBR = {
   ai: {
     tiers: { primária: "Primária", backup: "Backup", local: "Local" },
     badgeLoading: "IA",
-    loading: "Consultando a IA…",
+    loading: "Consultando…",
     comment: "Comentário da IA",
     localOnly: "Algoritmo local",
     noAi: "Algoritmo local (nenhuma IA respondeu)",

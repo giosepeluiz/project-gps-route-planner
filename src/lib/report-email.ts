@@ -387,7 +387,7 @@ const section = (title: string, body: string, badge = "") =>
 
 /** Símbolo padrão de IA (estrelas + IA/AI num retângulo arredondado), igual ao do app. */
 export const aiBadgeHtml = (locale: Locale) =>
-  `<span style="display:inline-block;vertical-align:middle;margin-right:8px;padding:2px 8px;border-radius:6px;background:${C.brand};color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;line-height:18px">✦ ${locale.startsWith("en") ? "AI" : "IA"}</span>`;
+  `<span style="display:inline-block;vertical-align:middle;margin-right:8px;padding:2px 8px;border-radius:6px;border:1.5px solid ${C.brand};color:${C.brand};font-size:12px;font-weight:800;letter-spacing:.04em;line-height:18px">✦ ${locale.startsWith("en") ? "AI" : "IA"}</span>`;
 const table = (head: string, rows: string) =>
   `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:${FONT}">${head ? `<tr>${head}</tr>` : ""}${rows}</table>`;
 const arrow = (p: number | null, a: number | null) =>

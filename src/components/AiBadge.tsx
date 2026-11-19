@@ -6,7 +6,7 @@ import { useLocale } from "./I18nProvider";
 export const aiAcronym = (locale: string) => (locale.startsWith("en") ? "AI" : "IA");
 
 /**
- * Símbolo padrão de IA: estrelas + "IA"/"AI" num retângulo arredondado. Usado
+ * Símbolo padrão de IA: estrelas + "IA"/"AI" em azul, num retângulo arredondado de borda azul. Usado
  * como ícone em tudo que vem da IA (no app, no e-mail e nos relatórios).
  */
 export default function AiBadge({ className = "" }: { className?: string }) {
@@ -15,7 +15,7 @@ export default function AiBadge({ className = "" }: { className?: string }) {
     <span
       role="img"
       aria-label={aiAcronym(locale)}
-      className={`inline-flex shrink-0 items-center gap-0.5 rounded-md bg-accent px-1.5 py-px text-2xs font-bold leading-4 tracking-wide text-on-ink ${className}`}
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border-[1.5px] border-accent px-1.5 py-px text-2xs font-bold leading-4 tracking-wide text-accent ${className}`}
     >
       <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3 w-3" fill="currentColor">
         <path d="M8 2.5l1.35 3.9a2 2 0 001.25 1.25L14.5 9l-3.9 1.35a2 2 0 00-1.25 1.25L8 15.5l-1.35-3.9a2 2 0 00-1.25-1.25L1.5 9l3.9-1.35a2 2 0 001.25-1.25z" />
