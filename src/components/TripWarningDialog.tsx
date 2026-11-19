@@ -38,7 +38,7 @@ export default function TripWarningDialog({ open, onAccept, onCancel }: TripWarn
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] lg:w-[min(33rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
     >
       <div className="flex flex-col gap-4 px-6 pb-5 pt-6">
         <span className="grid h-11 w-11 place-items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">

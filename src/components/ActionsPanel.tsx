@@ -27,6 +27,8 @@ interface ActionsPanelProps {
   onNotify: (text: string) => void;
   /** Caminho do link compartilhável da rota (/r/…), ou null. */
   sharePath: string | null;
+  /** Gera o relatório de saída (documento para imprimir ou salvar em PDF). */
+  onDepartureReport?: () => void;
 }
 
 const subscribeNothing = () => () => {};
@@ -114,6 +116,7 @@ export default function ActionsPanel({
   isMobile,
   onNotify,
   sharePath,
+  onDepartureReport,
 }: ActionsPanelProps) {
   const t = useT();
   const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
@@ -244,6 +247,16 @@ export default function ActionsPanel({
           </button>
         )}
       </div>
+
+      {onDepartureReport && plan && (
+        <button type="button" onClick={onDepartureReport} className={`${linkClass} justify-start`}>
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 2.75h5.5L15.25 6.5v10a.75.75 0 01-.75.75h-8.5a.75.75 0 01-.75-.75V3.5A.75.75 0 016 2.75z" />
+            <path d="M11.25 2.75V6.75h4M8 10.5h4.5M8 13.5h4.5" />
+          </svg>
+          {t.actions.departureReport}
+        </button>
+      )}
     </div>
   );
 }

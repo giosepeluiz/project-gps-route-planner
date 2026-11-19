@@ -49,6 +49,9 @@ const esES: Messages = {
     arrive: "Llegar antes de",
     dateTime: "Fecha y hora",
     now: "Ahora",
+    arriveAtLabel: "Dónde se aplica la hora",
+    arriveAtEnd: "Al final de la ruta",
+    arriveAtStop: (n: number, name: string) => `${n}. ${name}`,
   },
 
   stops: {
@@ -187,6 +190,9 @@ const esES: Messages = {
 
   actions: {
     copyLink: "Copiar enlace de la ruta",
+    departureReport: "Informe de salida (PDF)",
+    reportPreparing: "Preparando el informe…",
+    reportBlocked: "El navegador bloqueó la nueva pestaña. Permite las ventanas emergentes e inténtalo de nuevo.",
     linkCopied: "Enlace de la ruta copiado.",
     opened: "Ruta abierta desde el enlace.",
     openGoogle: "Abrir en Google Maps",
@@ -229,6 +235,13 @@ const esES: Messages = {
     headerArrival: "Llegada",
     headerTime: "Tiempo",
     headerDistance: "Distancia",
+    headerEndArrival: "Llegada final",
+    headerTotalTime: "Tiempo total",
+    headerTotalDistance: "Distancia total",
+    headerSpeed: "Velocidad",
+    headerAverage: "Media",
+    headerReroutes: "Recálculos",
+    headerHint: "Toca para ver más datos del viaje",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Tardó ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} recorridos`,
     seeStats: "Ver estadísticas",
@@ -248,6 +261,7 @@ const esES: Messages = {
       unavailable: "El envío de estadísticas no está disponible en este servidor.",
     },
     stats: {
+      finalReport: "Informe final (PDF)",
       title: "Viaje completado",
       lead: "Así fue en comparación con lo previsto.",
       planned: "Previsto",

@@ -311,3 +311,65 @@ describe("link compartilhável", () => {
     expect(parseSharedRoute("/", query.slice(1))).toEqual(route);
   });
 });
+
+describe("link com hora e travas", () => {
+  it("leva a hora de saída/chegada, as travas e as pausas, nos dois formatos", () => {
+    const route = {
+      start: { lat: 38.7, lng: -9.1, dwellMinutes: 0 },
+      end: "start" as const,
+      items: [
+        { kind: "stop" as const, lat: 38.71, lng: -9.12, dwellMinutes: 15, locked: true },
+        { kind: "break" as const, minutes: 20 },
+        { kind: "stop" as const, lat: 38.72, lng: -9.13, dwellMinutes: 0 },
+      ],
+      time: { mode: "arrive" as const, at: "2026-11-19T08:30" },
+    };
+    const path = sharedPath(route);
+    expect(path).toBe("/r/38.7,-9.1/s/38.71,-9.12@15!/b20/38.72,-9.13/a202611190830");
+    expect(parseSharedRoute(path, "")).toEqual(route);
+    const q = sharedQuery(route);
+    expect(q).toContain("t=a202611190830");
+    expect(parseSharedRoute("/", q.slice(1))).toEqual(route);
+  });
+  it("recusa hora impossível e aceita link sem hora", () => {
+    expect(parseSharedRoute("/r/38.7,-9.1/-/38.71,-9.12/d202602311200", "")).toBeNull();
+    expect(parseSharedRoute("/r/38.7,-9.1/-/38.71,-9.12", "")?.time).toBeNull();
+  });
+});
+
+describe("mão da via", () => {
+  // Ida para o norte e volta para o sul pela mesma rua, quase no mesmo lugar.
+  const there: [number, number][] = [
+    [-9.14, 38.7],
+    [-9.14, 38.71],
+  ];
+  const back: [number, number][] = [
+    [-9.13995, 38.71],
+    [-9.13995, 38.7],
+  ];
+  const line = [...there, ...back];
+  it("com a direção do carro, gruda no sentido certo da rua", () => {
+    const point: [number, number] = [-9.13997, 38.705];
+    expect(projectOnLine(point, line, 0)?.index).toBe(0);
+    expect(projectOnLine(point, line, 180)?.index).toBe(2);
+    expect(projectOnLine(point, line, 180)?.against).toBe(false);
+  });
+  it("marca quando o carro anda contra a linha", () => {
+    expect(projectOnLine([-9.14, 38.705], there, 180)?.against).toBe(true);
+    expect(projectOnLine([-9.14, 38.705], there, null)?.against).toBe(false);
+  });
+});
+
+describe("chegada numa parada específica", () => {
+  it("a saída é calculada para chegar na parada escolhida na hora pedida", async () => {
+    const { computePlan } = await import("./plan");
+    const p = (id: string, dwell = 0) => ({ id, label: id, lat: 0, lng: 0, source: "coords" as const, confidence: 1, dwellMinutes: dwell });
+    const seq = [p("S"), p("A", 10), p("B", 5), p("E")];
+    const leg = () => ({ seconds: 600, estimated: false });
+    const at = new Date("2026-11-20T12:00:00");
+    const plan = computePlan(seq, "arrive", at, leg, new Map([[1, 900]]), 1);
+    // Chegar em B às 12:00: 10 min até A + 10 min lá + 15 min de pausa + 10 min até B = 45 min antes.
+    expect(plan.legs[1].arriveAt.getTime()).toBe(at.getTime());
+    expect(plan.departAt.getTime()).toBe(at.getTime() - 45 * 60_000);
+  });
+});

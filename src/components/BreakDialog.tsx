@@ -48,7 +48,7 @@ export default function BreakDialog({ options, onConfirm, onCancel }: BreakDialo
       onClick={(e) => {
         if (e.target === e.currentTarget) ref.current?.close();
       }}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] lg:w-[min(33rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
     >
       <form
         method="dialog"

@@ -39,7 +39,7 @@ export default function ResumeDialog({ summary, onContinue, onFresh }: ResumeDia
       onClick={(e) => {
         if (e.target === e.currentTarget) ref.current?.close();
       }}
-      className="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
+      className="m-auto w-[min(24rem,calc(100vw-2rem))] lg:w-[min(30rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
     >
       <div className="flex flex-col gap-4 px-6 pb-5 pt-6">
         <h2 id="retomar-titulo" className="text-lg font-semibold">

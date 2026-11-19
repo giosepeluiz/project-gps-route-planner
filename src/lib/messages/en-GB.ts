@@ -49,6 +49,9 @@ const enGB: Messages = {
     arrive: "Arrive by",
     dateTime: "Date and time",
     now: "Now",
+    arriveAtLabel: "Where this time applies",
+    arriveAtEnd: "At the end of the route",
+    arriveAtStop: (n: number, name: string) => `${n}. ${name}`,
   },
 
   stops: {
@@ -187,6 +190,9 @@ const enGB: Messages = {
 
   actions: {
     copyLink: "Copy route link",
+    departureReport: "Departure report (PDF)",
+    reportPreparing: "Preparing the report…",
+    reportBlocked: "The browser blocked the new tab. Allow pop-ups and try again.",
     linkCopied: "Route link copied.",
     opened: "Route opened from the link.",
     openGoogle: "Open in Google Maps",
@@ -229,6 +235,13 @@ const enGB: Messages = {
     headerArrival: "Arrival",
     headerTime: "Time",
     headerDistance: "Distance",
+    headerEndArrival: "Final arrival",
+    headerTotalTime: "Total time",
+    headerTotalDistance: "Total distance",
+    headerSpeed: "Speed",
+    headerAverage: "Average",
+    headerReroutes: "Reroutes",
+    headerHint: "Tap to see more trip data",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Took ${actual}${planned ? ` (planned ${planned})` : ""} · ${km} travelled`,
     seeStats: "See statistics",
@@ -248,6 +261,7 @@ const enGB: Messages = {
       unavailable: "Sending statistics isn't available on this server.",
     },
     stats: {
+      finalReport: "Final report (PDF)",
       title: "Trip complete",
       lead: "Here's how it went compared with the plan.",
       planned: "Planned",

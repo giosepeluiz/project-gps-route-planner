@@ -121,7 +121,7 @@ const ptBR: Labels = {
   fontSize: "Tamanho do texto",
   yes: "sim",
   no: "não",
-  analysis: "Análise técnica (IA)",
+  analysis: "Análise técnica",
   verdict: { good: "Dentro do previsto", fair: "Desvios moderados", poor: "Desvios grandes" },
   aiNote: "Texto gerado por IA a partir só dos números acima; pode conter imprecisões.",
   footer: "Enviado a pedido de quem usou o app. Nenhuma resposta é necessária.",
@@ -143,7 +143,7 @@ const ptPT: Labels = {
   installed: "Instalado como app",
   touch: "Ecrã tátil",
   screen: "Ecrã",
-  analysis: "Análise técnica (IA)",
+  analysis: "Análise técnica",
   verdict: { good: "Dentro do previsto", fair: "Desvios moderados", poor: "Desvios grandes" },
   aiNote: "Texto gerado por IA apenas a partir dos números acima; pode conter imprecisões.",
   footer: "Enviado a pedido de quem usou a app. Não é necessária resposta.",
@@ -199,7 +199,7 @@ const enGB: Labels = {
   fontSize: "Text size",
   yes: "yes",
   no: "no",
-  analysis: "Technical analysis (AI)",
+  analysis: "Technical analysis",
   verdict: { good: "On plan", fair: "Moderate deviations", poor: "Large deviations" },
   aiNote: "AI-generated from the figures above only; it may contain inaccuracies.",
   footer: "Sent at the request of the app user. No reply is needed.",
@@ -257,7 +257,7 @@ const esES: Labels = {
   fontSize: "Tamaño del texto",
   yes: "sí",
   no: "no",
-  analysis: "Análisis técnico (IA)",
+  analysis: "Análisis técnico",
   verdict: { good: "Según lo previsto", fair: "Desvíos moderados", poor: "Desvíos grandes" },
   aiNote: "Texto generado por IA solo a partir de las cifras anteriores; puede contener imprecisiones.",
   footer: "Enviado a petición de quien usó la app. No hace falta responder.",
@@ -321,7 +321,7 @@ export function reportText(r: TripReport, analysis: TripAnalysis | null = null):
     `${L.theme}: ${L.themes[d.theme]} · ${L.fontSize.toLowerCase()}: ${d.fontSize}`,
   ];
   if (analysis) {
-    lines.push("", L.analysis.toUpperCase(), `${L.verdict[analysis.verdict]}. ${analysis.summary}`);
+    lines.push("", `[${r.locale.startsWith("en") ? "AI" : "IA"}] ${L.analysis.toUpperCase()}`, `${L.verdict[analysis.verdict]}. ${analysis.summary}`);
     for (const f of analysis.findings) lines.push(`- ${f.title}: ${f.detail}`);
     lines.push(L.aiNote);
   }
@@ -382,8 +382,12 @@ const th = (text: string, align = "left") =>
 const td = (html: string, align = "left", strong = false) =>
   `<td class="c" style="padding:11px 12px;text-align:${align};border-bottom:1px solid ${C.line};font-size:16px;color:${C.ink};${strong ? "font-weight:700;" : ""}">${html}</td>`;
 
-const section = (title: string, body: string) =>
-  `<tr><td class="px" style="padding:24px 28px 4px"><h2 style="margin:0 0 12px;font-size:15px;letter-spacing:.06em;color:${C.brand};font-family:${FONT}">${esc(title)}</h2>${body}</td></tr>`;
+const section = (title: string, body: string, badge = "") =>
+  `<tr><td class="px" style="padding:24px 28px 4px"><h2 style="margin:0 0 12px;font-size:15px;letter-spacing:.06em;color:${C.brand};font-family:${FONT}">${badge}${esc(title)}</h2>${body}</td></tr>`;
+
+/** Símbolo padrão de IA (estrelas + IA/AI num retângulo arredondado), igual ao do app. */
+export const aiBadgeHtml = (locale: Locale) =>
+  `<span style="display:inline-block;vertical-align:middle;margin-right:8px;padding:2px 8px;border-radius:6px;background:${C.brand};color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;line-height:18px">✦ ${locale.startsWith("en") ? "AI" : "IA"}</span>`;
 const table = (head: string, rows: string) =>
   `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:${FONT}">${head ? `<tr>${head}</tr>` : ""}${rows}</table>`;
 const arrow = (p: number | null, a: number | null) =>
@@ -483,7 +487,7 @@ export function reportHtml(r: TripReport, analysis: TripAnalysis | null, logoUrl
 </tr></table></td></tr>
 <tr><td class="px" style="padding:16px 28px 0;font-size:14px;color:${C.muted};font-family:${FONT}">🔒 ${esc(L.privacy)}</td></tr>
 ${section(L.trip, main)}
-${ai ? section(L.analysis.toUpperCase(), ai) : ""}
+${ai ? section(L.analysis.toUpperCase(), ai, aiBadgeHtml(r.locale)) : ""}
 ${section(L.details, details)}
 ${legs ? section(L.legs, legs) : ""}
 ${section(L.device, device)}

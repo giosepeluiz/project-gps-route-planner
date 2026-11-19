@@ -19,6 +19,11 @@ export interface RouteState {
   dateTime?: string | null;
   /** Pausas para descanso, cada uma travada num trecho da visita. */
   breaks?: RestBreak[];
+  /**
+   * No modo "chegar até": a parada (id) em que a hora vale. Sem ela (ou se a
+   * parada saiu da rota), a hora é a de chegada ao fim.
+   */
+  arriveAtStop?: string | null;
 }
 
 export const ROUTE_KEY = "rotas:rota:v2";
@@ -57,7 +62,8 @@ export function isRouteState(value: unknown): value is RouteState {
     r.stops.every(isPlace) &&
     (r.timeMode === "depart" || r.timeMode === "arrive") &&
     (r.dateTime === undefined || r.dateTime === null || typeof r.dateTime === "string") &&
-    (r.breaks === undefined || (Array.isArray(r.breaks) && r.breaks.length <= 50 && r.breaks.every(isRestBreak)))
+    (r.breaks === undefined || (Array.isArray(r.breaks) && r.breaks.length <= 50 && r.breaks.every(isRestBreak))) &&
+    (r.arriveAtStop === undefined || r.arriveAtStop === null || typeof r.arriveAtStop === "string")
   );
 }
 

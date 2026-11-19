@@ -125,7 +125,7 @@ export default function SettingsDialog({ open, onClose, settings, onChange, onRe
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="m-auto max-h-[min(44rem,calc(100dvh-2rem))] w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/40 open:flex open:flex-col max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:rounded-none max-md:border-0"
+      className="m-auto max-h-[min(44rem,calc(100dvh-2rem))] w-[min(28rem,calc(100vw-2rem))] lg:w-[min(35rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/40 open:flex open:flex-col max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:rounded-none max-md:border-0"
     >
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <h2 id="config-titulo" className="text-base font-semibold">

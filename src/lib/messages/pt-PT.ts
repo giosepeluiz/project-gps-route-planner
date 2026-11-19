@@ -49,6 +49,9 @@ const ptPT: Messages = {
     arrive: "Chegar até",
     dateTime: "Data e hora",
     now: "Agora",
+    arriveAtLabel: "Onde a hora conta",
+    arriveAtEnd: "No fim da rota",
+    arriveAtStop: (n: number, name: string) => `${n}. ${name}`,
   },
 
   stops: {
@@ -187,6 +190,9 @@ const ptPT: Messages = {
 
   actions: {
     copyLink: "Copiar a ligação da rota",
+    departureReport: "Relatório de partida (PDF)",
+    reportPreparing: "A preparar o relatório…",
+    reportBlocked: "O navegador bloqueou o novo separador. Permita pop-ups e tente de novo.",
     linkCopied: "Ligação da rota copiada.",
     opened: "Rota aberta pela ligação.",
     openGoogle: "Abrir no Google Maps",
@@ -229,6 +235,13 @@ const ptPT: Messages = {
     headerArrival: "Chegada",
     headerTime: "Tempo",
     headerDistance: "Distância",
+    headerEndArrival: "Chegada final",
+    headerTotalTime: "Tempo total",
+    headerTotalDistance: "Distância total",
+    headerSpeed: "Velocidade",
+    headerAverage: "Média",
+    headerReroutes: "Recálculos",
+    headerHint: "Toque para ver mais dados da viagem",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Demorou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
     seeStats: "Ver estatísticas",
@@ -248,6 +261,7 @@ const ptPT: Messages = {
       unavailable: "O envio de estatísticas não está disponível neste servidor.",
     },
     stats: {
+      finalReport: "Relatório final (PDF)",
       title: "Viagem concluída",
       lead: "Veja como correu em relação ao previsto.",
       planned: "Previsto",

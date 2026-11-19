@@ -14,7 +14,12 @@ import {
 } from "react";
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
-import MapView, { type MapLayout, type MapPoint, type MePosition } from "./MapView";
+import AiBadge from "./AiBadge";
+import pkg from "../../package.json";
+import { departureReportHtml, finalReportHtml, openReportWindow, showReport, type ReportRow } from "@/lib/pdf-report";
+import type { TripAnalysis } from "@/lib/report-email";
+import { selectClass } from "./DwellPicker";
+import MapView, { ROUND_TRIP_BADGE, type MapCapture, type MapLayout, type MapPoint, type MePosition } from "./MapView";
 import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
@@ -145,16 +150,6 @@ interface BlockOptions {
   blockRef?: (element: HTMLElement | null) => void;
   style?: CSSProperties;
   className?: string;
-}
-
-/** Estrelinhas de IA, ao lado do nome da camada que respondeu. */
-function Sparkles() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-accent" fill="currentColor">
-      <path d="M8 2.5l1.35 3.9a2 2 0 001.25 1.25L14.5 9l-3.9 1.35a2 2 0 00-1.25 1.25L8 15.5l-1.35-3.9a2 2 0 00-1.25-1.25L1.5 9l3.9-1.35a2 2 0 001.25-1.25z" />
-      <path d="M15 11.5l.65 1.85a1 1 0 00.6.6l1.85.65-1.85.65a1 1 0 00-.6.6L15 17.7l-.65-1.85a1 1 0 00-.6-.6L11.9 14.6l1.85-.65a1 1 0 00.6-.6z" />
-    </svg>
-  );
 }
 
 const iconProps = {
@@ -491,13 +486,17 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   );
   const breakMap = useMemo(() => breakSecondsByLeg(breaks), [breaks]);
 
+  /** "Chegar até" numa parada específica: o trecho que chega nela (o i-ésimo trecho chega na parada i). */
+  const arriveIndex = route.arriveAtStop ? stops.findIndex((s) => s.id === route.arriveAtStop) : -1;
+  const arriveLeg = timeMode === "arrive" && arriveIndex !== -1 ? arriveIndex : null;
+
   const plan = useMemo(() => {
     // Sem início ainda não há rota; sem caminho de carro, não há tempos para mostrar.
     if (!start || planStatus === "no-route") return null;
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
     const sequence = sequenceOf(stops);
-    return computePlan(sequence, timeMode, anchor, legTime, breakMap);
-  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus, breakMap]);
+    return computePlan(sequence, timeMode, anchor, legTime, breakMap, arriveLeg);
+  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus, breakMap, arriveLeg]);
 
   /** Distância total da rota: pelas ruas, quando o provedor devolve; senão, estimada. */
   const totalDistance = useMemo(
@@ -594,11 +593,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const point = (p: Place): SharedPoint => ({ lat: p.lat, lng: p.lng, dwellMinutes: 0 });
     const items: SharedItem[] = rowsOf(stops, breaks).map((row) =>
       row.kind === "stop"
-        ? { kind: "stop", lat: row.stop.lat, lng: row.stop.lng, dwellMinutes: row.stop.dwellMinutes }
+        ? {
+            kind: "stop",
+            lat: row.stop.lat,
+            lng: row.stop.lng,
+            dwellMinutes: row.stop.dwellMinutes,
+            ...(locks[row.stop.id] !== undefined ? { locked: true } : {}),
+          }
         : { kind: "break", minutes: row.brk.minutes },
     );
-    return { start: point(start), end: endSame ? "start" : end ? point(end) : "none", items };
-  }, [start, end, endSame, stops, breaks]);
+    // A hora vai junto só quando foi escolhida (sem ela, quem abre usa "agora").
+    const time = dateTime ? { mode: timeMode, at: dateTime } : null;
+    return { start: point(start), end: endSame ? "start" : end ? point(end) : "none", items, time };
+  }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode]);
   const sharePath = shareRoute ? sharedPath(shareRoute) : null;
 
   // Abriu por um link (/r/… ou ?s=…): a rota do link entra no lugar da atual,
@@ -630,8 +637,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
     const sharedStops: Place[] = [];
     const sharedBreaks: RestBreak[] = [];
+    const sharedLocks: Record<string, number> = {};
     for (const item of shared.items) {
-      if (item.kind === "stop") sharedStops.push(toPlace(item));
+      if (item.kind === "stop") {
+        const place = toPlace(item);
+        if (item.locked) sharedLocks[place.id] = sharedStops.length;
+        sharedStops.push(place);
+      }
       else sharedBreaks.push({ id: crypto.randomUUID(), minutes: item.minutes, after: sharedStops.length });
     }
     const next: RouteState = {
@@ -640,8 +652,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       end: shared.end === "start" || shared.end === "none" ? null : toPlace({ ...shared.end, dwellMinutes: 0 }),
       stops: sharedStops,
       breaks: sharedBreaks,
-      timeMode: "depart",
-      dateTime: null,
+      locks: sharedLocks,
+      timeMode: shared.time?.mode ?? "depart",
+      dateTime: shared.time?.at ?? null,
     };
     const previous = storedRoute;
     // Fora do corpo do efeito: o aviso e a troca acontecem logo depois da montagem.
@@ -735,6 +748,15 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [tripDepartAt, setTripDepartAt] = useState<number | null>(null);
   /** Carro andando (com folga, para não ficar trocando a câmera a cada semáforo). */
   const [moving, setMoving] = useState(false);
+  /** Barra de cima da viagem no celular: cada toque troca a tela (próxima parada, total, velocidade). */
+  const [headerPage, setHeaderPage] = useState(0);
+  /** Foto do mapa para os relatórios (a função vem do MapView). */
+  const captureRef = useRef<MapCapture | null>(null);
+  const [tripNumbers, setTripNumbers] = useState<{ speedKmh: number; averageKmh: number | null; reroutes: number }>({
+    speedKmh: 0,
+    averageKmh: null,
+    reroutes: 0,
+  });
   const movingRef = useRef({ fastFixes: 0, slowSince: null as number | null });
   const offRouteRef = useRef(0);
   const tripLogRef = useRef<TripLog | null>(null);
@@ -849,6 +871,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       estimated: legMeters.estimated,
       nextArriveAt: new Date(now + nextSeconds * 1000),
       endArriveAt: new Date(now + (nextSeconds + restSeconds) * 1000),
+      totalSeconds: nextSeconds + restSeconds,
+      totalMeters: Math.round(
+        routeMeters(tripView.sequence, tripView.server.streetLegs).meters - legMeters.meters * (1 - fraction),
+      ),
       startedAt: new Date(now),
     };
   }, [tripView, fix]);
@@ -923,18 +949,33 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     }
     setFix(next);
     if (tripLogRef.current) tripLogRef.current = logFix(tripLogRef.current, next);
+    // Números da barra de cima (segunda e terceira telas).
+    setTripNumbers({
+      speedKmh: speed * 3.6,
+      averageKmh: tripLogRef.current ? summarizeTrip(tripLogRef.current, null, next.at, 0).averageKmh : null,
+      reroutes: trackRef.current?.reroutes ?? 0,
+    });
     if (trackRef.current) trackRef.current = trackFix(trackRef.current, next);
 
     // Saiu da rota? Mede a distância até a linha do trecho atual; duas leituras
     // seguidas longe dela pedem uma rota nova já, saindo na direção do carro.
     const line = tripView?.server.streetLegs?.[0]?.coordinates;
-    const projection = line ? projectOnLine([next.lng, next.lat], line) : null;
-    offRouteRef.current = projection && isOffRoute(projection.distanceM, next.accuracy) ? offRouteRef.current + 1 : 0;
+    // Com o carro andando, a direção dele escolhe a mão certa da via; andar no
+    // sentido contrário ao da rota (contramão da linha) também conta como desvio.
+    const movingNow = speed >= 2.8 && next.heading !== null;
+    const projection = line ? projectOnLine([next.lng, next.lat], line, movingNow ? next.heading : null) : null;
+    const wrongWay = movingNow && projection?.against === true && projection.distanceM <= snapRadius(next.accuracy);
+    offRouteRef.current =
+      projection && (isOffRoute(projection.distanceM, next.accuracy) || wrongWay) ? offRouteRef.current + 1 : 0;
     const reroute = shouldReroute(lastReplanRef.current, next, offRouteRef.current);
     if (reroute || shouldReplan(lastReplanRef.current, next)) {
       lastReplanRef.current = next;
       offRouteRef.current = 0;
-      setTripOrigin(next);
+      // Parado, o GPS não sabe a direção: vale o sentido da via na rota atual
+      // (que já respeita a mão), para a rota nova não mandar dar meia-volta.
+      const legalHeading =
+        projection && !projection.against && projection.distanceM <= snapRadius(next.accuracy) ? projection.bearing : null;
+      setTripOrigin(next.heading === null && legalHeading !== null ? { ...next, heading: legalHeading } : next);
       if (reroute) {
         setRerouting(true);
         if (trackRef.current) trackRef.current = trackReroute(trackRef.current);
@@ -1024,6 +1065,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
   };
   const resumeTrip = () => {
+    // Como ao iniciar: no celular, a bandeja do Resumo recolhe para o mapa aparecer.
+    if (!isDesktop) setSheetOpen(false);
     const now = nowMs();
     // Retomar depois de chegar: a parada fica concluída e o acompanhamento segue para a próxima.
     if (trip?.status === "arrived" && trip.arrivedId) {
@@ -1229,7 +1272,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const points = useMemo<MapPoint[]>(() => {
     const list: MapPoint[] = [
       ...(start
-        ? [{ id: start.id, lat: start.lat, lng: start.lng, kind: "start" as const, badge: "A", title: start.label }]
+        ? [{ id: start.id, lat: start.lat, lng: start.lng, kind: "start" as const, badge: endSame ? ROUND_TRIP_BADGE : "A", title: start.label }]
         : []),
       ...stops.map<MapPoint>((s, i) => ({
         id: s.id,
@@ -1291,6 +1334,77 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     () => (!tripView && tripActive ? view.colors.slice(targetLeg) : view.colors),
     [tripView, tripActive, view.colors, targetLeg],
   );
+  /**
+   * Etiquetas de tempo e distância em cima de cada trecho. Só na visão 2D: com o
+   * carro andando (câmera de perto, em 3D) elas somem para não poluir o mapa.
+   */
+  const mapLegLabels = useMemo(() => {
+    if (tripActive && moving) return null;
+    const legs = tripView ? tripView.server.streetLegs : tripActive ? serverPlan?.streetLegs?.slice(targetLeg) : serverPlan?.streetLegs;
+    return legs?.map((leg) => `${formatDuration(leg.seconds)} · ${formatKm(leg.meters)}`) ?? null;
+  }, [tripActive, moving, tripView, serverPlan, targetLeg]);
+  // ---------- Relatórios (de saída e final) ----------
+  /** Linhas da tabela de paradas: cada trecho do plano e a parada em que ele chega. */
+  const reportRows = (): ReportRow[] =>
+    (plan?.legs ?? []).map((leg, i) => ({
+      n: i < stops.length ? String(i + 1) : endSame ? ROUND_TRIP_BADGE : "B",
+      name: leg.to.label,
+      arriveAt: leg.arriveAt,
+      dwellSeconds: leg.dwellSeconds,
+      leaveAt: i < stops.length ? leg.leaveAt : null,
+      legSeconds: leg.seconds,
+      legMeters: serverPlan?.streetLegs?.[i]?.meters ?? null,
+      breakSeconds: leg.breakSeconds,
+    }));
+  const makeReport = async (kind: "departure" | "final") => {
+    if (!start) return;
+    // A aba abre já no clique (depois de esperar o mapa, o navegador bloquearia).
+    const target = openReportWindow();
+    if (!target) return notify(t.actions.reportBlocked);
+    notify(t.actions.reportPreparing);
+    target.document.title = t.actions.reportPreparing;
+    const mapImage = (await captureRef.current?.().catch(() => null)) ?? null;
+    const common = {
+      locale,
+      version: pkg.version,
+      generatedAt: new Date(),
+      mapImage,
+      logoUrl: `${window.location.origin}/email-logo.png`,
+      startName: start.label,
+      endName: endSame ? null : (end?.label ?? null),
+      roundTrip: endSame,
+    };
+    let html: string;
+    if (kind === "departure") {
+      if (!plan) return target.close();
+      html = departureReportHtml({
+        ...common,
+        departAt: plan.departAt,
+        arriveAt: plan.arriveAt,
+        totalSeconds: plan.totalSeconds,
+        driveSeconds: plan.driveSeconds,
+        dwellSeconds: plan.dwellSeconds,
+        breakSeconds: plan.breakSeconds,
+        totalMeters: totalDistance?.meters ?? null,
+        rows: reportRows(),
+        aiComment: aiOutcome?.review?.explanation ?? null,
+      });
+    } else {
+      if (!tripStats || !reportDraft) return target.close();
+      // Análise técnica da IA (opcional): sem ela, o relatório sai do mesmo jeito.
+      const analysis = await fetch("/api/ai/trip-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale, trip: reportDraft }),
+      })
+        .then((res) => (res.ok ? (res.json() as Promise<{ analysis: TripAnalysis | null }>) : null))
+        .then((data) => data?.analysis ?? null)
+        .catch(() => null);
+      html = finalReportHtml({ ...common, summary: tripStats, trip: reportDraft, rows: reportRows(), analysis });
+    }
+    if (!showReport(target, html)) notify(t.actions.reportBlocked);
+  };
+
   /** Pontos da visão geral (carro parado): onde está e o que falta. */
   const overviewPoints = useMemo<[number, number][]>(() => {
     if (!tripActive) return [];
@@ -1549,10 +1663,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Celular e tablet: cabeçalho da viagem com a chegada, o tempo e a distância até a próxima parada.
   const tripHeader =
     isCompact && tripActive && target && trip?.status !== "arrived" ? (
-      <div
-        role="status"
+      <button
+        type="button"
         aria-live="polite"
-        className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 mx-auto max-w-[24rem] overflow-hidden rounded-xl border border-line bg-surface shadow-panel"
+        title={t.trip.headerHint}
+        onClick={() => setHeaderPage((page) => (page + 1) % 3)}
+        className="focus-ring fixed inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 mx-auto block max-w-[24rem] overflow-hidden rounded-xl border border-line bg-surface text-left shadow-panel transition-colors active:bg-hover"
       >
         {rerouting || !live ? (
           <p className="px-3 py-2.5 text-center text-compact font-medium text-ink-2">
@@ -1561,11 +1677,23 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         ) : (
           <dl className="grid grid-cols-3 divide-x divide-line">
             {(
-              [
-                [t.trip.headerArrival, formatTime(live.nextArriveAt)],
-                [t.trip.headerTime, formatDuration(live.nextSeconds)],
-                [t.trip.headerDistance, liveKm],
-              ] as const
+              headerPage === 1
+                ? [
+                    [t.trip.headerEndArrival, formatTime(live.endArriveAt)],
+                    [t.trip.headerTotalTime, formatDuration(live.totalSeconds)],
+                    [t.trip.headerTotalDistance, `${live.estimated ? "≈ " : ""}${formatKm(live.totalMeters)}`],
+                  ]
+                : headerPage === 2
+                  ? [
+                      [t.trip.headerSpeed, `${Math.round(tripNumbers.speedKmh)} km/h`],
+                      [t.trip.headerAverage, tripNumbers.averageKmh === null ? "—" : `${Math.round(tripNumbers.averageKmh)} km/h`],
+                      [t.trip.headerReroutes, String(tripNumbers.reroutes)],
+                    ]
+                  : [
+                      [t.trip.headerArrival, formatTime(live.nextArriveAt)],
+                      [t.trip.headerTime, formatDuration(live.nextSeconds)],
+                      [t.trip.headerDistance, liveKm],
+                    ]
             ).map(([label, value]) => (
               <div key={label} className="flex flex-col items-center px-2 py-1.5">
                 <dt className="text-2xs font-medium text-muted">{label}</dt>
@@ -1574,7 +1702,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             ))}
           </dl>
         )}
-      </div>
+        {/* Qual das três telas está aparecendo. */}
+        <span aria-hidden="true" className="flex justify-center gap-1 pb-1">
+          {[0, 1, 2].map((page) => (
+            <span key={page} className={`h-1 w-1 rounded-full ${page === headerPage ? "bg-accent" : "bg-line-strong"}`} />
+          ))}
+        </span>
+      </button>
     ) : null;
 
   const tourSteps: TourStep[] = [
@@ -1700,6 +1834,23 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     {t.startEnd.now}
                   </button>
                 </div>
+                {timeMode === "arrive" && stops.length > 0 && (
+                  <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-ink-2">
+                    {t.startEnd.arriveAtLabel}
+                    <select
+                      className={`${selectClass} w-full`}
+                      value={arriveLeg === null ? "" : (route.arriveAtStop ?? "")}
+                      onChange={(e) => setRoute((prev) => ({ ...prev, arriveAtStop: e.target.value || null }))}
+                    >
+                      <option value="">{t.startEnd.arriveAtEnd}</option>
+                      {stops.map((stop, i) => (
+                        <option key={stop.id} value={stop.id}>
+                          {t.startEnd.arriveAtStop(i + 1, stop.label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </fieldset>
             </div>
           </CollapsibleCard>
@@ -1795,6 +1946,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               plan={plan}
               isMobile={!isDesktop}
               onNotify={notify}
+              onDepartureReport={() => void makeReport("departure")}
             />
             )}
           </CollapsibleCard>
@@ -1918,8 +2070,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
               <div className="flex flex-col gap-1.5 border-t border-line pt-3" aria-live="polite">
                 <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  {(aiTier !== "local" || aiLoading) && <AiBadge />}
                   <Badge>
-                    {(aiTier !== "local" || aiLoading) && <Sparkles />}
                     {aiLoading
                       ? t.ai.loading
                       : aiOutcome?.review
@@ -2065,6 +2217,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         selectedLeg={info?.leg ?? null}
         doneLegs={tripActive ? [] : doneLegs}
         legColors={mapLegColors}
+        legLabels={mapLegLabels}
+        captureRef={captureRef}
         driving={moving}
         overview={overviewPoints}
         me={meOnMap}
@@ -2245,6 +2399,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         theme={theme}
         fontSize={settings.fontSize}
         onClose={() => setStatsOpen(false)}
+        onFinalReport={() => void makeReport("final")}
       />
 
       {resumeAsk && (

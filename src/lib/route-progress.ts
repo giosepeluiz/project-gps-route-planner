@@ -22,6 +22,8 @@ export interface Projection {
   lengthM: number;
   /** Direção da via no ponto projetado (graus a partir do norte, sentido horário). */
   bearing: number;
+  /** O carro anda no sentido contrário ao da linha nesse ponto (só com heading). */
+  against?: boolean;
 }
 
 /** Distância entre dois pontos [lng, lat], em metros (haversine). */
@@ -56,7 +58,15 @@ export function lerpAngle(from: number, to: number, t: number): number {
  * Projeta o ponto na linha. Usa uma projeção plana local (precisa para as
  * distâncias de uma via), o que é bem mais leve que geodésia a cada quadro.
  */
-export function projectOnLine(point: LngLat, line: readonly LngLat[]): Projection | null {
+/**
+ * Com a direção do carro (heading), um trecho da linha no sentido contrário
+ * (a mesma rua na volta, depois de uma rotunda) só ganha se estiver bem mais
+ * perto: o carro não "gruda" na mão errada da via.
+ */
+const AGAINST_PENALTY_M = 40;
+const isAgainst = (segment: number, heading: number) => Math.abs(angleDelta(segment, heading)) > 110;
+
+export function projectOnLine(point: LngLat, line: readonly LngLat[], heading: number | null = null): Projection | null {
   if (line.length < 2) return null;
   const cosLat = Math.cos(point[1] * RAD);
   const toXY = (p: LngLat): [number, number] => [
@@ -64,7 +74,7 @@ export function projectOnLine(point: LngLat, line: readonly LngLat[]): Projectio
     (p[1] - point[1]) * RAD * EARTH_RADIUS_M,
   ];
 
-  let best: { index: number; t: number; dist2: number } | null = null;
+  let best: { index: number; t: number; dist2: number; score: number } | null = null;
   const segmentLengths: number[] = [];
   for (let i = 0; i < line.length - 1; i++) {
     const [ax, ay] = toXY(line[i]);
@@ -78,7 +88,9 @@ export function projectOnLine(point: LngLat, line: readonly LngLat[]): Projectio
     const px = ax + dx * t;
     const py = ay + dy * t;
     const dist2 = px * px + py * py;
-    if (!best || dist2 < best.dist2) best = { index: i, t, dist2 };
+    const against = heading !== null && len2 > 0 && isAgainst(bearingDeg(line[i], line[i + 1]), heading);
+    const score = Math.sqrt(dist2) + (against ? AGAINST_PENALTY_M : 0);
+    if (!best || score < best.score) best = { index: i, t, dist2, score };
   }
   if (!best) return null;
 
@@ -94,6 +106,7 @@ export function projectOnLine(point: LngLat, line: readonly LngLat[]): Projectio
     lengthM: segmentLengths.reduce((sum, l) => sum + l, 0),
     // Segmento sem comprimento (pontos repetidos) não tem direção: usa o próximo que tiver.
     bearing: segmentBearing(line, best.index),
+    against: heading !== null && isAgainst(segmentBearing(line, best.index), heading),
   };
 }
 

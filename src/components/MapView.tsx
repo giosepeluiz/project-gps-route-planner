@@ -13,12 +13,17 @@ import { MAP_ATTRIBUTION, PRIMARY_STYLE_URL } from "@/lib/map-style";
 
 type MapLibre = typeof import("maplibre-gl");
 
+/** Pin de ida e volta: saída e chegada no mesmo ponto. */
+export const ROUND_TRIP_BADGE = "↺";
+const ROUND_TRIP_SVG =
+  '<svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 8.5A6 6 0 1 0 14 14"/><path d="M16 4v4.5h-4.5"/></svg>';
+
 export interface MapPoint {
   id: string;
   lat: number;
   lng: number;
   kind: "start" | "end" | "stop";
-  /** Texto do pin: "A", "B" ou o número da parada. */
+  /** Texto do pin: "A", "B", o número da parada ou "↺" (saída e chegada no mesmo lugar). */
   badge: string;
   title: string;
 }
@@ -37,7 +42,12 @@ export interface MePosition {
 /** Quanto do mapa está coberto pelo HUD, para o enquadramento da rota. */
 export type MapLayout = "desktop" | "sheet-open" | "sheet-closed";
 
+/** Foto do mapa (para os relatórios): a rota inteira, em 2D, com os pins desenhados. */
+export type MapCapture = () => Promise<string | null>;
+
 interface MapViewProps {
+  /** Recebe a função que tira a foto do mapa. */
+  captureRef?: { current: MapCapture | null };
   points: MapPoint[];
   /** Retas entre os pontos, em [lng, lat]: a linha azul pontilhada. */
   path: [number, number][];
@@ -51,6 +61,8 @@ interface MapViewProps {
   doneLegs: readonly number[];
   /** Cor de cada trecho (na viagem, os trechos que faltam mantêm a cor da parada). */
   legColors?: readonly string[];
+  /** Tempo e distância de cada trecho, escritos em cima da linha (null = sem etiquetas, como no 3D da viagem). */
+  legLabels?: readonly string[] | null;
   /** Posição atual pelo GPS (durante a viagem), ou null. */
   me?: MePosition | null;
   /** Com a viagem em andamento, o mapa acompanha a posição atual (em 3D). */
@@ -112,6 +124,48 @@ const STRAIGHT_COLOR = "#2563eb";
 const STREET_SOURCE = "rota-ruas";
 const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
+/** Etiquetas de tempo e distância de cada trecho, em cima da linha (só na visão 2D). */
+const LEG_LABEL_LAYER = "rota-ruas-etiquetas";
+const LEG_LABEL_IMAGE = "rota-etiqueta";
+const LEG_LABEL_SOURCE = "rota-ruas-etiquetas-pontos";
+
+/** Ponto no meio do trecho (pela distância ao longo da linha). */
+function midpointOf(coordinates: LngLat[]): LngLat | null {
+  if (coordinates.length === 0) return null;
+  const seg = (a: LngLat, b: LngLat) => Math.hypot((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]);
+  let total = 0;
+  for (let i = 1; i < coordinates.length; i++) total += seg(coordinates[i - 1], coordinates[i]);
+  let left = total / 2;
+  for (let i = 1; i < coordinates.length; i++) {
+    const d = seg(coordinates[i - 1], coordinates[i]);
+    if (d >= left && d > 0) {
+      const k = left / d;
+      const [a, b] = [coordinates[i - 1], coordinates[i]];
+      return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+    }
+    left -= d;
+  }
+  return coordinates[coordinates.length - 1];
+}
+
+/**
+ * Fundo da etiqueta: retângulo arredondado em SDF, que o MapLibre estica em
+ * volta do texto e pinta com a cor do trecho.
+ */
+function labelImage(): { width: number; height: number; data: Uint8ClampedArray } {
+  const size = 24;
+  const radius = 7;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = Math.max(radius - x - 0.5, 0, x + 0.5 - (size - radius));
+      const dy = Math.max(radius - y - 0.5, 0, y + 0.5 - (size - radius));
+      const inside = Math.hypot(dx, dy) <= radius ? 255 : 0;
+      data.set([255, 255, 255, inside], (y * size + x) * 4);
+    }
+  }
+  return { width: size, height: size, data };
+}
 const DESKTOP_QUERY = "(min-width: 768px)";
 /** Inclinação da câmera na viagem (visão 3D, como nos GPS). */
 const NAV_PITCH = 55;
@@ -119,7 +173,7 @@ const NAV_PITCH = 55;
 const NAV_ZOOM_COMPACT = 18.6;
 const NAV_ZOOM_DESKTOP = 16.5;
 /** Quanto a câmera anda até o zoom e a inclinação da viagem a cada quadro (aproximação suave). */
-const CAMERA_EASE = 0.045;
+const CAMERA_EASE = 0.016;
 
 /** Tamanho da seta conforme o zoom: pequena com o mapa aberto, grande bem perto. */
 const arrowSize = (zoom: number) => Math.round(Math.min(76, Math.max(30, 30 + (zoom - 13) * 8)));
@@ -143,7 +197,7 @@ type StreetsData = {
   type: "FeatureCollection";
   features: {
     type: "Feature";
-    properties: { index: number; color: string };
+    properties: { index: number; color: string; label: string };
     geometry: { type: "LineString"; coordinates: [number, number][] };
   }[];
 };
@@ -156,10 +210,11 @@ function withProgress(
   streets: StreetsData,
   position: LngLat | null,
   accuracy: number,
+  heading: number | null = null,
 ): { data: StreetsData; snapped: Projection | null } {
   const first = streets.features[0];
   if (!position || !first) return { data: streets, snapped: null };
-  const projection = projectOnLine(position, first.geometry.coordinates);
+  const projection = projectOnLine(position, first.geometry.coordinates, heading);
   if (!projection || projection.distanceM > snapRadius(accuracy)) return { data: streets, snapped: null };
   return {
     data: {
@@ -263,6 +318,7 @@ export default function MapView({
   selectedLeg,
   doneLegs,
   legColors,
+  legLabels = null,
   me = null,
   follow = false,
   tracking = false,
@@ -275,6 +331,7 @@ export default function MapView({
   layout,
   columnInsets,
   fitVersion,
+  captureRef,
   onOpenSettings,
   onOpenAbout,
   fallbackStyleUrl,
@@ -398,7 +455,7 @@ export default function MapView({
               [x - 6, y - 6],
               [x + 6, y + 6],
             ],
-            { layers: [STREET_LAYER] },
+            { layers: [STREET_LAYER, ...(map.getLayer(LEG_LABEL_LAYER) ? [LEG_LABEL_LAYER] : [])] },
           );
           const index = hits[0]?.properties?.index;
           if (typeof index === "number") {
@@ -517,6 +574,7 @@ export default function MapView({
 
   const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
   const colorKey = legColors?.join(",") ?? "";
+  const labelKey = legLabels?.join("|") ?? "";
 
   // Pins e linha da rota.
   useEffect(() => {
@@ -530,7 +588,10 @@ export default function MapView({
     markersRef.current = points.map((point) => {
       const element = document.createElement("div");
       element.className = `pin pin-${point.kind}`;
-      element.textContent = point.badge;
+      if (point.badge === ROUND_TRIP_BADGE) {
+        element.innerHTML = ROUND_TRIP_SVG;
+        element.classList.add("pin-round");
+      } else element.textContent = point.badge;
       element.title = point.title;
       element.setAttribute("role", "button");
       element.tabIndex = 0;
@@ -565,9 +626,25 @@ export default function MapView({
       features: (streetLegs ?? []).map((coordinates, index) => ({
         type: "Feature" as const,
         // Trecho concluído fica cinza; os outros, cada um na sua cor.
-        properties: { index, color: doneSet.has(index) ? DONE_LEG_COLOR : (colors[index] ?? legColor(index)) },
+        properties: {
+          index,
+          color: doneSet.has(index) ? DONE_LEG_COLOR : (colors[index] ?? legColor(index)),
+          label: legLabels?.[index] ?? "",
+        },
         geometry: { type: "LineString" as const, coordinates },
       })),
+    };
+
+    // Etiquetas: uma por trecho ainda não concluído, no meio da linha.
+    const labelPoints = {
+      type: "FeatureCollection" as const,
+      features: streets.features.flatMap((feature) => {
+        const label = feature.properties.label;
+        const at = label && !doneSet.has(feature.properties.index) ? midpointOf(feature.geometry.coordinates as LngLat[]) : null;
+        return at
+          ? [{ type: "Feature" as const, properties: feature.properties, geometry: { type: "Point" as const, coordinates: at } }]
+          : [];
+      }),
     };
 
     streetsRef.current = streets;
@@ -576,6 +653,7 @@ export default function MapView({
     const straightSource = map.getSource(STRAIGHT_SOURCE) as GeoJSONSource | undefined;
     if (straightSource) {
       straightSource.setData(straight);
+      (map.getSource(LEG_LABEL_SOURCE) as GeoJSONSource | undefined)?.setData(labelPoints);
       (map.getSource(STREET_SOURCE) as GeoJSONSource | undefined)?.setData(drawn);
     } else {
       const round = { "line-cap": "round" as const, "line-join": "round" as const };
@@ -603,18 +681,56 @@ export default function MapView({
         layout: round,
         paint: { "line-color": STRAIGHT_COLOR, "line-dasharray": [0.5, 2.5] },
       });
-      // A linha colorida é clicável.
-      map.on("mouseenter", STREET_LAYER, () => {
-        map.getCanvas().style.cursor = "pointer";
+      // Etiquetas dos trechos: horizontais, sobre a linha, com o fundo na cor do
+      // trecho. O MapLibre não deixa uma etiqueta cobrir outra (a que colidir
+      // fica escondida até haver espaço), mesmo com as linhas sobrepostas.
+      if (!map.hasImage(LEG_LABEL_IMAGE)) {
+        map.addImage(LEG_LABEL_IMAGE, labelImage(), {
+          sdf: true,
+          stretchX: [[8, 16]],
+          stretchY: [[8, 16]],
+          content: [6, 5, 18, 19],
+          pixelRatio: 2,
+        });
+      }
+      map.addSource(LEG_LABEL_SOURCE, { type: "geojson", data: labelPoints });
+      map.addLayer({
+        id: LEG_LABEL_LAYER,
+        type: "symbol",
+        source: LEG_LABEL_SOURCE,
+        layout: {
+          // Se o meio do trecho já tem outra etiqueta, esta tenta ao lado.
+          "text-variable-anchor": ["center", "top", "bottom", "left", "right"],
+          "text-radial-offset": 1.1,
+          "text-field": ["get", "label"],
+          "text-font": ["Noto Sans Bold"],
+          "text-size": 12,
+          "text-rotation-alignment": "viewport",
+          "text-pitch-alignment": "viewport",
+          "icon-image": LEG_LABEL_IMAGE,
+          "icon-text-fit": "both",
+          "icon-text-fit-padding": [3, 7, 3, 7],
+          "icon-rotation-alignment": "viewport",
+          "icon-pitch-alignment": "viewport",
+          "text-allow-overlap": false,
+          "icon-allow-overlap": false,
+          "symbol-sort-key": ["get", "index"],
+        },
+        paint: { "text-color": "#ffffff", "icon-color": ["get", "color"] },
       });
-      map.on("mouseleave", STREET_LAYER, () => {
-        map.getCanvas().style.cursor = "";
-      });
+      for (const layer of [STREET_LAYER, LEG_LABEL_LAYER]) {
+        map.on("mouseenter", layer, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layer, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
     }
     // Com a rota pelas ruas no mapa, as retas ficam mais discretas.
     map.setPaintProperty(STRAIGHT_LAYER, "line-width", streetLegs ? 3 : 4);
     map.setPaintProperty(STRAIGHT_LAYER, "line-opacity", streetLegs ? 0.75 : 0.9);
-  }, [points, path, streetLegs, doneKey, colorKey, tracking, styleVersion, t]);
+  }, [points, path, streetLegs, doneKey, colorKey, labelKey, tracking, styleVersion, t]);
 
   // Seta da posição atual (viagem). Ela desliza de uma leitura do GPS para a
   // seguinte (sem pulos), gruda na linha da rota quando está perto dela, gira
@@ -653,10 +769,11 @@ export default function MapView({
     const marker = meMarkerRef.current;
     const target: LngLat = [meLng, meLat];
     const fromRaw = rawRef.current ?? target;
-    // A animação dura o intervalo entre as leituras: a seta chega quando a próxima leitura sai.
+    // A animação dura um pouco mais que o intervalo entre as leituras: a seta nunca
+    // para entre uma e outra e anda devagar, sem trancos (como no Waze).
     const gap = lastFixAtRef.current === null ? 0 : meAt - lastFixAtRef.current;
     lastFixAtRef.current = meAt;
-    const duration = Math.min(Math.max(gap, 300), 1_600);
+    const duration = Math.min(Math.max(gap * 1.2, 600), 2_600);
     const started = performance.now();
     const navPadding = routePadding(map, layout);
     // Na viagem, a seta fica mais para baixo da tela, com mais caminho à frente.
@@ -665,6 +782,7 @@ export default function MapView({
     let frame = 0;
 
     const step = (now: number) => {
+      // Linear: com a duração maior que o intervalo, a seta anda sem parar nem dar trancos.
       const t = Math.min(1, (now - started) / duration);
       const raw: LngLat = [fromRaw[0] + (target[0] - fromRaw[0]) * t, fromRaw[1] + (target[1] - fromRaw[1]) * t];
       rawRef.current = raw;
@@ -672,7 +790,7 @@ export default function MapView({
       let wanted = meHeading ?? shownRef.current?.bearing ?? 0;
       const streets = streetsRef.current;
       if (trackingRef.current && streets) {
-        const { data, snapped } = withProgress(streets, raw, meAccuracy);
+        const { data, snapped } = withProgress(streets, raw, meAccuracy, meHeading);
         if (snapped) {
           position = snapped.point;
           // A seta e o mapa apontam para onde o carro está indo (direção do GPS),
@@ -686,7 +804,7 @@ export default function MapView({
         }
       }
       const previous = shownRef.current?.bearing ?? wanted;
-      const bearing = lerpAngle(previous, wanted, 0.18);
+      const bearing = lerpAngle(previous, wanted, 0.07);
       shownRef.current = { lng: position[0], lat: position[1], bearing };
       marker.setLngLat(position).setRotation(bearing);
       let cameraMoving = false;
@@ -704,11 +822,11 @@ export default function MapView({
         const zoom = ease(zoomNow, zoomTarget, 0.01);
         const pitch = ease(pitchNow, pitchTarget, 0.1);
         const nextBearing =
-          Math.abs(angleDelta(bearingNow, bearingTarget)) < 0.2 ? bearingTarget : lerpAngle(bearingNow, bearingTarget, 0.12);
+          Math.abs(angleDelta(bearingNow, bearingTarget)) < 0.2 ? bearingTarget : lerpAngle(bearingNow, bearingTarget, 0.04);
         // O centro também desliza, para a troca entre os dois modos não dar um salto.
         const centerNow = map.getCenter();
         const centerTarget = overviewCamera ? overviewCamera.center : position;
-        const k = overviewCamera ? CAMERA_EASE : 0.25;
+        const k = overviewCamera ? CAMERA_EASE : 0.1;
         const center: LngLat = [
           centerNow.lng + (centerTarget[0] - centerNow.lng) * k,
           centerNow.lat + (centerTarget[1] - centerNow.lat) * k,
@@ -779,11 +897,11 @@ export default function MapView({
         ...(shown ? { center: [shown.lng, shown.lat] as LngLat } : {}),
         zoom: map.getZoom() + (zoomTargetRef.current - map.getZoom()) * 0.35,
         pitch: NAV_PITCH * 0.5,
-        duration: 1200,
+        duration: 2600,
       });
     } else if (!tracking && (map.getPitch() !== 0 || map.getBearing() !== 0)) {
       // Fim da viagem: volta ao mapa plano, com o norte para cima (pausada, continua em 3D).
-      map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
+      map.easeTo({ pitch: 0, bearing: 0, duration: 1600 });
     }
   }, [follow, tracking, compact, styleVersion]);
 
@@ -792,7 +910,7 @@ export default function MapView({
     const map = mapRef.current;
     const shown = shownRef.current;
     if (!map || styleVersion === 0 || !followRef.current || !shown) return;
-    map.easeTo({ bearing: headingUp ? shown.bearing : 0, duration: 500 });
+    map.easeTo({ bearing: headingUp ? shown.bearing : 0, duration: 1200 });
   }, [headingUp, styleVersion]);
 
   // Trecho clicado em destaque: os outros ficam semitransparentes e ele passa por cima.
@@ -884,6 +1002,73 @@ export default function MapView({
       console.warn("Não foi possível enquadrar a rota no mapa.", err);
     }
   }, [boundsKey, layout, fitVersion, styleVersion, size, tracking]);
+
+  // Foto do mapa para os relatórios: enquadra a rota inteira (2D, norte para
+  // cima), espera os blocos carregarem, copia o canvas, desenha os pins por cima
+  // e devolve a câmera para onde estava.
+  useEffect(() => {
+    if (!captureRef) return;
+    captureRef.current = () =>
+      new Promise<string | null>((resolve) => {
+        const map = mapRef.current;
+        const lib = libRef.current;
+        if (!map || !lib) return resolve(null);
+        const before = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+        const coords: LngLat[] = [
+          ...points.map((p) => [p.lng, p.lat] as LngLat),
+          ...(streetsRef.current?.features.flatMap((f) => f.geometry.coordinates as LngLat[]) ?? []),
+        ];
+        let done = false;
+        const finish = (value: string | null) => {
+          if (done) return;
+          done = true;
+          map.jumpTo(before);
+          resolve(value);
+        };
+        window.setTimeout(() => finish(null), 10_000);
+        if (coords.length > 0) {
+          const bounds = coords.reduce((acc, c) => acc.extend(c), new lib.LngLatBounds(coords[0], coords[0]));
+          map.fitBounds(bounds, { padding: 48, duration: 0, bearing: 0, pitch: 0, maxZoom: 15 });
+        }
+        map.once("idle", () => {
+          map.once("render", () => {
+            try {
+              const source = map.getCanvas();
+              const canvas = document.createElement("canvas");
+              canvas.width = source.width;
+              canvas.height = source.height;
+              const ctx = canvas.getContext("2d");
+              if (!ctx) return finish(null);
+              ctx.drawImage(source, 0, 0);
+              const scale = source.width / source.clientWidth;
+              for (const point of points) {
+                const { x, y } = map.project([point.lng, point.lat]);
+                const r = 13 * scale;
+                ctx.beginPath();
+                ctx.arc(x * scale, y * scale, r, 0, Math.PI * 2);
+                ctx.fillStyle = point.kind === "stop" ? "#2456d6" : "#1c1b19";
+                ctx.fill();
+                ctx.lineWidth = 2.5 * scale;
+                ctx.strokeStyle = "#ffffff";
+                ctx.stroke();
+                ctx.fillStyle = "#ffffff";
+                ctx.font = `700 ${12 * scale}px Roboto, "Segoe UI", Arial, sans-serif`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(point.badge, x * scale, y * scale + 0.5 * scale);
+              }
+              finish(canvas.toDataURL("image/jpeg", 0.9));
+            } catch {
+              finish(null);
+            }
+          });
+          map.triggerRepaint();
+        });
+      });
+    return () => {
+      captureRef.current = null;
+    };
+  }, [captureRef, points]);
 
   return (
     <div

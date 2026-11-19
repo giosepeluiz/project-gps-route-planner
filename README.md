@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.5.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.6.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -128,18 +128,21 @@ Se a IA estiver ligada, ela comenta a ordem. Quando sugere outra, o app **confer
 | **Copiar rota** | O roteiro em texto, com horários, no idioma da interface |
 | **Compartilhar** | A folha de compartilhamento do celular (onde o navegador oferece), com o link da rota |
 | **Copiar link da rota** | Um endereço que abre a mesma rota em qualquer aparelho |
+| **Relatório de saída (PDF)** | Documento formal com mapa, sequência de paradas, horários, km, pausas e o comentário da IA; abre a janela de impressão, de onde se salva o PDF |
 
-**Link da rota.** São aceitos dois formatos; o link leva só coordenadas, tempos e pausas (os nomes são buscados de novo por quem abre):
+**Link da rota.** São aceitos dois formatos; o link leva só coordenadas, tempos, travas, pausas e a hora (os nomes são buscados de novo por quem abre):
 
 ```text
-https://rotas.arqueirover.de/r/<início>/<fim>/<parada1>/<parada2>/…
-https://rotas.arqueirover.de/?s=<início>&e=<fim>&p1=<parada1>&p2=<parada2>…
+https://rotas.arqueirover.de/r/<início>/<fim>/<parada1>/<parada2>/…[/<hora>]
+https://rotas.arqueirover.de/?s=<início>&e=<fim>&p1=<parada1>&p2=<parada2>…[&t=<hora>]
 ```
 
 - **Local:** `lat,lng` com ponto decimal, como `38.7075,-9.1364`. O tempo de permanência vai depois de `@`, em minutos: `38.7253,-9.15@10`.
 - **Fim:** `s` volta ao início; `-` (ou, nos parâmetros, não pôr o `e`) termina na última parada; ou as coordenadas de outro lugar.
 - **Pausa para descanso:** `b20` (20 minutos) no lugar de uma parada.
-- Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10/b20/38.7445,-9.1745`.
+- **Parada travada** na posição: `!` no fim, como `38.7253,-9.15@10!`.
+- **Hora:** `d` (sair em) ou `a` (chegar até) seguido de `AAAAMMDDhhmm`, como `d202611200830`. No caminho é o último segmento; nos parâmetros, `t=`.
+- Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10!/b20/38.7445,-9.1745/d202611200830`.
 
 ### 7. Personalizar
 
@@ -225,6 +228,19 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 📄 Versão 0.6.0 (beta)
+
+- **Relatórios em PDF:** relatório de saída (em Abrir e compartilhar) e relatório final (na janela do fim da viagem), em documento formal no idioma do app, com título, mapa da rota com as paradas, tabelas, texto corrido, criador, versão e data e hora de geração. O final traz previsto × real, gráficos (tempo por trecho e distribuição do tempo) e a análise técnica da IA. Salva-se pela janela de impressão ("Salvar como PDF").
+- **Símbolo padrão de IA:** estrelas com "IA" (ou "AI") num retângulo arredondado, em tudo que vem da IA (app, e-mail e relatórios).
+- **Chegar até numa parada específica:** no modo "Chegar até", escolha a parada em que a hora vale; o resto da rota é replanejado em volta dela.
+- **Tempo e distância em cima da linha** de cada trecho na visão 2D, com o fundo na cor do trecho e sem uma etiqueta cobrir a outra; um toque mostra os detalhes. No 3D da viagem elas somem.
+- **Barra de cima da viagem (celular):** cada toque troca entre próxima parada, totais da rota (chegada final, tempo e distância) e velocidade atual, média e recálculos.
+- **Mão da via:** com o carro andando, a posição gruda no sentido certo da rua (a ida e a volta pela mesma via não se confundem); andar contra a linha da rota conta como desvio, e o recálculo sai na direção do carro (ou, parado, no sentido da via).
+- **Animações mais suaves:** o zoom do 2D para o 3D e a volta ficaram bem mais lentos, e a seta e a câmera andam devagar, sem trancos.
+- **Link compartilhado** leva também a data e hora (saída ou chegada) e as paradas travadas.
+- **Ícone de ida e volta** no mapa quando a saída e a chegada são o mesmo lugar (A e B continuam quando são diferentes).
+- Modais mais largos no computador e em tablets grandes; ao retomar a viagem, a bandeja do Resumo recolhe no celular, como ao iniciar.
 
 ### 📊 Versão 0.5.0 (beta)
 
@@ -344,7 +360,7 @@ O repositório está ligado à **Vercel**: cada `git push` na `main` publica uma
 
 | Pasta / arquivo | O que tem |
 |---|---|
-| `src/app/` | Página, ícones, manifesto e as rotas da API (`/api/plan`, `/api/geocode`, `/api/suggest`, `/api/reverse`, `/api/resolve`, `/api/ai/*`, `/api/trip-report`, `/api/status`) e o link `/r/…` |
+| `src/app/` | Página, ícones, manifesto e as rotas da API (`/api/plan`, `/api/geocode`, `/api/suggest`, `/api/reverse`, `/api/resolve`, `/api/ai/*` (inclusive `/api/ai/trip-analysis`), `/api/trip-report`, `/api/status`) e o link `/r/…` |
 | `src/components/RoutePlanner.tsx` | A tela principal: estado da rota, blocos e mapa |
 | `src/components/` | Mapa, lista de paradas, campos, balão, configurações, Sobre e afins |
 | `src/lib/solver.ts` | O algoritmo da ordem (Held-Karp, heurística e "Chegar até") |

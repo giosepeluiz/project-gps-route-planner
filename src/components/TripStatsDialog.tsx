@@ -33,6 +33,8 @@ interface TripStatsDialogProps {
   theme: "light" | "dark";
   fontSize: FontSize;
   onClose: () => void;
+  /** Gera o relatório final (documento para imprimir ou salvar em PDF). */
+  onFinalReport?: () => void;
 }
 
 type SendState = "ask" | "sending" | "sent" | "failed" | "unavailable";
@@ -40,7 +42,16 @@ type SendState = "ask" | "sending" | "sent" | "failed" | "unavailable";
 const Email = z.email().max(254);
 
 /** Estatísticas da viagem concluída: previsto × real. */
-export default function TripStatsDialog({ open, stats, reportTrip, locale, theme, fontSize, onClose }: TripStatsDialogProps) {
+export default function TripStatsDialog({
+  open,
+  stats,
+  reportTrip,
+  locale,
+  theme,
+  fontSize,
+  onClose,
+  onFinalReport,
+}: TripStatsDialogProps) {
   const t = useT();
   const s = t.trip.stats;
   const r = t.trip.report;
@@ -161,7 +172,7 @@ export default function TripStatsDialog({ open, stats, reportTrip, locale, theme
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] lg:w-[min(33rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-black/50"
     >
       {stats && (
         <div className="flex flex-col gap-4 px-6 pb-5 pt-6">
@@ -325,6 +336,19 @@ export default function TripStatsDialog({ open, stats, reportTrip, locale, theme
             </section>
           )}
 
+          {onFinalReport && reportTrip && (
+            <button
+              type="button"
+              onClick={onFinalReport}
+              className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm font-semibold text-ink hover:bg-hover"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 2.75h5.5L15.25 6.5v10a.75.75 0 01-.75.75h-8.5a.75.75 0 01-.75-.75V3.5A.75.75 0 016 2.75z" />
+                <path d="M11.25 2.75V6.75h4M8 10.5h4.5M8 13.5h4.5" />
+              </svg>
+              {t.trip.stats.finalReport}
+            </button>
+          )}
           <button
             type="button"
             autoFocus

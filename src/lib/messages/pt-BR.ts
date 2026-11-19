@@ -52,6 +52,9 @@ const ptBR = {
     arrive: "Chegar até",
     dateTime: "Data e hora",
     now: "Agora",
+    arriveAtLabel: "Onde a hora vale",
+    arriveAtEnd: "No fim da rota",
+    arriveAtStop: (n: number, name: string) => `${n}. ${name}`,
   },
 
   stops: {
@@ -193,6 +196,9 @@ const ptBR = {
 
   actions: {
     copyLink: "Copiar link da rota",
+    departureReport: "Relatório de saída (PDF)",
+    reportPreparing: "Preparando o relatório…",
+    reportBlocked: "O navegador bloqueou a nova aba. Permita pop-ups e tente de novo.",
     linkCopied: "Link da rota copiado.",
     opened: "Rota aberta pelo link.",
     openGoogle: "Abrir no Google Maps",
@@ -236,6 +242,13 @@ const ptBR = {
     headerArrival: "Chegada",
     headerTime: "Tempo",
     headerDistance: "Distância",
+    headerEndArrival: "Chegada final",
+    headerTotalTime: "Tempo total",
+    headerTotalDistance: "Distância total",
+    headerSpeed: "Velocidade",
+    headerAverage: "Média",
+    headerReroutes: "Recálculos",
+    headerHint: "Toque para ver mais dados da viagem",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Levou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
     seeStats: "Ver estatísticas",
@@ -255,6 +268,7 @@ const ptBR = {
       unavailable: "O envio de estatísticas não está disponível neste servidor.",
     },
     stats: {
+      finalReport: "Relatório final (PDF)",
       title: "Viagem concluída",
       lead: "Veja como foi em relação ao previsto.",
       planned: "Previsto",

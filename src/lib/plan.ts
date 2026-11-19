@@ -36,6 +36,12 @@ export function computePlan(
   legTime: LegTimeFn,
   /** Pausa para descanso (segundos) por trecho: índice do trecho → tempo. */
   breaks: ReadonlyMap<number, number> = new Map(),
+  /**
+   * No modo "arrive": o trecho cuja chegada deve cair em `at` (a chegada a uma
+   * parada específica). Sem ele, vale a chegada ao fim. O resto da rota é
+   * replanejado em volta dessa hora.
+   */
+  arriveLeg: number | null = null,
 ): Plan {
   const times = sequence.slice(1).map((to, i) => legTime(sequence[i], to));
   const dwells = sequence.map((place, i) => (i === 0 || i === sequence.length - 1 ? 0 : dwellSecondsOf(place)));
@@ -44,7 +50,14 @@ export function computePlan(
   const legBreaks = times.map((_, i) => breaks.get(i) ?? 0);
   const breakSeconds = legBreaks.reduce((sum, s) => sum + s, 0);
   const totalSeconds = driveSeconds + dwellSeconds + breakSeconds;
-  const departAt = mode === "depart" ? at : new Date(at.getTime() - totalSeconds * 1000);
+  // Até a chegada do trecho escolhido: direção e pausas dos trechos até ele, e as
+  // permanências nas paradas anteriores.
+  const anchorLeg = arriveLeg !== null && arriveLeg >= 0 && arriveLeg < times.length ? arriveLeg : null;
+  const secondsToAnchor =
+    anchorLeg === null
+      ? totalSeconds
+      : times.slice(0, anchorLeg + 1).reduce((sum, t, i) => sum + t.seconds + legBreaks[i] + (i < anchorLeg ? dwells[i + 1] : 0), 0);
+  const departAt = mode === "depart" ? at : new Date(at.getTime() - secondsToAnchor * 1000);
 
   let clock = departAt.getTime();
   const legs: PlanLeg[] = times.map((t, i) => {
