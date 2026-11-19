@@ -55,6 +55,10 @@ const esES: Messages = {
   },
 
   stops: {
+    arriveTitle: "Hora de llegada a esta parada",
+    arriveAria: (name: string) => `Definir la hora de llegada a ${name}`,
+    arriveLabel: (name: string) => `Llegar a ${name} a las`,
+    arriveClear: "Quitar",
     empty: "Aún no hay paradas. Añade una abajo o haz clic en el mapa.",
     hint: "Arrastra por el asa para recolocar: la parada que sueltas queda bloqueada ahí (candado). El reloj define cuánto tiempo te quedas en cada parada. Toca el número para marcar la parada como hecha.",
     add: "Añadir parada",

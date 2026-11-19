@@ -55,6 +55,10 @@ const enGB: Messages = {
   },
 
   stops: {
+    arriveTitle: "Arrival time at this stop",
+    arriveAria: (name: string) => `Set the arrival time at ${name}`,
+    arriveLabel: (name: string) => `Arrive at ${name} at`,
+    arriveClear: "Clear",
     empty: "No stops yet. Add one below or click the map.",
     hint: "Drag by the handle to reposition: the stop you drop is locked there (padlock). The clock sets how long you stay at each stop. Tap the number to mark a stop as done.",
     add: "Add stop",

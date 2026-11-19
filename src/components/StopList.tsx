@@ -43,6 +43,12 @@ interface StopListProps {
   onMoveRow: (from: number, to: number) => void;
   onBreakChange: (id: string, minutes: number) => void;
   onRemoveBreak: (id: string) => void;
+  /** Parada com hora de chegada marcada (modo "chegar até"), ou null. */
+  arriveAtStop: string | null;
+  /** Hora marcada (hh:mm), quando há. */
+  arriveTime: string;
+  /** Marca (ou tira, com null) a hora de chegada numa parada; o resto da rota é replanejado. */
+  onArriveAt: (id: string, time: string | null) => void;
 }
 
 function CupIcon() {
@@ -69,12 +75,17 @@ export default function StopList({
   onMoveRow,
   onBreakChange,
   onRemoveBreak,
+  arriveAtStop,
+  arriveTime,
+  onArriveAt,
 }: StopListProps) {
   const t = useT();
   const rows = rowsOf(stops, breaks);
   const reorder = useDragReorder(rows.length, onMoveRow);
   /** Parada com o seletor de permanência aberto. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** Parada com o campo de hora de chegada aberto. */
+  const [arriveEditing, setArriveEditing] = useState<string | null>(null);
 
   return (
     <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
@@ -275,6 +286,27 @@ export default function StopList({
 
             <button
               type="button"
+              aria-expanded={arriveEditing === stop.id}
+              onClick={() => setArriveEditing(arriveEditing === stop.id ? null : stop.id)}
+              aria-label={t.stops.arriveAria(stop.label)}
+              title={t.stops.arriveTitle}
+              className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
+                arriveEditing === stop.id
+                  ? "bg-sunken text-ink"
+                  : arriveAtStop === stop.id
+                    ? "text-accent hover:bg-hover"
+                    : "text-faint hover:bg-hover hover:text-ink"
+              }`}
+            >
+              {/* Bandeira de chegada. */}
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 17.5V3" />
+                <path d="M5 3.5h9l-2 3.25 2 3.25H5" fill={arriveAtStop === stop.id ? "currentColor" : "none"} fillOpacity={0.3} />
+              </svg>
+            </button>
+
+            <button
+              type="button"
               aria-pressed={locked}
               onClick={() => onToggleLock(stop.id)}
               aria-label={locked ? t.stops.unlock(stop.label) : t.stops.lock(stop.label, i + 1)}
@@ -302,6 +334,33 @@ export default function StopList({
               </svg>
             </button>
             </div>
+
+            {arriveEditing === stop.id && (
+              <div className="mb-1 ml-[3.25rem] mr-1 mt-1.5 flex items-center gap-2">
+                <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-ink-2">
+                  <span className="truncate">{t.stops.arriveLabel(stop.label)}</span>
+                  <input
+                    type="time"
+                    autoFocus
+                    defaultValue={arriveAtStop === stop.id ? arriveTime : ""}
+                    onChange={(e) => e.target.value && onArriveAt(stop.id, e.target.value)}
+                    className="focus-ring w-[6.5rem] shrink-0 rounded-lg border border-line-strong bg-surface px-2 py-1 text-sm text-ink"
+                  />
+                </label>
+                {arriveAtStop === stop.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onArriveAt(stop.id, null);
+                      setArriveEditing(null);
+                    }}
+                    className="focus-ring shrink-0 rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 hover:bg-hover"
+                  >
+                    {t.stops.arriveClear}
+                  </button>
+                )}
+              </div>
+            )}
 
             {isEditing && (
               <div id={pickerId} className="mb-1 ml-[3.25rem] mr-1 mt-1.5">

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.6.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.6.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -228,6 +228,11 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🏁 Versão 0.6.2 (beta)
+
+- **Hora de chegada em cada parada:** novo botão de bandeira na linha da parada; marque a hora e o resto da rota (saída e demais paradas) é replanejado em volta dela. "Tirar" volta ao normal.
+- **Blocos da direita mais largos** no computador.
 
 ### ✨ Versão 0.6.1 (beta)
 

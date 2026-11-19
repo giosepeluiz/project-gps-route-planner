@@ -58,6 +58,10 @@ const ptBR = {
   },
 
   stops: {
+    arriveTitle: "Hora de chegada nesta parada",
+    arriveAria: (name: string) => `Definir a hora de chegada em ${name}`,
+    arriveLabel: (name: string) => `Chegar em ${name} às`,
+    arriveClear: "Tirar",
     empty: "Nenhuma parada ainda. Adicione abaixo ou clique no mapa.",
     hint: "Arraste pela alça para reposicionar: o local solto fica travado ali (cadeado). O relógio define quanto tempo você fica em cada parada. Toque no número para marcar a parada como concluída.",
     add: "Adicionar parada",

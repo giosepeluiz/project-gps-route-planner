@@ -55,6 +55,10 @@ const ptPT: Messages = {
   },
 
   stops: {
+    arriveTitle: "Hora de chegada nesta paragem",
+    arriveAria: (name: string) => `Definir a hora de chegada em ${name}`,
+    arriveLabel: (name: string) => `Chegar a ${name} às`,
+    arriveClear: "Remover",
     empty: "Ainda não há paragens. Adicione abaixo ou clique no mapa.",
     hint: "Arraste pela pega para reposicionar: o local largado fica bloqueado ali (cadeado). O relógio define quanto tempo fica em cada paragem. Toque no número para marcar a paragem como concluída.",
     add: "Adicionar paragem",

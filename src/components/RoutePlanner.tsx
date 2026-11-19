@@ -141,6 +141,8 @@ const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
 
 /** Largura dos blocos no desktop (rem): ~322 px no texto pequeno. */
 const BLOCK_WIDTH_REM = 23;
+/** Coluna da direita (início e fim, paradas, abrir e compartilhar): mais larga no computador. */
+const RIGHT_BLOCK_WIDTH_REM = 28;
 
 /** Como cada bloco é desenhado: na gaveta do celular, numa coluna ou solto. */
 interface BlockOptions {
@@ -1526,9 +1528,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const columnInsets = useMemo(
     () => ({
       left: isDesktop && layoutBlocks.left.length > 0 ? blockWidthPx + EDGE_MARGIN : 0,
-      right: isDesktop && layoutBlocks.right.length > 0 ? blockWidthPx + EDGE_MARGIN : 0,
+      right: isDesktop && layoutBlocks.right.length > 0 ? RIGHT_BLOCK_WIDTH_REM * fontPx + EDGE_MARGIN : 0,
     }),
-    [isDesktop, layoutBlocks.left.length, layoutBlocks.right.length, blockWidthPx],
+    [isDesktop, layoutBlocks.left.length, layoutBlocks.right.length, blockWidthPx, fontPx],
   );
 
   // Textos de resumo. O total inclui a permanência nas paradas.
@@ -1875,6 +1877,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     {t.stops.hint}
                   </p>
                   <StopList
+                    arriveAtStop={arriveLeg === null ? null : (route.arriveAtStop ?? null)}
+                    arriveTime={dateTime?.slice(11, 16) ?? ""}
+                    onArriveAt={(id, time) =>
+                      setRoute((prev) => {
+                        if (time === null) return { ...prev, arriveAtStop: null, timeMode: "depart", dateTime: null };
+                        // Mesmo dia já escolhido (ou hoje); a hora vale para a chegada nesta parada.
+                        const now = new Date();
+                        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                        const day = prev.dateTime?.slice(0, 10) ?? today;
+                        return { ...prev, arriveAtStop: id, timeMode: "arrive", dateTime: `${day}T${time}` };
+                      })
+                    }
                     stops={stops}
                     legs={plan?.legs}
                     locks={locks}
@@ -2134,30 +2148,30 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // ---------- Posição dos blocos no desktop ----------
   const drag = blockDrag.drag;
   const viewport = typeof window === "undefined" ? { width: 0, height: 0 } : { width: window.innerWidth, height: window.innerHeight };
-  const cardOptions = (id: BlockId, extra: Partial<BlockOptions> = {}): BlockOptions => ({
+  const cardOptions = (id: BlockId, extra: Partial<BlockOptions> & { wide?: boolean } = {}): BlockOptions => ({
     variant: "card",
     headerDrag: blockDrag.headerDrag(id),
     blockRef: blockDrag.register(id),
-    className: `w-[23rem] ${extra.className ?? ""}`,
+    className: `${extra.wide ? "w-[28rem]" : "w-[23rem]"} ${extra.className ?? ""}`,
     ...(extra.style ? { style: extra.style } : {}),
     ...(extra.collapseTo ? { collapseTo: extra.collapseTo } : {}),
   });
   /** Lugar reservado na coluna enquanto um bloco é arrastado para ela (o "ímã"). */
-  const placeholder = drag && (
+  const placeholder = (wide: boolean) => drag && (
     <div
       key="lugar"
       aria-hidden="true"
-      className="w-[23rem] shrink-0 rounded-xl border-2 border-dashed border-accent/60 bg-accent/5"
+      className={`${wide ? "w-[28rem]" : "w-[23rem]"} shrink-0 rounded-xl border-2 border-dashed border-accent/60 bg-accent/5`}
       style={{ height: Math.min(drag.rect.height, 160) }}
     />
   );
   const column = (side: "left" | "right") => {
     const ids = layoutBlocks[side].filter((id) => id !== drag?.id);
     const items: ReactNode[] = ids.map((id) => (
-      <Fragment key={id}>{blocks[id](cardOptions(id, { className: "shrink-0" }))}</Fragment>
+      <Fragment key={id}>{blocks[id](cardOptions(id, { className: "shrink-0", wide: side === "right" }))}</Fragment>
     ));
     if (drag?.target.kind === "dock" && drag.target.side === side) {
-      items.splice(Math.min(drag.target.index, items.length), 0, placeholder);
+      items.splice(Math.min(drag.target.index, items.length), 0, placeholder(side === "right"));
     }
     if (items.length === 0) return null;
     return (
