@@ -379,3 +379,20 @@ describe("chegada numa parada específica", () => {
     expect(plan.departAt.getTime()).toBe(at.getTime() - 45 * 60_000);
   });
 });
+
+describe("link com a hora de chegada numa parada", () => {
+  it("marca a parada com ^ e volta na leitura", () => {
+    const route = {
+      start: { lat: 38.7, lng: -9.1, dwellMinutes: 0 },
+      end: "none" as const,
+      items: [
+        { kind: "stop" as const, lat: 38.71, lng: -9.12, dwellMinutes: 0 },
+        { kind: "stop" as const, lat: 38.72, lng: -9.13, dwellMinutes: 10, locked: true, arriveHere: true },
+      ],
+      time: { mode: "arrive" as const, at: "2026-11-20T15:00" },
+    };
+    const path = sharedPath(route);
+    expect(path).toBe("/r/38.7,-9.1/-/38.71,-9.12/38.72,-9.13@10!^/a202611201500");
+    expect(parseSharedRoute(path, "")).toEqual(route);
+  });
+});

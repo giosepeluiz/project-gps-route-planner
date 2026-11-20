@@ -11,6 +11,7 @@
  * - Local: "lat,lng" com ponto decimal (ex.: 38.70750,-9.13640). Permanência
  *   opcional em minutos depois de "@": 38.7,-9.1@15.
  * - Parada travada na posição em que aparece: "!" no fim (ex.: 38.7,-9.1@15!).
+ * - Hora de chegada nesta parada (modo "chegar até"): "^" no fim (ex.: 38.7,-9.1@15!^).
  * - Fim: "s" = volta ao início; "-" = sem fim (termina na última parada). Nos
  *   parâmetros, sem "e" também quer dizer sem fim.
  * - Pausa para descanso: "b<minutos>" no lugar de uma parada (ex.: b20).
@@ -26,6 +27,8 @@ export interface SharedPoint {
   dwellMinutes: number;
   /** Parada travada na posição em que aparece no link. */
   locked?: boolean;
+  /** A hora "chegar até" do link vale na chegada a esta parada. */
+  arriveHere?: boolean;
 }
 
 /** Hora escolhida: de saída ou de chegada, no formato do datetime-local (AAAA-MM-DDThh:mm). */
@@ -45,7 +48,7 @@ export interface SharedRoute {
 
 /** Limite de itens (paradas + pausas) num link. */
 const MAX_ITEMS = MAX_STOPS * 2 + 1;
-const POINT = /^(-?\d{1,2}(?:\.\d{1,7})?),(-?\d{1,3}(?:\.\d{1,7})?)(?:@(\d{1,3}))?(!)?$/;
+const POINT = /^(-?\d{1,2}(?:\.\d{1,7})?),(-?\d{1,3}(?:\.\d{1,7})?)(?:@(\d{1,3}))?(!)?(\^)?$/;
 const BREAK = /^b(\d{1,3})$/;
 const TIME = /^([da])(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/;
 
@@ -74,7 +77,7 @@ function parsePoint(token: string): SharedPoint | null {
   const lng = Number(m[2]);
   const dwell = m[3] === undefined ? 0 : Number(m[3]);
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || dwell > MAX_DWELL_MINUTES) return null;
-  return { lat, lng, dwellMinutes: dwell, ...(m[4] ? { locked: true } : {}) };
+  return { lat, lng, dwellMinutes: dwell, ...(m[4] ? { locked: true } : {}), ...(m[5] ? { arriveHere: true } : {}) };
 }
 
 function parseItem(token: string): SharedItem | null {
@@ -154,7 +157,7 @@ export function parseSharedRoute(pathname: string, search: string): SharedRoute 
 
 const fmt = (n: number) => String(Number(n.toFixed(5)));
 const pointToken = (p: SharedPoint) =>
-  `${fmt(p.lat)},${fmt(p.lng)}${p.dwellMinutes > 0 ? `@${Math.round(p.dwellMinutes)}` : ""}${p.locked ? "!" : ""}`;
+  `${fmt(p.lat)},${fmt(p.lng)}${p.dwellMinutes > 0 ? `@${Math.round(p.dwellMinutes)}` : ""}${p.locked ? "!" : ""}${p.arriveHere ? "^" : ""}`;
 const itemToken = (item: SharedItem) => (item.kind === "break" ? `b${Math.round(item.minutes)}` : pointToken(item));
 const endToken = (end: SharedRoute["end"]) =>
   end === "none" ? "-" : end === "start" ? "s" : pointToken(unlocked(end)!);

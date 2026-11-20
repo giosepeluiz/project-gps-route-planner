@@ -604,13 +604,14 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             lng: row.stop.lng,
             dwellMinutes: row.stop.dwellMinutes,
             ...(locks[row.stop.id] !== undefined ? { locked: true } : {}),
+            ...(timeMode === "arrive" && dateTime && route.arriveAtStop === row.stop.id ? { arriveHere: true } : {}),
           }
         : { kind: "break", minutes: row.brk.minutes },
     );
     // A hora vai junto só quando foi escolhida (sem ela, quem abre usa "agora").
     const time = dateTime ? { mode: timeMode, at: dateTime } : null;
     return { start: point(start), end: endSame ? "start" : end ? point(end) : "none", items, time };
-  }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode]);
+  }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode, route.arriveAtStop]);
   const sharePath = shareRoute ? sharedPath(shareRoute) : null;
 
   // Abriu por um link (/r/… ou ?s=…): a rota do link entra no lugar da atual,
@@ -643,10 +644,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const sharedStops: Place[] = [];
     const sharedBreaks: RestBreak[] = [];
     const sharedLocks: Record<string, number> = {};
+    let sharedArriveStop: string | null = null;
     for (const item of shared.items) {
       if (item.kind === "stop") {
         const place = toPlace(item);
         if (item.locked) sharedLocks[place.id] = sharedStops.length;
+        if (item.arriveHere && shared.time?.mode === "arrive") sharedArriveStop = place.id;
         sharedStops.push(place);
       }
       else sharedBreaks.push({ id: crypto.randomUUID(), minutes: item.minutes, after: sharedStops.length });
@@ -658,6 +661,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       stops: sharedStops,
       breaks: sharedBreaks,
       locks: sharedLocks,
+      arriveAtStop: sharedArriveStop,
       timeMode: shared.time?.mode ?? "depart",
       dateTime: shared.time?.at ?? null,
     };
