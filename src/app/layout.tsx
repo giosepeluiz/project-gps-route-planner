@@ -2,10 +2,18 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SETTINGS_BOOT_SCRIPT } from "@/lib/settings";
 
+const SITE = "https://rotas.arqueirover.de";
+const TITLE = "Planejador de Rotas";
+const DESCRIPTION = "Planeja a melhor sequência de paradas de carro, com trânsito previsto, pausas, modo viagem e relatório em PDF.";
+
 export const metadata: Metadata = {
-  title: "Planejador de Rotas",
-  description: "Planeja a melhor sequência de paradas de carro, com trânsito previsto.",
+  metadataBase: new URL(SITE),
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: TITLE,
   robots: { index: false, follow: false },
+  openGraph: { type: "website", url: SITE, siteName: TITLE, title: TITLE, description: DESCRIPTION, locale: "pt_BR" },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
 
 export const viewport: Viewport = {

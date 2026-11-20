@@ -22,9 +22,9 @@ export interface Fix {
 }
 
 /** Distância até o destino que conta como "cheguei". */
-export const ARRIVAL_RADIUS_M = 80;
+export const ARRIVAL_RADIUS_M = 30;
 /** Com GPS impreciso, o raio de chegada cresce até este limite. */
-export const MAX_ARRIVAL_RADIUS_M = 150;
+export const MAX_ARRIVAL_RADIUS_M = 60;
 /** Intervalo mínimo entre dois recálculos da rota (poupa a cota dos serviços). */
 export const REPLAN_MIN_MS = 120_000;
 /** Deslocamento mínimo para recalcular depois do intervalo. */
@@ -48,6 +48,16 @@ export function tripTarget(
 export function hasArrived(fix: Fix, target: { lat: number; lng: number }): boolean {
   const radius = Math.min(Math.max(ARRIVAL_RADIUS_M, fix.accuracy), MAX_ARRIVAL_RADIUS_M);
   return haversineMeters(fix, target) <= radius;
+}
+
+/**
+ * Passou pelo destino sem entrar no raio (GPS ruim, ponto do outro lado da
+ * rua): chegou perto (até PASS_NEAR_M) e agora já se afasta do ponto mais próximo.
+ */
+export const PASS_NEAR_M = 70;
+export const PASS_AWAY_M = 20;
+export function hasPassed(closestM: number, nowM: number): boolean {
+  return closestM <= PASS_NEAR_M && nowM >= closestM + PASS_AWAY_M;
 }
 
 /** true quando vale recalcular a rota a partir desta leitura. */

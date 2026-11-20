@@ -8,6 +8,7 @@ import { angleDelta, bearingDeg, lerpAngle, projectOnLine, remainingFraction, re
 import { isRouteState } from "./route-state";
 import {
   hasArrived,
+  hasPassed,
   headingFrom,
   isOffRoute,
   logFix,
@@ -48,15 +49,20 @@ describe("viagem", () => {
     expect(tripTarget([S1, S2], new Set(["S1", "S2"]), null)).toBeNull();
   });
 
-  it("chega dentro do raio, que cresce com GPS impreciso (até um limite)", () => {
-    expect(hasArrived(fix(38.7203, -9.15), S1)).toBe(true); // ~33 m
+  it("chega só bem perto do ponto (30 m, até 60 m com GPS impreciso)", () => {
+    expect(hasArrived(fix(38.7202, -9.15), S1)).toBe(true); // ~22 m
+    expect(hasArrived(fix(38.7205, -9.15), S1)).toBe(false); // ~55 m com precisão boa
+    expect(hasArrived(fix(38.7205, -9.15, 0, 60), S1)).toBe(true); // precisão de 60 m alarga o raio
     expect(hasArrived(fix(38.7015, -9.15), S1)).toBe(false); // ~2 km
-    // ~110 m: fora do raio de 80 m, dentro com precisão de 120 m.
-    expect(hasArrived(fix(38.721, -9.15), S1)).toBe(false);
-    expect(hasArrived(fix(38.721, -9.15, 0, 120), S1)).toBe(true);
     // Precisão de 1 km não vira raio de 1 km.
     expect(hasArrived(fix(38.7225, -9.15, 0, 1000), S1)).toBe(false);
   });
+  it("passou pelo destino: chegou a até 70 m e agora se afasta", () => {
+    expect(hasPassed(45, 70)).toBe(true);
+    expect(hasPassed(45, 55)).toBe(false);
+    expect(hasPassed(300, 400)).toBe(false);
+  });
+
 
   it("recalcula na primeira leitura, depois só com tempo e deslocamento", () => {
     const first = fix(38.7, -9.14, 0);

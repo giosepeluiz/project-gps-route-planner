@@ -125,6 +125,13 @@ const STREET_SOURCE = "rota-ruas";
 const STREET_CASING = "rota-ruas-borda";
 const STREET_LAYER = "rota-ruas-linha";
 /** Etiquetas de tempo e distância de cada trecho, em cima da linha (só na visão 2D). */
+/** Ordem de desenho: índice menor = mais acima (ida sobre a volta); o selecionado vence. */
+const LINE_ORDER = (isSelected: ExpressionSpecification): ExpressionSpecification => [
+  "case",
+  isSelected,
+  1000,
+  ["-", 500, ["get", "index"]],
+];
 const LEG_LABEL_LAYER = "rota-ruas-etiquetas";
 const LEG_LABEL_IMAGE = "rota-etiqueta";
 const LEG_LABEL_SOURCE = "rota-ruas-etiquetas-pontos";
@@ -663,14 +670,14 @@ export default function MapView({
         id: STREET_CASING,
         type: "line",
         source: STREET_SOURCE,
-        layout: round,
+        layout: { ...round, "line-sort-key": LINE_ORDER(["==", ["get", "index"], -1]) },
         paint: { "line-color": "#ffffff", "line-width": CASING_WIDTH, "line-opacity": 0.9 },
       });
       map.addLayer({
         id: STREET_LAYER,
         type: "line",
         source: STREET_SOURCE,
-        layout: round,
+        layout: { ...round, "line-sort-key": LINE_ORDER(["==", ["get", "index"], -1]) },
         // Cada trecho tem a sua cor (nenhuma azul, que é a das retas).
         paint: { "line-color": ["get", "color"], "line-width": STREET_WIDTH },
       });
@@ -920,8 +927,10 @@ export default function MapView({
     const isSelected: ExpressionSpecification = ["==", ["get", "index"], selectedLeg ?? -1];
     map.setPaintProperty(STREET_LAYER, "line-opacity", selectedLeg === null ? 1 : ["case", isSelected, 1, 0.25]);
     map.setPaintProperty(STREET_CASING, "line-opacity", selectedLeg === null ? 0.9 : ["case", isSelected, 0.95, 0.2]);
-    map.setLayoutProperty(STREET_LAYER, "line-sort-key", ["case", isSelected, 1, 0]);
-    map.setLayoutProperty(STREET_CASING, "line-sort-key", ["case", isSelected, 1, 0]);
+    // Quem tem a chave maior fica por cima: a ida (trecho de índice menor) cobre a volta;
+    // o trecho selecionado fica acima de todos.
+    map.setLayoutProperty(STREET_LAYER, "line-sort-key", LINE_ORDER(isSelected));
+    map.setLayoutProperty(STREET_CASING, "line-sort-key", LINE_ORDER(isSelected));
   }, [selectedLeg, streetLegs, styleVersion]);
 
   // Balão de informação.
@@ -1030,40 +1039,50 @@ export default function MapView({
           const bounds = coords.reduce((acc, c) => acc.extend(c), new lib.LngLatBounds(coords[0], coords[0]));
           map.fitBounds(bounds, { padding: 48, duration: 0, bearing: 0, pitch: 0, maxZoom: 15 });
         }
-        map.once("idle", () => {
-          map.once("render", () => {
-            try {
-              const source = map.getCanvas();
-              const canvas = document.createElement("canvas");
-              canvas.width = source.width;
-              canvas.height = source.height;
-              const ctx = canvas.getContext("2d");
-              if (!ctx) return finish(null);
-              ctx.drawImage(source, 0, 0);
-              const scale = source.width / source.clientWidth;
-              for (const point of points) {
-                const { x, y } = map.project([point.lng, point.lat]);
-                const r = 13 * scale;
-                ctx.beginPath();
-                ctx.arc(x * scale, y * scale, r, 0, Math.PI * 2);
-                ctx.fillStyle = point.kind === "stop" ? "#2456d6" : "#1c1b19";
-                ctx.fill();
-                ctx.lineWidth = 2.5 * scale;
-                ctx.strokeStyle = "#ffffff";
-                ctx.stroke();
-                ctx.fillStyle = "#ffffff";
-                ctx.font = `700 ${12 * scale}px Roboto, "Segoe UI", Arial, sans-serif`;
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(point.badge, x * scale, y * scale + 0.5 * scale);
-              }
-              finish(canvas.toDataURL("image/jpeg", 0.9));
-            } catch {
-              finish(null);
+        // Espera os blocos do mapa; se o "idle" não vier (nada mudou, ou algum bloco demora), segue em 3 s.
+        const draw = () => {
+          try {
+            const source = map.getCanvas();
+            const canvas = document.createElement("canvas");
+            canvas.width = source.width;
+            canvas.height = source.height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return finish(null);
+            ctx.drawImage(source, 0, 0);
+            const scale = source.width / source.clientWidth;
+            for (const point of points) {
+              const { x, y } = map.project([point.lng, point.lat]);
+              const r = 13 * scale;
+              ctx.beginPath();
+              ctx.arc(x * scale, y * scale, r, 0, Math.PI * 2);
+              ctx.fillStyle = point.kind === "stop" ? "#2456d6" : "#1c1b19";
+              ctx.fill();
+              ctx.lineWidth = 2.5 * scale;
+              ctx.strokeStyle = "#ffffff";
+              ctx.stroke();
+              ctx.fillStyle = "#ffffff";
+              ctx.font = `700 ${12 * scale}px Roboto, "Segoe UI", Arial, sans-serif`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(point.badge, x * scale, y * scale + 0.5 * scale);
             }
-          });
+            finish(canvas.toDataURL("image/jpeg", 0.9));
+          } catch {
+            finish(null);
+          }
+        };
+        // Espera os blocos do mapa; se o "idle" não vier (nada mudou, ou algum bloco
+        // demora), segue em 3 s. Depois de um desenho novo, copia o canvas.
+        let started = false;
+        const start = () => {
+          if (started) return;
+          started = true;
+          map.once("render", draw);
           map.triggerRepaint();
-        });
+        };
+        map.once("idle", start);
+        window.setTimeout(start, 3_000);
+        map.triggerRepaint();
       });
     return () => {
       captureRef.current = null;

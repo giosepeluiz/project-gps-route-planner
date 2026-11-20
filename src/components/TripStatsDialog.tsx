@@ -34,7 +34,7 @@ interface TripStatsDialogProps {
   fontSize: FontSize;
   onClose: () => void;
   /** Gera o relatório final (documento para imprimir ou salvar em PDF). */
-  onFinalReport?: () => void;
+  onFinalReport?: () => Promise<void>;
 }
 
 type SendState = "ask" | "sending" | "sent" | "failed" | "unavailable";
@@ -65,6 +65,8 @@ export default function TripStatsDialog({
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState(false);
   const [preview, setPreview] = useState(false);
+  /** Baixando o relatório final (espera o PDF terminar de ficar pronto). */
+  const [pdfBusy, setPdfBusy] = useState(false);
   /** false nos 30 min seguintes a um envio deste aparelho. */
   const [nowAllowed, setNowAllowed] = useState(true);
 
@@ -339,14 +341,18 @@ export default function TripStatsDialog({
           {onFinalReport && reportTrip && (
             <button
               type="button"
-              onClick={onFinalReport}
-              className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm font-semibold text-ink hover:bg-hover"
+              disabled={pdfBusy}
+              onClick={() => {
+                setPdfBusy(true);
+                void onFinalReport().finally(() => setPdfBusy(false));
+              }}
+              className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm font-semibold text-ink hover:bg-hover disabled:cursor-wait disabled:opacity-60"
             >
               <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 2.75h5.5L15.25 6.5v10a.75.75 0 01-.75.75h-8.5a.75.75 0 01-.75-.75V3.5A.75.75 0 016 2.75z" />
                 <path d="M11.25 2.75V6.75h4M8 10.5h4.5M8 13.5h4.5" />
               </svg>
-              {t.trip.stats.finalReport}
+              {pdfBusy ? t.actions.reportPreparing : t.trip.stats.finalReport}
             </button>
           )}
           <button

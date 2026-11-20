@@ -15,8 +15,10 @@ import {
 import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import AiBadge from "./AiBadge";
+import LeaveStopDialog from "./LeaveStopDialog";
 import pkg from "../../package.json";
-import { departureReportHtml, finalReportHtml, openReportWindow, showReport, type ReportRow } from "@/lib/pdf-report";
+import { departureReportHtml, finalReportHtml, type ReportRow } from "@/lib/pdf-report";
+import { downloadBlob, htmlToPdf } from "@/lib/pdf-file";
 import type { TripAnalysis } from "@/lib/report-email";
 import { selectClass } from "./DwellPicker";
 import MapView, { ROUND_TRIP_BADGE, type MapCapture, type MapLayout, type MapPoint, type MePosition } from "./MapView";
@@ -82,6 +84,7 @@ import { MESSAGES } from "@/lib/messages";
 import { MAX_DWELL_MINUTES, type LegTimeFn, type Place } from "@/lib/types";
 import {
   hasArrived,
+  hasPassed,
   headingFrom,
   isOffRoute,
   logFix,
@@ -752,6 +755,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [moving, setMoving] = useState(false);
   /** Barra de cima da viagem no celular: cada toque troca a tela (próxima parada, total, velocidade). */
   const [headerPage, setHeaderPage] = useState(0);
+  /** Nome da parada de onde a pessoa se afastou (modal "seguindo para a próxima?"), ou null. */
+  const [leaveAsk, setLeaveAsk] = useState<string | null>(null);
+  /** Distância (m) da parada a partir da qual o modal aparece; sobe 1 km a cada "Ainda não". */
+  const leaveAtRef = useRef(1000);
+  const lastLeaveMetersRef = useRef(0);
+  /** Ponto mais próximo já alcançado do destino atual (para saber que passou por ele). */
+  const closestRef = useRef<{ id: string; meters: number }>({ id: "", meters: Infinity });
   /** Foto do mapa para os relatórios (a função vem do MapView). */
   const captureRef = useRef<MapCapture | null>(null);
   const [tripNumbers, setTripNumbers] = useState<{ speedKmh: number; averageKmh: number | null; reroutes: number }>({
@@ -988,11 +998,28 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       finishTrip(next.at);
       return;
     }
-    if (!hasArrived(next, target)) return;
+    // Já chegou numa parada e agora está a 1 km dela: pergunta se já segue para a próxima
+    // (pode ser só uma manobra, por isso não segue sozinho).
+    if (trip?.status === "arrived" && trip.arrivedId && leaveAsk === null) {
+      const arrivedStop = stops.find((s) => s.id === trip.arrivedId);
+      if (arrivedStop && haversineMeters(next, arrivedStop) >= leaveAtRef.current) {
+        leaveAtRef.current = Infinity;
+        lastLeaveMetersRef.current = haversineMeters(next, arrivedStop);
+        setLeaveAsk(arrivedStop.label);
+      }
+    }
+    // Chegou perto o bastante, ou chegou bem perto e já se afasta (passou pelo ponto).
+    const meters = haversineMeters(next, target);
+    if (closestRef.current.id !== target.id) closestRef.current = { id: target.id, meters: Infinity };
+    const closestBefore = closestRef.current.meters;
+    closestRef.current.meters = Math.min(closestBefore, meters);
+    const passed = trip?.status === "running" && hasPassed(closestBefore, meters);
+    if (!hasArrived(next, target) && !passed) return;
     // Chegou: numa parada, pausa até a pessoa retomar; no ponto final, a viagem acaba.
     if (stops.some((s) => s.id === target.id)) {
       if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, next.at);
       if (trackRef.current) trackRef.current = trackArrive(trackRef.current, next.at);
+      if (trip?.status !== "arrived") leaveAtRef.current = 1000;
       setTrip({ status: "arrived", arrivedId: target.id });
     } else {
       finishTrip(next.at);
@@ -1358,54 +1385,94 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       legMeters: serverPlan?.streetLegs?.[i]?.meters ?? null,
       breakSeconds: leg.breakSeconds,
     }));
-  const makeReport = async (kind: "departure" | "final") => {
-    if (!start) return;
-    // A aba abre já no clique (depois de esperar o mapa, o navegador bloquearia).
-    const target = openReportWindow();
-    if (!target) return notify(t.actions.reportBlocked);
-    notify(t.actions.reportPreparing);
-    target.document.title = t.actions.reportPreparing;
-    const mapImage = (await captureRef.current?.().catch(() => null)) ?? null;
-    const common = {
-      locale,
-      version: pkg.version,
-      generatedAt: new Date(),
-      mapImage,
-      logoUrl: `${window.location.origin}/email-logo.png`,
-      startName: start.label,
-      endName: endSame ? null : (end?.label ?? null),
-      roundTrip: endSame,
-    };
-    let html: string;
-    if (kind === "departure") {
-      if (!plan) return target.close();
-      html = departureReportHtml({
-        ...common,
-        departAt: plan.departAt,
-        arriveAt: plan.arriveAt,
-        totalSeconds: plan.totalSeconds,
-        driveSeconds: plan.driveSeconds,
-        dwellSeconds: plan.dwellSeconds,
-        breakSeconds: plan.breakSeconds,
-        totalMeters: totalDistance?.meters ?? null,
-        rows: reportRows(),
-        aiComment: aiOutcome?.review?.explanation ?? null,
-      });
-    } else {
-      if (!tripStats || !reportDraft) return target.close();
-      // Análise técnica da IA (opcional): sem ela, o relatório sai do mesmo jeito.
-      const analysis = await fetch("/api/ai/trip-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale, trip: reportDraft }),
-      })
-        .then((res) => (res.ok ? (res.json() as Promise<{ analysis: TripAnalysis | null }>) : null))
-        .then((data) => data?.analysis ?? null)
-        .catch(() => null);
-      html = finalReportHtml({ ...common, summary: tripStats, trip: reportDraft, rows: reportRows(), analysis });
+  /** Monta o relatório e devolve o PDF (null = não deu para gerar). */
+  const buildReportPdf = async (kind: "departure" | "final"): Promise<Blob | null> => {
+    if (!start) return null;
+    try {
+      const mapImage = (await captureRef.current?.().catch(() => null)) ?? null;
+      const common = {
+        locale,
+        version: pkg.version,
+        generatedAt: new Date(),
+        mapImage,
+        logoUrl: `${window.location.origin}/email-logo.png`,
+        startName: start.label,
+        endName: endSame ? null : (end?.label ?? null),
+        roundTrip: endSame,
+      };
+      let html: string;
+      if (kind === "departure") {
+        if (!plan) return null;
+        html = departureReportHtml({
+          ...common,
+          departAt: plan.departAt,
+          arriveAt: plan.arriveAt,
+          totalSeconds: plan.totalSeconds,
+          driveSeconds: plan.driveSeconds,
+          dwellSeconds: plan.dwellSeconds,
+          breakSeconds: plan.breakSeconds,
+          totalMeters: totalDistance?.meters ?? null,
+          rows: reportRows(),
+          aiComment: aiOutcome?.review?.explanation ?? null,
+        });
+      } else {
+        if (!tripStats || !reportDraft) return null;
+        // Análise técnica da IA (opcional): sem ela, o relatório sai do mesmo jeito.
+        const analysis = await fetch("/api/ai/trip-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locale, trip: reportDraft }),
+        })
+          .then((res) => (res.ok ? (res.json() as Promise<{ analysis: TripAnalysis | null }>) : null))
+          .then((data) => data?.analysis ?? null)
+          .catch(() => null);
+        html = finalReportHtml({ ...common, summary: tripStats, trip: reportDraft, rows: reportRows(), analysis });
+      }
+      const title = kind === "departure" ? `${t.actions.departureReport}` : t.trip.stats.finalReport;
+      return await htmlToPdf(html, title.replace(/\s*\(PDF\)\s*$/, ""));
+    } catch {
+      return null;
     }
-    if (!showReport(target, html)) notify(t.actions.reportBlocked);
   };
+  const reportFileName = (kind: "departure" | "final") => {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${kind === "departure" ? "relatorio-saida" : "relatorio-final"}-${day}.pdf`;
+  };
+  /** Relatório de saída: gera e baixa o PDF na hora. */
+  const makeDepartureReport = async () => {
+    notify(t.actions.reportPreparing);
+    const blob = await buildReportPdf("departure");
+    if (blob) downloadBlob(blob, reportFileName("departure"));
+    else notify(t.actions.reportBlocked);
+  };
+  /**
+   * Relatório final: começa a ser gerado assim que a viagem termina (o botão só
+   * entrega o arquivo pronto, ou espera o que falta). Se a pessoa não quiser, é só ignorar.
+   */
+  const finalPdfRef = useRef<Promise<Blob | null> | null>(null);
+  const downloadFinalReport = async () => {
+    finalPdfRef.current ??= buildReportPdf("final");
+    const blob = await finalPdfRef.current;
+    if (blob) downloadBlob(blob, reportFileName("final"));
+    else {
+      finalPdfRef.current = null;
+      notify(t.actions.reportBlocked);
+    }
+  };
+  useEffect(() => {
+    if (!statsOpen) {
+      finalPdfRef.current = null;
+      return;
+    }
+    if (!tripStats || !reportDraft || finalPdfRef.current) return;
+    // Depois do primeiro desenho do modal: o mapa já voltou ao 2D.
+    const timer = window.setTimeout(() => {
+      finalPdfRef.current ??= buildReportPdf("final");
+    }, 1800);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsOpen, tripStats, reportDraft]);
 
   /** Pontos da visão geral (carro parado): onde está e o que falta. */
   const overviewPoints = useMemo<[number, number][]>(() => {
@@ -1960,7 +2027,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               plan={plan}
               isMobile={!isDesktop}
               onNotify={notify}
-              onDepartureReport={() => void makeReport("departure")}
+              onDepartureReport={() => void makeDepartureReport()}
             />
             )}
           </CollapsibleCard>
@@ -2400,6 +2467,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         }}
       />
 
+      <LeaveStopDialog
+        stopName={leaveAsk}
+        onYes={() => {
+          setLeaveAsk(null);
+          resumeTrip();
+        }}
+        onNo={() => {
+          // Estava manobrando: pergunta de novo só depois de mais 1 km.
+          leaveAtRef.current = lastLeaveMetersRef.current + 1000;
+          setLeaveAsk(null);
+        }}
+      />
+
       <TripWarningDialog open={tripWarning} onAccept={beginTrip} onCancel={() => setTripWarning(false)} />
 
       <TripStatsDialog
@@ -2410,7 +2490,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         theme={theme}
         fontSize={settings.fontSize}
         onClose={() => setStatsOpen(false)}
-        onFinalReport={() => void makeReport("final")}
+        onFinalReport={downloadFinalReport}
       />
 
       {resumeAsk && (

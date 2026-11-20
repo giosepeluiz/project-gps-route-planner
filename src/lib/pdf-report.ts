@@ -372,7 +372,6 @@ footer { margin-top: 22px; border-top: 1px solid ${C.line}; padding-top: 8px; fo
 function shell(locale: Locale, title: string, L: L, c: Common, body: string): string {
   const generated = dateTime(locale, c.generatedAt);
   return `<!doctype html><html lang="${esc(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(`${title} · ${L.app}`)}</title><style>${STYLE}</style></head><body><div class="page">
-<div class="hint">${esc(L.printHint)}</div>
 <header><img src="${esc(c.logoUrl)}" alt=""><div><div class="app">${esc(L.app)}</div><h1>${esc(title)}</h1></div></header>
 <div class="meta">
 <div>${esc(L.generated)}<b>${esc(generated)}</b></div>
@@ -497,32 +496,4 @@ ${ai}
 <h2>${esc(L.stops)}</h2>
 ${stopsTable(L, r.locale, r.rows)}`;
   return shell(r.locale, L.finalTitle, L, r, body);
-}
-
-/**
- * Abre o relatório numa aba nova e chama a impressão (de onde se salva o PDF).
- * A aba é aberta antes (no clique), porque depois de esperar o mapa o
- * navegador bloquearia a janela.
- */
-export function openReportWindow(): Window | null {
-  return window.open("", "_blank");
-}
-
-export function showReport(target: Window | null, html: string): boolean {
-  if (!target || target.closed) return false;
-  const doc = target.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
-  // Imprime quando o logo e o mapa terminarem de carregar (ou em 4 s, no máximo).
-  const started = Date.now();
-  const wait = () => {
-    const ready = [...doc.images].every((img) => img.complete);
-    if (ready || Date.now() - started > 4000) {
-      target.focus();
-      target.print();
-    } else window.setTimeout(wait, 150);
-  };
-  window.setTimeout(wait, 300);
-  return true;
 }

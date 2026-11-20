@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.6.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.7.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -228,6 +228,14 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🧭 Versão 0.7.0 (beta)
+
+- **Saiu da parada?** Depois de chegar numa parada e se afastar uns 1 km, um modal pergunta se você já está a caminho da próxima (pode ser só manobra). "Ainda não" pergunta de novo só depois de mais 1 km.
+- **Chegada mais precisa:** o raio de chegada caiu de 80–150 m para 30–60 m, e passar a até 70 m do ponto e já se afastar também conta como chegada.
+- **Camadas na viagem:** o trecho da ida fica por cima do da volta quando usam a mesma via.
+- **PDF baixa direto**, sem janela de impressão, em folhas A4 (cabe numa folha quando passa pouco). O relatório final começa a ser gerado assim que a viagem termina, então o botão entrega o arquivo pronto.
+- **Prévia do link** (WhatsApp, redes sociais): título, descrição e miniatura. Links de rota mostram "Rota com N paradas" e um resumo (ida e volta, pausas, hora).
 
 ### 🏁 Versão 0.6.2 (beta)
 
