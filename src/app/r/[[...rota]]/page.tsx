@@ -7,9 +7,27 @@
  * mudam conforme a rota do link, lida com a mesma validação.
  */
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { parseSharedRoute } from "@/lib/share-link";
+import Home from "../../page";
 
-export { default } from "../../page";
+/** A prévia depende do endereço (dado de requisição): avisa o Next, sem tirar o resto da página do pré-render. */
+async function Connection() {
+  await connection();
+  return null;
+}
+
+export default function SharedRoutePage() {
+  return (
+    <>
+      <Home />
+      <Suspense>
+        <Connection />
+      </Suspense>
+    </>
+  );
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ rota?: string[] }> }): Promise<Metadata> {
   const { rota = [] } = await params;
