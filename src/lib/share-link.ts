@@ -10,8 +10,9 @@
  *
  * - Local: "lat,lng" com ponto decimal (ex.: 38.70750,-9.13640). Permanência
  *   opcional em minutos depois de "@": 38.7,-9.1@15.
- * - Parada travada na posição em que aparece: "!" no fim (ex.: 38.7,-9.1@15!).
- * - Hora de chegada nesta parada (modo "chegar até"): "^" no fim (ex.: 38.7,-9.1@15!^).
+ * - Parada travada na posição em que aparece: "l" no fim (ex.: 38.7,-9.1@15l).
+ *   Só letras e números: símbolos como ! e ^ quebram o link em alguns apps (o ! e o ^ antigos ainda são lidos).
+ * - Hora de chegada nesta parada (modo "chegar até"): "c" no fim (ex.: 38.7,-9.1@15lc).
  * - Fim: "s" = volta ao início; "-" = sem fim (termina na última parada). Nos
  *   parâmetros, sem "e" também quer dizer sem fim.
  * - Pausa para descanso: "b<minutos>" no lugar de uma parada (ex.: b20).
@@ -48,7 +49,7 @@ export interface SharedRoute {
 
 /** Limite de itens (paradas + pausas) num link. */
 const MAX_ITEMS = MAX_STOPS * 2 + 1;
-const POINT = /^(-?\d{1,2}(?:\.\d{1,7})?),(-?\d{1,3}(?:\.\d{1,7})?)(?:@(\d{1,3}))?(!)?(\^)?$/;
+const POINT = /^(-?\d{1,2}(?:\.\d{1,7})?),(-?\d{1,3}(?:\.\d{1,7})?)(?:@(\d{1,3}))?([l!])?([c^])?$/;
 const BREAK = /^b(\d{1,3})$/;
 const TIME = /^([da])(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/;
 
@@ -157,7 +158,7 @@ export function parseSharedRoute(pathname: string, search: string): SharedRoute 
 
 const fmt = (n: number) => String(Number(n.toFixed(5)));
 const pointToken = (p: SharedPoint) =>
-  `${fmt(p.lat)},${fmt(p.lng)}${p.dwellMinutes > 0 ? `@${Math.round(p.dwellMinutes)}` : ""}${p.locked ? "!" : ""}${p.arriveHere ? "^" : ""}`;
+  `${fmt(p.lat)},${fmt(p.lng)}${p.dwellMinutes > 0 ? `@${Math.round(p.dwellMinutes)}` : ""}${p.locked ? "l" : ""}${p.arriveHere ? "c" : ""}`;
 const itemToken = (item: SharedItem) => (item.kind === "break" ? `b${Math.round(item.minutes)}` : pointToken(item));
 const endToken = (end: SharedRoute["end"]) =>
   end === "none" ? "-" : end === "start" ? "s" : pointToken(unlocked(end)!);

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.7.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.7.3%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -140,10 +140,10 @@ https://rotas.arqueirover.de/?s=<início>&e=<fim>&p1=<parada1>&p2=<parada2>…[&
 - **Local:** `lat,lng` com ponto decimal, como `38.7075,-9.1364`. O tempo de permanência vai depois de `@`, em minutos: `38.7253,-9.15@10`.
 - **Fim:** `s` volta ao início; `-` (ou, nos parâmetros, não pôr o `e`) termina na última parada; ou as coordenadas de outro lugar.
 - **Pausa para descanso:** `b20` (20 minutos) no lugar de uma parada.
-- **Parada travada** na posição: `!` no fim, como `38.7253,-9.15@10!`.
-- **Hora de chegada numa parada:** `^` no fim (depois do `!`, se houver), junto com a hora `a…`: `38.7253,-9.15@10!^`.
+- **Parada travada** na posição: `l` no fim, como `38.7253,-9.15@10l`.
+- **Hora de chegada numa parada:** `c` no fim (depois do `l`, se houver), junto com a hora `a…`: `38.7253,-9.15@10lc`.
 - **Hora:** `d` (sair em) ou `a` (chegar até) seguido de `AAAAMMDDhhmm`, como `d202611200830`. No caminho é o último segmento; nos parâmetros, `t=`.
-- Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10!/b20/38.7445,-9.1745/d202611200830`.
+- Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10l/b20/38.7445,-9.1745/d202611200830`.
 
 ### 7. Personalizar
 
@@ -230,9 +230,13 @@ MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do Op
 
 ## 🕰️ Histórico de versões
 
+### 🔤 Versão 0.7.3 (beta)
+
+- **Link sem símbolos que quebram:** a trava da parada passa a ser a letra `l` e a hora de chegada numa parada a letra `c` (antes `!` e `^`, que quebravam o link em alguns apps ao compartilhar). Links antigos continuam abrindo.
+
 ### 🔗 Versão 0.7.2 (beta)
 
-- **Link com a hora de chegada numa parada:** a parada que tem a hora "chegar até" vai marcada com `^` no link (como `38.7253,-9.15@10!^`); quem abre vê a mesma parada com a mesma hora.
+- **Link com a hora de chegada numa parada:** a parada que tem a hora "chegar até" vai marcada com `^` no link (como `38.7253,-9.15@10lc`); quem abre vê a mesma parada com a mesma hora.
 
 ### 🧭 Versão 0.7.1 (beta)
 

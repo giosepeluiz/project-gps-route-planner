@@ -331,7 +331,7 @@ describe("link com hora e travas", () => {
       time: { mode: "arrive" as const, at: "2026-11-19T08:30" },
     };
     const path = sharedPath(route);
-    expect(path).toBe("/r/38.7,-9.1/s/38.71,-9.12@15!/b20/38.72,-9.13/a202611190830");
+    expect(path).toBe("/r/38.7,-9.1/s/38.71,-9.12@15l/b20/38.72,-9.13/a202611190830");
     expect(parseSharedRoute(path, "")).toEqual(route);
     const q = sharedQuery(route);
     expect(q).toContain("t=a202611190830");
@@ -392,7 +392,16 @@ describe("link com a hora de chegada numa parada", () => {
       time: { mode: "arrive" as const, at: "2026-11-20T15:00" },
     };
     const path = sharedPath(route);
-    expect(path).toBe("/r/38.7,-9.1/-/38.71,-9.12/38.72,-9.13@10!^/a202611201500");
+    expect(path).toBe("/r/38.7,-9.1/-/38.71,-9.12/38.72,-9.13@10lc/a202611201500");
     expect(parseSharedRoute(path, "")).toEqual(route);
+  });
+});
+
+describe("link: letras no lugar de símbolos", () => {
+  it("ainda lê os símbolos antigos (! e ^) e gera letras (l e c)", () => {
+    const old = parseSharedRoute("/r/38.7,-9.1/-/38.72,-9.13@10!^/a202611201500", "");
+    const neu = parseSharedRoute("/r/38.7,-9.1/-/38.72,-9.13@10lc/a202611201500", "");
+    expect(old).toEqual(neu);
+    expect(neu?.items[0]).toMatchObject({ locked: true, arriveHere: true });
   });
 });
