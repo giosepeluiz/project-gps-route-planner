@@ -1,5 +1,4 @@
 /** Cliente das rotas de IA. Toda falha vira "local": a IA nunca bloqueia a interface. */
-import { apiUrl } from "@/lib/api-base";
 import type { Locale } from "./i18n";
 import type { AiTier, ReviewResult } from "./server/ai";
 
@@ -82,12 +81,12 @@ export async function fetchReview(
   signal?: AbortSignal,
   fetchFn: typeof fetch = fetch,
 ): Promise<ReviewOutcome> {
-  const data = await post<ReviewOutcome>(apiUrl("/api/ai/review"), JSON.parse(body), signal, fetchFn);
+  const data = await post<ReviewOutcome>("/api/ai/review", JSON.parse(body), signal, fetchFn);
   return data && data.tier ? data : LOCAL_REVIEW;
 }
 
 export async function fetchParsedPlaces(text: string, fetchFn: typeof fetch = fetch): Promise<ParseOutcome> {
-  const data = await post<ParseOutcome>(apiUrl("/api/ai/parse"), { text }, undefined, fetchFn);
+  const data = await post<ParseOutcome>("/api/ai/parse", { text }, undefined, fetchFn);
   return data && Array.isArray(data.places) ? data : { tier: "local", places: [] };
 }
 

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.8.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.8.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -230,11 +230,9 @@ MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do Op
 
 ## 🕰️ Histórico de versões
 
-### 📱 Versão 0.8.1 (beta)
+### ↩️ Versão 0.8.2 (beta)
 
-- **Preparação dos apps para Windows, Linux e Android:** plano completo em [docs/APPS.md](docs/APPS.md) (arquitetura, tecnologias, visual, distribuição, fases e sugestões de novos recursos).
-- Todas as chamadas à API passam por `apiUrl()`, que nos apps aponta para o servidor (`NEXT_PUBLIC_API_BASE`).
-- CORS liberado só para as origens dos apps nativos (Capacitor e Tauri).
+- Removida a preparação dos apps da 0.8.1 (plano, `apiUrl()` e CORS): os apps vão ser feitos à parte. O site volta a ficar igual ao da 0.8.0.
 
 ### 🏁 Versão 0.8.0 (beta)
 
@@ -361,10 +359,6 @@ E depois disso, ainda na 0.1.0: tempo de permanência em cada parada, travas por
 ## 🛠️ Para desenvolvedores
 
 **Stack:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, MapLibre GL JS 6, zod, Vitest e ESLint.
-
-**Apps nativos (em planejamento):** Windows e Linux com Tauri 2, Android com Capacitor 8, usando a mesma interface. Veja o plano em [docs/APPS.md](docs/APPS.md).
-
-**Viagem de teste:** no acesso local (`http://localhost:3000` ou o IP da rede de casa), o Resumo mostra "Viagem de teste", com um carro simulado na velocidade escolhida (padrão 150 km/h).
 
 ### Rodar localmente
 

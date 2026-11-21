@@ -1,6 +1,5 @@
 "use client";
 
-import { apiUrl } from "@/lib/api-base";
 import {
   Fragment,
   useCallback,
@@ -1535,7 +1534,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       } else {
         if (!tripStats || !reportDraft) return null;
         // Análise técnica da IA (opcional): sem ela, o relatório sai do mesmo jeito.
-        const analysis = await fetch(apiUrl("/api/ai/trip-analysis"), {
+        const analysis = await fetch("/api/ai/trip-analysis", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ locale, trip: reportDraft }),

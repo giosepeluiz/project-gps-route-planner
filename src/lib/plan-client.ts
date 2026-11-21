@@ -1,5 +1,4 @@
 /** Cliente de POST /api/plan. Envia o mínimo: ids e coordenadas, sem rótulos. */
-import { apiUrl } from "@/lib/api-base";
 import { dwellSecondsOf } from "./plan";
 import type { PlanResponse } from "./server/plan";
 import type { Place, TimeMode } from "./types";
@@ -53,7 +52,7 @@ export async function fetchPlan(
   fetchFn: typeof fetch = fetch,
 ): Promise<PlanOutcome> {
   try {
-    const res = await fetchFn(apiUrl("/api/plan"), {
+    const res = await fetchFn("/api/plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,

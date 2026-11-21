@@ -2,7 +2,6 @@
  * Leitura de um local digitado: coordenadas, link de mapa ou endereço.
  * Só chama o servidor quando o texto não se resolve sozinho.
  */
-import { apiUrl } from "@/lib/api-base";
 import { parseCoordinates, type LatLng } from "./coordinates";
 import { formatLatLng } from "./format";
 import { extractUrlFromText, isMapUrl, parseInput, toUrl } from "./map-urls";
@@ -63,7 +62,7 @@ export async function resolvePlaceInput(
   if (input.kind === "link") {
     const found = await getJson<LatLng & { label?: string }>(
       fetchFn,
-      apiUrl(`/api/resolve?u=${encodeURIComponent(input.text)}`),
+      `/api/resolve?u=${encodeURIComponent(input.text)}`,
     );
     if (!found) return null;
     return {
@@ -79,7 +78,7 @@ export async function resolvePlaceInput(
   if (bbox) params.set("bbox", bbox.map((n) => n.toFixed(4)).join(","));
   const found = await getJson<LatLng & { label: string; confidence: number }>(
     fetchFn,
-    apiUrl(`/api/geocode?${params}`),
+    `/api/geocode?${params}`,
   );
   if (!found) return null;
   return {
@@ -112,7 +111,7 @@ export async function fetchSuggestions(
   const params = new URLSearchParams({ q: query.slice(0, 120) });
   if (near) params.set("near", `${near.lat.toFixed(3)},${near.lng.toFixed(3)}`);
   try {
-    const res = await fetchFn(apiUrl(`/api/suggest?${params}`), { signal });
+    const res = await fetchFn(`/api/suggest?${params}`, { signal });
     if (!res.ok) return [];
     const data = (await res.json()) as { suggestions?: AddressSuggestion[] };
     return Array.isArray(data.suggestions) ? data.suggestions : [];
@@ -125,7 +124,7 @@ export async function fetchSuggestions(
 export async function areaLabel(point: LatLng, fetchFn: FetchFn = fetch): Promise<string | null> {
   const found = await getJson<{ label: string | null }>(
     fetchFn,
-    apiUrl(`/api/reverse?kind=area&lat=${point.lat.toFixed(6)}&lng=${point.lng.toFixed(6)}`),
+    `/api/reverse?kind=area&lat=${point.lat.toFixed(6)}&lng=${point.lng.toFixed(6)}`,
   );
   return found?.label ?? null;
 }
@@ -139,7 +138,7 @@ export function isCoordinateLabel(place: LatLng & { label: string }): boolean {
 export async function reverseLabel(point: LatLng, fetchFn: FetchFn = fetch): Promise<string | null> {
   const found = await getJson<{ label: string | null }>(
     fetchFn,
-    apiUrl(`/api/reverse?lat=${point.lat.toFixed(6)}&lng=${point.lng.toFixed(6)}`),
+    `/api/reverse?lat=${point.lat.toFixed(6)}&lng=${point.lng.toFixed(6)}`,
   );
   return found?.label ?? null;
 }
