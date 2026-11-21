@@ -37,6 +37,8 @@ export interface MePosition {
   accuracy: number;
   /** Momento da leitura (ms). */
   at: number;
+  /** Está na parada: a seta vira a bandeira de objetivo, em cima do ponto da parada. */
+  goal?: boolean;
 }
 
 /** Quanto do mapa está coberto pelo HUD, para o enquadramento da rota. */
@@ -196,6 +198,10 @@ const FOLLOW_PAUSE_MS = 8_000;
 
 const ARROW_SVG =
   '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><defs><filter id="sombra-seta" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#000" flood-opacity=".35"/></filter></defs><circle cx="20" cy="20" r="17" fill="#1a73e8" fill-opacity=".16"/><path d="M20 6.5 L30.5 31 L20 25.4 L9.5 31 Z" fill="#1a73e8" stroke="#ffffff" stroke-width="2.6" stroke-linejoin="round" filter="url(#sombra-seta)"/></svg>';
+
+/** Seta "grudada" na parada: bandeira de chegada num círculo verde. */
+const GOAL_SVG =
+  '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="#16a34a" stroke="#ffffff" stroke-width="3"/><path d="M14 30V10.5" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/><path d="M14.5 11h12.5l-3 4.5 3 4.5H14.5z" fill="#ffffff"/><path d="M17.5 11h3v3h-3zM23.5 11h3v3h-3zM20.5 14h3v3h-3zM14.5 14h3v3h-3zM17.5 17h3v3h-3zM23.5 17h1.7l-1.7-2.5z" fill="#16a34a"/></svg>';
 
 const ROTATE_ICON =
   '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.25"/><path d="M10 4.6l2.4 6.2L10 9.6l-2.4 1.2z" fill="currentColor"/></svg>';
@@ -747,6 +753,16 @@ export default function MapView({
   const meLng = me?.lng;
   const meAt = me?.at;
   const meHeading = me?.heading ?? null;
+  const meGoal = me?.goal === true;
+  const goalRef = useRef(meGoal);
+  // Troca o desenho da seta pela bandeira (e de volta) sem recriar o marcador.
+  useEffect(() => {
+    goalRef.current = meGoal;
+    const element = meMarkerRef.current?.getElement();
+    if (!element) return;
+    element.innerHTML = meGoal ? GOAL_SVG : ARROW_SVG;
+    element.classList.toggle("pin-goal", meGoal);
+  }, [meGoal, meLat]);
   const meAccuracy = me?.accuracy ?? 30;
   useEffect(() => {
     const map = mapRef.current;
@@ -796,7 +812,7 @@ export default function MapView({
       let position = raw;
       let wanted = meHeading ?? shownRef.current?.bearing ?? 0;
       const streets = streetsRef.current;
-      if (trackingRef.current && streets) {
+      if (trackingRef.current && streets && !goalRef.current) {
         const { data, snapped } = withProgress(streets, raw, meAccuracy, meHeading);
         if (snapped) {
           position = snapped.point;
@@ -813,7 +829,8 @@ export default function MapView({
       const previous = shownRef.current?.bearing ?? wanted;
       const bearing = lerpAngle(previous, wanted, 0.07);
       shownRef.current = { lng: position[0], lat: position[1], bearing };
-      marker.setLngLat(position).setRotation(bearing);
+      // A bandeira fica de pé na tela; a seta gira com a direção do carro.
+      marker.setLngLat(position).setRotation(goalRef.current ? map.getBearing() : bearing);
       let cameraMoving = false;
       if (followRef.current && Date.now() >= followPauseRef.current) {
         const ease = (now: number, to: number, eps: number) =>

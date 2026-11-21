@@ -249,6 +249,11 @@ const ptPT: Messages = {
     leaveBody: (name: string) => `Afastou-se de ${name}. Se estava só a manobrar ou a estacionar, escolha "Ainda não".`,
     leaveYes: "Sim, a seguir",
     leaveNo: "Ainda não",
+    achieveLabel: "Paragem concluída",
+    achieved: (name: string) => `Paragem ${name} concluída`,
+    testTrip: "Viagem de teste",
+    testSpeed: "Velocidade do teste",
+    testTag: "teste",
     headerHint: "Toque para ver mais dados da viagem",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Demorou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,

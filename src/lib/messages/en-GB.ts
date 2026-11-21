@@ -249,6 +249,11 @@ const enGB: Messages = {
     leaveBody: (name: string) => `You have moved away from ${name}. If you were only manoeuvring or parking, choose "Not yet".`,
     leaveYes: "Yes, on my way",
     leaveNo: "Not yet",
+    achieveLabel: "Stop completed",
+    achieved: (name: string) => `Stop ${name} completed`,
+    testTrip: "Test trip",
+    testSpeed: "Test speed",
+    testTag: "test",
     headerHint: "Tap to see more trip data",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Took ${actual}${planned ? ` (planned ${planned})` : ""} · ${km} travelled`,

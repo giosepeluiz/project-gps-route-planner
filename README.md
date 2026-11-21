@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.7.3%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.8.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -229,6 +229,15 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🏁 Versão 0.8.0 (beta)
+
+- **Seta não trava mais na parada:** depois de chegar, o GPS continua ligado; a seta acompanha o carro e o aviso de 1 km (“Seguindo para a próxima parada?”) funciona de verdade.
+- **Chegada “magnética”:** ao chegar, a seta gruda na parada e vira uma bandeira de objetivo em cima dela (o pin da parada some); a uns 60 m dali, voltam a seta e o pin.
+- **Conquista no cabeçalho:** no celular, “Parada X concluída” entra deslizando no lugar da velocidade, com um OK verde, por uns segundos (em vez do aviso branco que cobria os números).
+- **Tempos na hora ao retomar a viagem:** o cabeçalho e a lista de paradas calculam da posição atual imediatamente (estimativa local, depois refinada pelo servidor), contando as paradas já feitas. A lista passa a mostrar as chegadas ao vivo.
+- **Toque no mapa com a bandeja aberta** (celular) só recolhe a bandeja.
+- **Viagem de teste (só no acesso local):** botão “Viagem de teste” com velocidade escolhida (padrão 150 km/h); um carro simulado percorre a rota com todos os recursos do modo viagem.
 
 ### 🔤 Versão 0.7.3 (beta)
 

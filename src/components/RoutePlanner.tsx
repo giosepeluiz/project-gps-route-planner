@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -16,6 +17,7 @@ import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import AiBadge from "./AiBadge";
 import LeaveStopDialog from "./LeaveStopDialog";
+import { isLocalHost, pointAlong, SIM_INTERVAL_MS, SIM_SPEED_KMH, SIM_SPEEDS_KMH } from "@/lib/trip-sim";
 import pkg from "../../package.json";
 import { departureReportHtml, finalReportHtml, type ReportRow } from "@/lib/pdf-report";
 import { downloadBlob, htmlToPdf } from "@/lib/pdf-file";
@@ -232,6 +234,12 @@ function readSavedRoute(): RouteState | null {
 const TOUR_KEY = "rotas:tutorial:v1";
 
 /** Posição atual como local da rota (início da rota que falta, na viagem). */
+/** Até esta distância da parada (depois de chegar), a seta vira a bandeira em cima dela. */
+const GOAL_MAGNET_M = 60;
+
+const subscribeNever = () => () => {};
+const readLocal = () => isLocalHost(window.location.hostname);
+
 const herePlace = (point: { lat: number; lng: number }, label: string): Place => ({
   id: "gps-aqui",
   label,
@@ -709,7 +717,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
    * Concluir (ou desfazer) uma parada. Ao concluir, ela também fica travada na
    * posição atual, para a ordem não mudar embaixo do que já foi feito.
    */
-  const toggleDone = (id: string) => {
+  const toggleDone = (id: string, announce?: (name: string) => void) => {
     const wasDone = doneIds.has(id);
     setRoute((prev) => {
       const done = new Set(prev.done ?? []);
@@ -721,7 +729,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
     if (!wasDone) {
       const place = typedStops.find((s) => s.id === id);
-      notify(t.stops.done(place?.label ?? t.stops.fallbackName));
+      const name = place?.label ?? t.stops.fallbackName;
+      if (announce) announce(name);
+      else notify(t.stops.done(name));
     }
   };
 
@@ -761,6 +771,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [headerPage, setHeaderPage] = useState(0);
   /** Nome da parada de onde a pessoa se afastou (modal "seguindo para a próxima?"), ou null. */
   const [leaveAsk, setLeaveAsk] = useState<string | null>(null);
+  /** Acesso local (localhost ou rede de casa): aparece a viagem de teste. */
+  const localAccess = useSyncExternalStore(subscribeNever, readLocal, () => false);
+  /** Viagem de teste: o GPS é simulado andando pela rota a 70 km/h. */
+  const [simulating, setSimulating] = useState(false);
+  const wantSimRef = useRef(false);
+  /** Velocidade escolhida para o carro de teste (km/h). */
+  const [simSpeedKmh, setSimSpeedKmh] = useState<number>(SIM_SPEED_KMH);
+  const simRef = useRef<{ path: readonly [number, number][] | null; along: number; pos: { lat: number; lng: number } | null }>({
+    path: null,
+    along: 0,
+    pos: null,
+  });
+  /** "Parada X concluída": aparece no cabeçalho da viagem por uns segundos, como uma conquista. */
+  const [achievement, setAchievement] = useState<{ name: string; key: number } | null>(null);
+  const achievementTimer = useRef(0);
+  const showAchievement = (name: string) => {
+    window.clearTimeout(achievementTimer.current);
+    setAchievement({ name, key: nowMs() });
+    achievementTimer.current = window.setTimeout(() => setAchievement(null), 4500);
+  };
   /** Distância (m) da parada a partir da qual o modal aparece; sobe 1 km a cada "Ainda não". */
   const leaveAtRef = useRef(1000);
   const lastLeaveMetersRef = useRef(0);
@@ -869,8 +899,53 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
    * linha do trecho e o tempo e a distância do trecho são descontados do que já
    * foi percorrido.
    */
+  /**
+   * Estimativa local imediata (sem esperar o servidor): da posição atual, pelas
+   * paradas que faltam, até o fim. O trecho em que o carro está usa o tempo
+   * planejado descontado do que já foi percorrido; os outros, os tempos já
+   * conhecidos do plano. Vale até a rota da viagem chegar do servidor (e ao
+   * retomar uma viagem depois de fechar o navegador).
+   */
+  const quickTrip = useMemo(() => {
+    if (!tripActive || tripView || !fix || !start) return null;
+    const rest = [...pendingStops, ...(finalPlace ? [finalPlace] : [])];
+    if (rest.length === 0) return null;
+    const here = herePlace(fix, t.gps.here);
+    const sequence = [here, ...rest];
+    const plannedLine = serverPlan?.streetLegs?.[targetLeg]?.coordinates;
+    const plannedSeconds = serverPlan?.legSeconds[targetLeg];
+    const plannedMeters = serverPlan?.streetLegs?.[targetLeg]?.meters;
+    const projection = plannedLine ? projectOnLine([fix.lng, fix.lat], plannedLine) : null;
+    const onLine = projection !== null && projection.distanceM <= 300;
+    const fraction = onLine ? remainingFraction(projection) : null;
+    const quickLegTime: LegTimeFn = (from, to) =>
+      from.id === here.id && fraction !== null && plannedSeconds
+        ? { seconds: Math.round(plannedSeconds * fraction), estimated: false }
+        : legTime(from, to);
+    const quickPlan = computePlan(sequence, "depart", new Date(fix.at), quickLegTime, tripRequest?.breakMap ?? new Map());
+    const restMeters = routeMeters(rest, serverPlan?.streetLegs?.slice(targetLeg + 1)).meters;
+    const firstMeters =
+      fraction !== null && plannedMeters ? plannedMeters * fraction : routeMeters(sequence.slice(0, 2), undefined).meters;
+    return { plan: quickPlan, firstMeters: Math.round(firstMeters), restMeters: rest.length > 1 ? Math.round(restMeters) : 0 };
+  }, [tripActive, tripView, fix, start, pendingStops, finalPlace, t.gps.here, serverPlan, targetLeg, legTime, tripRequest]);
+
   const live = useMemo(() => {
-    if (!tripView) return null;
+    if (!tripView) {
+      // Enquanto a rota da viagem não chega: a estimativa local, na hora.
+      if (!quickTrip || !fix) return null;
+      const first = quickTrip.plan.legs[0];
+      if (!first) return null;
+      return {
+        nextSeconds: first.seconds,
+        nextMeters: quickTrip.firstMeters,
+        estimated: true,
+        nextArriveAt: first.arriveAt,
+        endArriveAt: quickTrip.plan.arriveAt,
+        totalSeconds: quickTrip.plan.totalSeconds,
+        totalMeters: quickTrip.firstMeters + quickTrip.restMeters,
+        startedAt: new Date(fix.at),
+      };
+    }
     const leg = tripView.plan.legs[0];
     if (!leg) return null;
     const line = tripView.server.streetLegs?.[0]?.coordinates;
@@ -893,7 +968,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       ),
       startedAt: new Date(now),
     };
-  }, [tripView, fix]);
+  }, [tripView, fix, quickTrip]);
 
   const finishTrip = (at: number, arrivedAtEnd = true) => {
     const log = tripLogRef.current ?? newTripLog(at);
@@ -973,6 +1048,20 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     });
     if (trackRef.current) trackRef.current = trackFix(trackRef.current, next);
 
+    // Parado numa parada (antes de retomar): a seta acompanha, mas a rota não é
+    // recalculada. A 1 km dela, pergunta se já segue para a próxima (pode ser só
+    // uma manobra, por isso não segue sozinho).
+    if (trip?.status === "arrived") {
+      const arrivedStop = trip.arrivedId ? stops.find((s) => s.id === trip.arrivedId) : undefined;
+      const away = arrivedStop ? haversineMeters(next, arrivedStop) : 0;
+      if (arrivedStop && leaveAsk === null && away >= leaveAtRef.current) {
+        leaveAtRef.current = Infinity;
+        lastLeaveMetersRef.current = away;
+        setLeaveAsk(arrivedStop.label);
+      }
+      return;
+    }
+
     // Saiu da rota? Mede a distância até a linha do trecho atual; duas leituras
     // seguidas longe dela pedem uma rota nova já, saindo na direção do carro.
     const line = tripView?.server.streetLegs?.[0]?.coordinates;
@@ -1002,16 +1091,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       finishTrip(next.at);
       return;
     }
-    // Já chegou numa parada e agora está a 1 km dela: pergunta se já segue para a próxima
-    // (pode ser só uma manobra, por isso não segue sozinho).
-    if (trip?.status === "arrived" && trip.arrivedId && leaveAsk === null) {
-      const arrivedStop = stops.find((s) => s.id === trip.arrivedId);
-      if (arrivedStop && haversineMeters(next, arrivedStop) >= leaveAtRef.current) {
-        leaveAtRef.current = Infinity;
-        lastLeaveMetersRef.current = haversineMeters(next, arrivedStop);
-        setLeaveAsk(arrivedStop.label);
-      }
-    }
     // Chegou perto o bastante, ou chegou bem perto e já se afasta (passou pelo ponto).
     const meters = haversineMeters(next, target);
     if (closestRef.current.id !== target.id) closestRef.current = { id: target.id, meters: Infinity };
@@ -1023,7 +1102,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     if (stops.some((s) => s.id === target.id)) {
       if (tripLogRef.current) tripLogRef.current = logStop(tripLogRef.current, next.at);
       if (trackRef.current) trackRef.current = trackArrive(trackRef.current, next.at);
-      if (trip?.status !== "arrived") leaveAtRef.current = 1000;
+      leaveAtRef.current = 1000;
       setTrip({ status: "arrived", arrivedId: target.id });
     } else {
       finishTrip(next.at);
@@ -1037,8 +1116,36 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     setTrip((current) => (current?.status === "running" ? { status: "paused" } : current));
   });
   const tripRunning = trip?.status === "running";
+  /** GPS ligado: andando ou parado numa parada (a seta continua acompanhando o carro). */
+  const gpsOn = tripRunning || trip?.status === "arrived";
+  /** Uma leitura do carro de teste: anda SIM_SPEED_MS pela linha do trecho atual (parado na parada). */
+  const simTick = useEffectEvent(() => {
+    const sim = simRef.current;
+    const path = (tripView?.server.streetLegs?.[0]?.coordinates ?? serverPlan?.streetLegs?.[targetLeg]?.coordinates ?? null) as
+      | readonly [number, number][]
+      | null;
+    if (!path || path.length < 2) return;
+    if (path !== sim.path) {
+      // Rota nova (recálculo ou próximo trecho): continua de onde o carro está nela.
+      sim.along = sim.pos ? (projectOnLine([sim.pos.lng, sim.pos.lat], path)?.alongM ?? 0) : 0;
+      sim.path = path;
+    }
+    const driving = trip?.status === "running";
+    const speedMs = simSpeedKmh / 3.6;
+    if (driving) sim.along += speedMs * (SIM_INTERVAL_MS / 1000);
+    const p = pointAlong(path, sim.along);
+    sim.pos = { lat: p.lat, lng: p.lng };
+    onFix(
+      { lat: p.lat, lng: p.lng, accuracy: 8, at: nowMs() },
+      { heading: driving && !p.atEnd ? p.heading : null, speed: driving && !p.atEnd ? speedMs : 0 },
+    );
+  });
   useEffect(() => {
-    if (!tripRunning) return;
+    if (!gpsOn) return;
+    if (simulating) {
+      const timer = window.setInterval(() => simTick(), SIM_INTERVAL_MS);
+      return () => window.clearInterval(timer);
+    }
     const watch = navigator.geolocation.watchPosition(
       (position) =>
         onFix(
@@ -1055,7 +1162,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
     );
     return () => navigator.geolocation.clearWatch(watch);
-  }, [tripRunning]);
+  }, [gpsOn, simulating]);
 
   const clearTrip = () => {
     lastReplanRef.current = null;
@@ -1074,7 +1181,11 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   };
   const beginTrip = () => {
     setTripWarning(false);
-    if (!("geolocation" in navigator)) {
+    const simulate = wantSimRef.current && localAccess;
+    wantSimRef.current = false;
+    setSimulating(simulate);
+    simRef.current = { path: null, along: 0, pos: null };
+    if (!simulate && !("geolocation" in navigator)) {
       notify(t.gps.unsupported);
       return;
     }
@@ -1104,7 +1215,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     // Retomar depois de chegar: a parada fica concluída e o acompanhamento segue para a próxima.
     if (trip?.status === "arrived" && trip.arrivedId) {
       const arrivedId = trip.arrivedId;
-      if (!doneIds.has(arrivedId)) toggleDone(arrivedId);
+      // Na viagem, no celular: a conquista entra no cabeçalho (o aviso branco cobria a velocidade).
+      if (!doneIds.has(arrivedId)) toggleDone(arrivedId, isCompact ? showAchievement : undefined);
       stopsDoneRef.current += 1;
       // Era a última parada e a rota termina nela: a viagem acaba na hora em que chegou.
       if (!tripTarget(stops, new Set([...doneIds, arrivedId]), finalPlace)) {
@@ -1478,6 +1590,33 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsOpen, tripStats, reportDraft]);
 
+  /**
+   * Horários da lista durante a viagem: as paradas que faltam ganham a chegada
+   * ao vivo (da posição atual), as concluídas ficam com o que foi planejado.
+   */
+  const listLegs = useMemo(() => {
+    if (!plan || !tripActive || !live) return plan?.legs;
+    const tripPlan = tripView?.plan ?? quickTrip?.plan;
+    if (!tripPlan || tripPlan.legs.length === 0) return plan.legs;
+    // Desloca o plano da viagem para bater com a chegada ao vivo na próxima parada.
+    const shift = live.nextArriveAt.getTime() - tripPlan.legs[0].arriveAt.getTime();
+    return plan.legs.map((leg, i) => {
+      const stop = stops[i];
+      if (stop && doneIds.has(stop.id)) return leg;
+      const toId = stop?.id ?? finalPlace?.id;
+      const liveLeg = tripPlan.legs.find((l) => l.to.id === toId) ?? (stop ? null : tripPlan.legs[tripPlan.legs.length - 1]);
+      if (!liveLeg) return leg;
+      const first = liveLeg === tripPlan.legs[0];
+      return {
+        ...leg,
+        seconds: first ? live.nextSeconds : liveLeg.seconds,
+        estimated: liveLeg.estimated || (first && live.estimated),
+        arriveAt: new Date(liveLeg.arriveAt.getTime() + shift),
+        leaveAt: new Date(liveLeg.leaveAt.getTime() + shift),
+      };
+    });
+  }, [plan, tripActive, live, tripView, quickTrip, stops, doneIds, finalPlace]);
+
   /** Pontos da visão geral (carro parado): onde está e o que falta. */
   const overviewPoints = useMemo<[number, number][]>(() => {
     if (!tripActive) return [];
@@ -1629,16 +1768,56 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const primary = `${buttonBase} bg-accent text-white hover:bg-accent/90 dark:text-[#10131c]`;
     const secondary = `${buttonBase} border border-line-strong text-ink-2 hover:bg-hover hover:text-ink`;
     if (!trip) {
-      return (
+      const startButton = (
         <button
           type="button"
-          onClick={() => setTripWarning(true)}
+          onClick={() => {
+            wantSimRef.current = false;
+            setTripWarning(true);
+          }}
           disabled={!plan || !target}
           className={`${primary} disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <PlayIcon />
           {t.trip.start}
         </button>
+      );
+      if (!localAccess) return startButton;
+      // Acesso local: também a viagem de teste, com o carro simulado a 70 km/h.
+      return (
+        <div className="flex flex-col gap-2">
+          {startButton}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                wantSimRef.current = true;
+                setTripWarning(true);
+              }}
+              disabled={!plan || !target || !serverPlan?.streetLegs}
+              className={`${secondary} flex-1 border-dashed disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <PlayIcon />
+              {t.trip.testTrip}
+            </button>
+            <label className="sr-only" htmlFor="velocidade-teste">
+              {t.trip.testSpeed}
+            </label>
+            <select
+              id="velocidade-teste"
+              title={t.trip.testSpeed}
+              value={simSpeedKmh}
+              onChange={(e) => setSimSpeedKmh(Number(e.target.value))}
+              className={`${selectClass} w-28 shrink-0`}
+            >
+              {SIM_SPEEDS_KMH.map((kmh) => (
+                <option key={kmh} value={kmh}>
+                  {kmh} km/h
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       );
     }
     const arrivedPlace = trip.arrivedId ? stops.find((s) => s.id === trip.arrivedId) : undefined;
@@ -1670,6 +1849,11 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             />
           )}
           {title}
+          {simulating && (
+            <span className="rounded border border-dashed border-line-strong px-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+              {t.trip.testTag}
+            </span>
+          )}
         </p>
         {(trip.status === "running" || trip.status === "paused") && target && (
           <div className="flex flex-col gap-0.5">
@@ -1730,8 +1914,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     );
   })();
 
+  /** Parada em que o carro está "em cima" (até 60 m dela, depois de chegar): a seta gruda nela. */
+  const goalStop =
+    trip?.status === "arrived" && trip.arrivedId && fix
+      ? (stops.find((s) => s.id === trip.arrivedId && haversineMeters(fix, s) <= GOAL_MAGNET_M) ?? null)
+      : null;
   const meOnMap: MePosition | null =
-    tripActive && fix ? { lat: fix.lat, lng: fix.lng, heading: fix.heading ?? null, accuracy: fix.accuracy, at: fix.at } : null;
+    tripActive && fix
+      ? goalStop
+        ? { lat: goalStop.lat, lng: goalStop.lng, heading: null, accuracy: fix.accuracy, at: fix.at, goal: true }
+        : { lat: fix.lat, lng: fix.lng, heading: fix.heading ?? null, accuracy: fix.accuracy, at: fix.at }
+      : null;
+  /** Pins do mapa: o da parada some enquanto a bandeira está em cima dela. */
+  const mapPoints = goalStop ? points.filter((p) => p.id !== goalStop.id) : points;
 
   // Celular e tablet: cabeçalho da viagem com a chegada, o tempo e a distância até a próxima parada.
   const tripHeader =
@@ -1743,7 +1938,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         onClick={() => setHeaderPage((page) => (page + 1) % 3)}
         className="focus-ring fixed inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 mx-auto block max-w-[24rem] overflow-hidden rounded-xl border border-line bg-surface text-left shadow-panel transition-colors active:bg-hover"
       >
-        {rerouting || !live ? (
+        {achievement ? (
+          // Conquista: entra deslizando no lugar dos números, com o "OK" verde.
+          <div key={achievement.key} role="status" className="rotas-achieve flex items-center gap-2.5 px-3 py-2">
+            <span className="rotas-achieve-check grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_4px_rgb(16_185_129/0.25)]">
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+              </svg>
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="text-2xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                {t.trip.achieveLabel}
+              </span>
+              <span className="truncate text-compact font-semibold text-ink">{t.trip.achieved(achievement.name)}</span>
+            </span>
+          </div>
+        ) : rerouting || !live ? (
           <p className="px-3 py-2.5 text-center text-compact font-medium text-ink-2">
             {rerouting ? t.trip.rerouting : fix ? t.trip.updating : t.trip.waitingGps}
           </p>
@@ -1961,7 +2171,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                       })
                     }
                     stops={stops}
-                    legs={plan?.legs}
+                    legs={listLegs}
                     locks={locks}
                     showLegColors={streetLegs !== null}
                     breaks={breaks}
@@ -2292,10 +2502,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       <h1 className="sr-only">{t.app.title}</h1>
 
       <MapView
-        points={points}
+        points={mapPoints}
         path={mapPath}
         streetLegs={mapStreetLegs}
-        onLegClick={handleLegClick}
+        onLegClick={(leg, lat, lng) => (!isDesktop && sheetOpen ? setSheetOpen(false) : handleLegClick(leg, lat, lng))}
         selectedLeg={info?.leg ?? null}
         doneLegs={tripActive ? [] : doneLegs}
         legColors={mapLegColors}
@@ -2304,7 +2514,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         driving={moving}
         overview={overviewPoints}
         me={meOnMap}
-        follow={tripRunning}
+        follow={gpsOn}
         tracking={tripActive}
         headingUp={headingUp}
         compact={isCompact}
@@ -2316,9 +2526,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         onOpenAbout={() => setAboutOpen(true)}
         layout={layout}
         fallbackStyleUrl={fallbackStyleUrl}
-        onMapClick={(lat, lng) => openInfo(lat, lng)}
+        onMapClick={(lat, lng) => {
+          // Celular com a bandeja aberta: o toque no mapa só recolhe a bandeja.
+          if (!isDesktop && sheetOpen) return setSheetOpen(false);
+          openInfo(lat, lng);
+        }}
         onMapContextMenu={handleContextMenu}
-        onPointClick={handlePointClick}
+        onPointClick={(id) => (!isDesktop && sheetOpen ? setSheetOpen(false) : handlePointClick(id))}
         onBoundsChange={(bbox) => {
           bboxRef.current = bbox;
         }}

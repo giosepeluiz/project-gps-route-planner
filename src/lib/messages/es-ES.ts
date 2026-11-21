@@ -249,6 +249,11 @@ const esES: Messages = {
     leaveBody: (name: string) => `Te has alejado de ${name}. Si solo estabas maniobrando o aparcando, elige "Todavía no".`,
     leaveYes: "Sí, voy de camino",
     leaveNo: "Todavía no",
+    achieveLabel: "Parada completada",
+    achieved: (name: string) => `Parada ${name} completada`,
+    testTrip: "Viaje de prueba",
+    testSpeed: "Velocidad de la prueba",
+    testTag: "prueba",
     headerHint: "Toca para ver más datos del viaje",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Tardó ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} recorridos`,

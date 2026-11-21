@@ -256,6 +256,11 @@ const ptBR = {
     leaveBody: (name: string) => `Você se afastou de ${name}. Se estava só manobrando ou estacionando, escolha "Ainda não".`,
     leaveYes: "Sim, seguindo",
     leaveNo: "Ainda não",
+    achieveLabel: "Parada concluída",
+    achieved: (name: string) => `Parada ${name} concluída`,
+    testTrip: "Viagem de teste",
+    testSpeed: "Velocidade do teste",
+    testTag: "teste",
     headerHint: "Toque para ver mais dados da viagem",
     finishedShort: (actual: string, planned: string | null, km: string) =>
       `Levou ${actual}${planned ? ` (previsto ${planned})` : ""} · ${km} percorridos`,
