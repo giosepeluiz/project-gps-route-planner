@@ -1,5 +1,6 @@
 "use client";
 
+import { apiUrl } from "@/lib/api-base";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import pkg from "../../package.json";
 import { useLocale, useT } from "./I18nProvider";
@@ -97,7 +98,7 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
-    fetch("/api/status", { signal: controller.signal })
+    fetch(apiUrl("/api/status"), { signal: controller.signal })
       .then((res) => (res.ok ? (res.json() as Promise<ServiceStatus>) : null))
       .then((data) => data && setStatus(data))
       .catch(() => {});

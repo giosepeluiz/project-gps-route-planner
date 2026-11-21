@@ -1,5 +1,6 @@
 "use client";
 
+import { apiUrl } from "@/lib/api-base";
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import pkg from "../../package.json";
@@ -79,7 +80,7 @@ export default function TripStatsDialog({
       setDevice(d);
       setNowAllowed(nowMs() - lastSentAt() >= REPORT_COOLDOWN_MS);
     });
-    void fetch("/api/status")
+    void fetch(apiUrl("/api/status"))
       .then((res) => (res.ok ? (res.json() as Promise<{ tripReport?: boolean }>) : null))
       .then((status) => {
         if (!cancelled) setAvailable(status?.tripReport === true);
@@ -110,7 +111,7 @@ export default function TripStatsDialog({
     }
     setState("sending");
     try {
-      const res = await fetch("/api/trip-report", {
+      const res = await fetch(apiUrl("/api/trip-report"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ report, copyTo }),
