@@ -230,11 +230,7 @@ MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do Op
 
 ## 🕰️ Histórico de versões
 
-### ↩️ Versão 0.8.2 (beta)
-
-- Removida a preparação dos apps da 0.8.1 (plano, `apiUrl()` e CORS): os apps vão ser feitos à parte. O site volta a ficar igual ao da 0.8.0.
-
-### 🏁 Versão 0.8.0 (beta)
+### 🏁 Versão 0.8.2 (beta)
 
 - **Seta não trava mais na parada:** depois de chegar, o GPS continua ligado; a seta acompanha o carro e o aviso de 1 km (“Seguindo para a próxima parada?”) funciona de verdade.
 - **Chegada “magnética”:** ao chegar, a seta gruda na parada e vira uma bandeira de objetivo em cima dela (o pin da parada some); a uns 60 m dali, voltam a seta e o pin.
