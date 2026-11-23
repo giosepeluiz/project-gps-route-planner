@@ -440,7 +440,13 @@ td.r, th.r { text-align: right; white-space: nowrap; }
 .kpi { border: 1px solid ${C.line}; border-radius: 10px; padding: 7px 10px; background: ${C.soft}; }
 .kpi span { display: block; font-size: 9pt; color: ${C.muted}; text-transform: uppercase; letter-spacing: .04em; }
 .kpi b { font-size: 14pt; }
-.map { width: 100%; border-radius: 10px; border: 1px solid ${C.line}; display: block; height: 230px; object-fit: contain; background: ${C.soft}; }
+.map { width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; border: 1px solid ${C.line}; display: block; object-fit: cover; background: ${C.soft}; }
+.split { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: stretch; margin-top: 10px; break-inside: avoid; }
+.split h2 { margin-top: 0; }
+.kpis-col { display: flex; flex-direction: column; gap: 6px; justify-content: flex-end; }
+.kpis-col .kpi { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; }
+.kpis-col .kpi span { font-size: 8.5pt; }
+.kpis-col .kpi b { font-size: 12.5pt; white-space: nowrap; }
 .pill { display: inline-block; border: 1.5px solid; border-radius: 99px; padding: 0 7px; font-weight: 700; font-size: 9.5pt; }
 .tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 6px; font-size: 9pt; font-weight: 700; border: 1.5px solid ${C.brand}; color: ${C.brand}; white-space: nowrap; }
 .tag.lock { border-color: #b45309; color: #b45309; }
@@ -472,7 +478,11 @@ ${body}
 }
 
 const kpi = (label: string, value: string) => `<div class="kpi"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
-const mapBlock = (L: L, c: Common) => (c.mapImage ? `<h2>${esc(L.map)}</h2><img class="map" src="${esc(c.mapImage)}" alt="${esc(L.map)}">` : "");
+/** Mapa 4:3 de um lado e os números do outro (sem mapa, os números ocupam a largura toda). */
+const mapAndKpis = (L: L, c: Common, kpis: string) =>
+  c.mapImage
+    ? `<div class="split"><div><h2>${esc(L.map)}</h2><img class="map" src="${esc(c.mapImage)}" alt="${esc(L.map)}"></div><div class="kpis-col">${kpis}</div></div>`
+    : `<div class="kpis">${kpis}</div>`;
 
 /** Texto das condições do planejamento: paradas travadas e chegada obrigatória no horário. */
 function constraintsBlock(L: L, c: ReportConstraints | undefined): string {
@@ -513,8 +523,7 @@ export function departureReportHtml(r: DepartureReport): string {
 <h2>${esc(L.overview)}</h2>
 <p>${esc(L.depIntro(r.startName, stopsCount, endText, dateTime(r.locale, r.departAt), dateTime(r.locale, r.arriveAt), dur(r.totalSeconds), r.totalMeters === null ? "" : km(r.totalMeters)))}</p>
 ${breaksCount ? `<p>${esc(L.depBreaks(breaksCount, dur(r.breakSeconds)))}</p>` : ""}
-<div class="kpis">${kpi(L.departure, time(r.locale, r.departAt))}${kpi(L.arrival, time(r.locale, r.arriveAt))}${kpi(L.totalTime, dur(r.totalSeconds))}${kpi(L.totalDistance, km(r.totalMeters))}${kpi(L.driving, dur(r.driveSeconds))}${kpi(L.dwell, dur(r.dwellSeconds))}${kpi(L.restBreaks, dur(r.breakSeconds))}${kpi(L.stopCount, String(stopsCount))}</div>
-${mapBlock(L, r)}
+${mapAndKpis(L, r, `${kpi(L.departure, time(r.locale, r.departAt))}${kpi(L.arrival, time(r.locale, r.arriveAt))}${kpi(L.totalTime, dur(r.totalSeconds))}${kpi(L.totalDistance, km(r.totalMeters))}${kpi(L.driving, dur(r.driveSeconds))}${kpi(L.dwell, dur(r.dwellSeconds))}${kpi(L.restBreaks, dur(r.breakSeconds))}${kpi(L.stopCount, String(stopsCount))}`)}
 ${constraintsBlock(L, r.constraints)}
 <h2>${esc(L.stops)}</h2>
 ${stopsTable(L, r.locale, r.rows)}
@@ -595,8 +604,7 @@ ${t.legs
 <h2>${esc(L.overview)}</h2>
 <p>${esc(L.finalIntro(dur(s.actualSeconds), s.plannedSeconds === null ? null : dur(s.plannedSeconds), km(s.actualMeters), s.stopsDone, t.stopsPlanned))}</p>
 <p>${esc(L.finalSpeed(avg, dur(s.stoppedSeconds)))}</p>
-<div class="kpis">${kpi(L.totalTime, dur(s.actualSeconds))}${kpi(L.totalDistance, km(s.actualMeters))}${kpi(L.avgSpeed, avg)}${kpi(L.stopsDone, `${s.stopsDone}/${t.stopsPlanned}`)}${kpi(L.stopped, dur(s.stoppedSeconds))}${kpi(L.paused, dur(t.pausedSeconds))}${kpi(L.restBreaks, `${t.restBreaks} · ${t.restBreakMinutes} min`)}${kpi(L.reroutes, String(t.reroutes))}</div>
-${mapBlock(L, r)}
+${mapAndKpis(L, r, `${kpi(L.totalTime, dur(s.actualSeconds))}${kpi(L.totalDistance, km(s.actualMeters))}${kpi(L.avgSpeed, avg)}${kpi(L.stopsDone, `${s.stopsDone}/${t.stopsPlanned}`)}${kpi(L.stopped, dur(s.stoppedSeconds))}${kpi(L.paused, dur(t.pausedSeconds))}${kpi(L.restBreaks, `${t.restBreaks} · ${t.restBreakMinutes} min`)}${kpi(L.reroutes, String(t.reroutes))}`)}
 <h2>${esc(L.comparison)}</h2>
 ${comparison}
 ${ai}

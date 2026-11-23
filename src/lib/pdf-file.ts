@@ -109,7 +109,8 @@ export function pageBreaks(height: number, bottoms: readonly number[], pageHeigh
       pages.push([start, height]);
       break;
     }
-    const fits = bottoms.filter((b) => b <= limit && b > start + pageHeight * 0.25);
+    // Folga de 6 px: o texto desenhado pode diferir um pouco do medido, e a linha nunca pode ser cortada.
+    const fits = bottoms.filter((b) => b <= limit - 6 && b > start + pageHeight * 0.25);
     const end = fits.length > 0 ? Math.max(...fits) : limit;
     pages.push([start, end]);
     start = end;
@@ -121,7 +122,7 @@ export function pageBreaks(height: number, bottoms: readonly number[], pageHeigh
 export async function htmlToPdf(html: string, title: string): Promise<Blob> {
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${CONTENT_W}px;height:1200px;border:0;visibility:hidden`;
+  frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${CONTENT_W}px;height:12000px;border:0;visibility:hidden`;
   frame.srcdoc = html;
   document.body.appendChild(frame);
   try {
@@ -132,6 +133,8 @@ export async function htmlToPdf(html: string, title: string): Promise<Blob> {
     const doc = frame.contentDocument!;
     // Só o conteúdo: sem o aviso de impressão e sem margens da página.
     doc.querySelector(".hint")?.remove();
+    // Sem barra de rolagem: ela tiraria largura e mudaria as quebras de linha em relação ao desenho final.
+    doc.documentElement.style.overflow = "hidden";
     const override = doc.createElement("style");
     override.textContent = `.page{max-width:none!important;padding:0!important;margin:0!important}`;
     doc.head.appendChild(override);
@@ -148,7 +151,7 @@ export async function htmlToPdf(html: string, title: string): Promise<Blob> {
     // Altura do conteúdo (o rodapé é o último bloco); body.scrollHeight nunca é menor que a janela do iframe.
     const last = body.querySelector("footer") ?? body.querySelector(".page") ?? body;
     const height = Math.ceil(last.getBoundingClientRect().bottom - top);
-    const bottoms = [...body.querySelectorAll("header,.meta,p,tr,.kpis,.map,.charts,.finding,.box,table,footer")]
+    const bottoms = [...body.querySelectorAll("header,.meta,p,tr,.kpis,.split,.map,.charts,.finding,.box,table,footer")]
       // Linha de cabeçalho de tabela não termina página (ficaria sozinha).
       .filter((el) => !(el.tagName === "TR" && el.querySelector("th")))
       .map((el) => el.getBoundingClientRect().bottom - top);

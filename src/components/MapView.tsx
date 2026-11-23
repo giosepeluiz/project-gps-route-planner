@@ -1054,21 +1054,40 @@ export default function MapView({
         window.setTimeout(() => finish(null), 10_000);
         if (coords.length > 0) {
           const bounds = coords.reduce((acc, c) => acc.extend(c), new lib.LngLatBounds(coords[0], coords[0]));
-          map.fitBounds(bounds, { padding: 48, duration: 0, bearing: 0, pitch: 0, maxZoom: 15 });
+          // Enquadra a rota dentro de uma área 4:3 no centro do mapa (o resto é cortado depois).
+          const box = map.getContainer();
+          const w = box.clientWidth;
+          const h = box.clientHeight;
+          const padX = w / h > 4 / 3 ? (w - (h * 4) / 3) / 2 + 44 : 44;
+          const padY = w / h > 4 / 3 ? 44 : (h - (w * 3) / 4) / 2 + 44;
+          map.fitBounds(bounds, {
+            padding: { left: padX, right: padX, top: padY, bottom: padY },
+            duration: 0,
+            bearing: 0,
+            pitch: 0,
+            maxZoom: 15,
+          });
         }
         // Espera os blocos do mapa; se o "idle" não vier (nada mudou, ou algum bloco demora), segue em 3 s.
         const draw = () => {
           try {
             const source = map.getCanvas();
+            const scale = source.width / source.clientWidth;
+            // Recorte 4:3 no centro do mapa.
+            const cropW = Math.min(source.width, Math.round((source.height * 4) / 3));
+            const cropH = Math.round((cropW * 3) / 4);
+            const cropX = Math.round((source.width - cropW) / 2);
+            const cropY = Math.round((source.height - cropH) / 2);
             const canvas = document.createElement("canvas");
-            canvas.width = source.width;
-            canvas.height = source.height;
+            canvas.width = cropW;
+            canvas.height = cropH;
             const ctx = canvas.getContext("2d");
             if (!ctx) return finish(null);
-            ctx.drawImage(source, 0, 0);
-            const scale = source.width / source.clientWidth;
+            ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
             for (const point of points) {
-              const { x, y } = map.project([point.lng, point.lat]);
+              const projected = map.project([point.lng, point.lat]);
+              const x = projected.x - cropX / scale;
+              const y = projected.y - cropY / scale;
               const r = 13 * scale;
               ctx.beginPath();
               ctx.arc(x * scale, y * scale, r, 0, Math.PI * 2);
@@ -1096,17 +1115,20 @@ export default function MapView({
           map.once("render", draw);
           map.triggerRepaint();
         };
+        // Depois do novo enquadramento o mapa precisa de um tempo para pedir os blocos: espera 800 ms
+        // e só então confere (duas vezes seguidas) se tudo carregou, por até 8 s.
+        let stable = 0;
         const waitTiles = (tries: number) => {
           if (done) return;
-          if ((map.areTilesLoaded() && !map.isMoving()) || tries <= 0) {
-            // Um respiro para os blocos novos entrarem no desenho.
-            window.setTimeout(start, 350);
+          stable = map.areTilesLoaded() && !map.isMoving() ? stable + 1 : 0;
+          if (stable >= 2 || tries <= 0) {
+            window.setTimeout(start, 400);
             return;
           }
           map.triggerRepaint();
-          window.setTimeout(() => waitTiles(tries - 1), 200);
+          window.setTimeout(() => waitTiles(tries - 1), 250);
         };
-        window.setTimeout(() => waitTiles(40), 300);
+        window.setTimeout(() => waitTiles(32), 800);
       });
     return () => {
       captureRef.current = null;
