@@ -19,7 +19,7 @@ import AiBadge from "./AiBadge";
 import LeaveStopDialog from "./LeaveStopDialog";
 import { isLocalHost, pointAlong, SIM_INTERVAL_MS, SIM_SPEED_KMH, SIM_SPEEDS_KMH } from "@/lib/trip-sim";
 import pkg from "../../package.json";
-import { departureReportHtml, finalReportHtml, type ReportRow } from "@/lib/pdf-report";
+import { departureReportHtml, finalReportHtml, type ReportConstraints, type ReportRow } from "@/lib/pdf-report";
 import { downloadBlob, htmlToPdf } from "@/lib/pdf-file";
 import type { TripAnalysis } from "@/lib/report-email";
 import { selectClass } from "./DwellPicker";
@@ -416,12 +416,28 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // Pedido ao servidor (matriz com trânsito + solver). Só muda quando a rota muda:
   // em "agora", o relógio andando NÃO dispara novas consultas (a cota é limitada).
   // Sem início ainda não há rota para calcular.
+  /** Chegada obrigatória numa parada com a saída fixa (a posição da parada é calculada). */
+  const fixedDeadline =
+    route.arriveMode === "fixed" && route.arriveAtStop && route.arriveAtTime && timeMode === "depart"
+      ? { stopId: route.arriveAtStop, at: route.arriveAtTime }
+      : null;
   const requestBody = useMemo(
     () =>
       start
-        ? JSON.stringify(planRequestBody({ start, stops: typedStops, end, endSame, locks, mode: timeMode, dateTime }))
+        ? JSON.stringify(
+            planRequestBody({
+              start,
+              stops: typedStops,
+              end,
+              endSame,
+              locks,
+              mode: timeMode,
+              dateTime,
+              deadline: fixedDeadline,
+            }),
+          )
         : null,
-    [start, typedStops, end, endSame, locks, timeMode, dateTime],
+    [start, typedStops, end, endSame, locks, timeMode, dateTime, fixedDeadline],
   );
   const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
 
@@ -501,15 +517,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   /** "Chegar até" numa parada específica: o trecho que chega nela (o i-ésimo trecho chega na parada i). */
   const arriveIndex = route.arriveAtStop ? stops.findIndex((s) => s.id === route.arriveAtStop) : -1;
-  const arriveLeg = timeMode === "arrive" && arriveIndex !== -1 ? arriveIndex : null;
+  const arriveLeg = timeMode === "arrive" && route.arriveMode !== "fixed" && arriveIndex !== -1 ? arriveIndex : null;
+  /** Chegada obrigatória com saída fixa: o trecho que chega na parada espera até a hora, se chegar antes. */
+  const holdAtMs = fixedDeadline && arriveIndex !== -1 ? new Date(fixedDeadline.at).getTime() : null;
 
   const plan = useMemo(() => {
     // Sem início ainda não há rota; sem caminho de carro, não há tempos para mostrar.
     if (!start || planStatus === "no-route") return null;
     if (!anchor || Number.isNaN(anchor.getTime())) return null;
     const sequence = sequenceOf(stops);
-    return computePlan(sequence, timeMode, anchor, legTime, breakMap, arriveLeg);
-  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus, breakMap, arriveLeg]);
+    const hold = holdAtMs !== null && !Number.isNaN(holdAtMs) ? { leg: arriveIndex, at: new Date(holdAtMs) } : null;
+    return computePlan(sequence, timeMode, anchor, legTime, breakMap, arriveLeg, hold);
+  }, [sequenceOf, anchor, start, stops, timeMode, legTime, planStatus, breakMap, arriveLeg, holdAtMs, arriveIndex]);
 
   /** Distância total da rota: pelas ruas, quando o provedor devolve; senão, estimada. */
   const totalDistance = useMemo(
@@ -612,14 +631,24 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
             lng: row.stop.lng,
             dwellMinutes: row.stop.dwellMinutes,
             ...(locks[row.stop.id] !== undefined ? { locked: true } : {}),
-            ...(timeMode === "arrive" && dateTime && route.arriveAtStop === row.stop.id ? { arriveHere: true } : {}),
+            ...((timeMode === "arrive" && dateTime) || fixedDeadline
+              ? route.arriveAtStop === row.stop.id
+                ? { arriveHere: true }
+                : {}
+              : {}),
           }
         : { kind: "break", minutes: row.brk.minutes },
     );
     // A hora vai junto só quando foi escolhida (sem ela, quem abre usa "agora").
     const time = dateTime ? { mode: timeMode, at: dateTime } : null;
-    return { start: point(start), end: endSame ? "start" : end ? point(end) : "none", items, time };
-  }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode, route.arriveAtStop]);
+    return {
+      start: point(start),
+      end: endSame ? "start" : end ? point(end) : "none",
+      items,
+      time,
+      deadline: fixedDeadline?.at ?? null,
+    };
+  }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode, route.arriveAtStop, fixedDeadline]);
   const sharePath = shareRoute ? sharedPath(shareRoute) : null;
 
   // Abriu por um link (/r/… ou ?s=…): a rota do link entra no lugar da atual,
@@ -657,7 +686,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       if (item.kind === "stop") {
         const place = toPlace(item);
         if (item.locked) sharedLocks[place.id] = sharedStops.length;
-        if (item.arriveHere && shared.time?.mode === "arrive") sharedArriveStop = place.id;
+        if (item.arriveHere && (shared.time?.mode === "arrive" || shared.deadline)) sharedArriveStop = place.id;
         sharedStops.push(place);
       }
       else sharedBreaks.push({ id: crypto.randomUUID(), minutes: item.minutes, after: sharedStops.length });
@@ -670,6 +699,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       breaks: sharedBreaks,
       locks: sharedLocks,
       arriveAtStop: sharedArriveStop,
+      ...(shared.deadline && sharedArriveStop ? { arriveMode: "fixed" as const, arriveAtTime: shared.deadline } : {}),
       timeMode: shared.time?.mode ?? "depart",
       dateTime: shared.time?.at ?? null,
     };
@@ -1500,7 +1530,31 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       legSeconds: leg.seconds,
       legMeters: serverPlan?.streetLegs?.[i]?.meters ?? null,
       breakSeconds: leg.breakSeconds,
+      locked: i < stops.length && locks[stops[i].id] !== undefined,
+      mustArrive:
+        i < stops.length && route.arriveAtStop === stops[i].id && (arriveLeg !== null || holdAtMs !== null)
+          ? formatTime(leg.arriveAt)
+          : null,
+      waitSeconds: leg.waitSeconds,
     }));
+  /** Texto das condições do relatório: travas e chegada obrigatória. */
+  const reportConstraints = (): ReportConstraints => {
+    const mandatoryIndex = arriveLeg !== null || holdAtMs !== null ? arriveIndex : -1;
+    const mandatoryLeg = mandatoryIndex >= 0 ? plan?.legs[mandatoryIndex] : undefined;
+    return {
+      locked: stops.flatMap((s, i) => (locks[s.id] !== undefined ? [{ n: String(i + 1), name: s.label }] : [])),
+      mandatory:
+        mandatoryIndex >= 0 && mandatoryLeg
+          ? {
+              n: mandatoryIndex + 1,
+              name: stops[mandatoryIndex].label,
+              time: formatTime(mandatoryLeg.arriveAt),
+              mode: holdAtMs !== null ? "fixed" : "back",
+              slackMinutes: holdAtMs !== null && serverPlan?.deadline ? serverPlan.deadline.slackSeconds / 60 : null,
+            }
+          : null,
+    };
+  };
   /** Monta o relatório e devolve o PDF (null = não deu para gerar). */
   const buildReportPdf = async (kind: "departure" | "final"): Promise<Blob | null> => {
     if (!start) return null;
@@ -1512,6 +1566,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         generatedAt: new Date(),
         mapImage,
         logoUrl: `${window.location.origin}/email-logo.png`,
+        constraints: reportConstraints(),
         startName: start.label,
         endName: endSame ? null : (end?.label ?? null),
         roundTrip: endSame,
@@ -2158,16 +2213,42 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     {t.stops.hint}
                   </p>
                   <StopList
-                    arriveAtStop={arriveLeg === null ? null : (route.arriveAtStop ?? null)}
-                    arriveTime={dateTime?.slice(11, 16) ?? ""}
-                    onArriveAt={(id, time) =>
+                    arriveAtStop={arriveLeg !== null || holdAtMs !== null ? (route.arriveAtStop ?? null) : null}
+                    arriveTime={(route.arriveMode === "fixed" ? route.arriveAtTime : dateTime)?.slice(11, 16) ?? ""}
+                    arriveMode={route.arriveMode ?? "back"}
+                    onArriveAt={(id, time, mode) =>
                       setRoute((prev) => {
-                        if (time === null) return { ...prev, arriveAtStop: null, timeMode: "depart", dateTime: null };
-                        // Mesmo dia já escolhido (ou hoje); a hora vale para a chegada nesta parada.
+                        if (time === null) {
+                          // Tira a hora: no "recuar", volta a "sair agora"; no "manter", a saída continua.
+                          return prev.arriveMode === "fixed"
+                            ? { ...prev, arriveAtStop: null, arriveAtTime: null, arriveMode: "back" }
+                            : { ...prev, arriveAtStop: null, arriveMode: "back", timeMode: "depart", dateTime: null };
+                        }
+                        const pad = (n: number) => String(n).padStart(2, "0");
                         const now = new Date();
-                        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-                        const day = prev.dateTime?.slice(0, 10) ?? today;
-                        return { ...prev, arriveAtStop: id, timeMode: "arrive", dateTime: `${day}T${time}` };
+                        const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+                        if (mode === "back") {
+                          // A saída recua: a hora vale para a chegada nesta parada.
+                          const day = prev.dateTime?.slice(0, 10) ?? today;
+                          return { ...prev, arriveAtStop: id, arriveMode: "back", arriveAtTime: null, timeMode: "arrive", dateTime: `${day}T${time}` };
+                        }
+                        // A saída fica: a hora é depois dela (no dia seguinte, se já passou).
+                        const departure = prev.timeMode === "depart" && prev.dateTime ? prev.dateTime : null;
+                        const departMs = departure ? new Date(departure).getTime() : now.getTime();
+                        const day = departure?.slice(0, 10) ?? today;
+                        let at = `${day}T${time}`;
+                        if (new Date(at).getTime() <= departMs) {
+                          const next = new Date(new Date(`${day}T00:00`).getTime() + 26 * 3600_000);
+                          at = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${time}`;
+                        }
+                        return {
+                          ...prev,
+                          arriveAtStop: id,
+                          arriveMode: "fixed",
+                          arriveAtTime: at,
+                          timeMode: "depart",
+                          dateTime: departure,
+                        };
                       })
                     }
                     stops={stops}
@@ -2185,6 +2266,27 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     onToggleDone={toggleDone}
                   />
                 </>
+              )}
+
+              {fixedDeadline && serverPlan?.deadline && (
+                <p
+                  role="status"
+                  className={`rounded-md border px-2.5 py-2 text-xs ${
+                    serverPlan.deadline.late
+                      ? "border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+                      : "border-line bg-sunken text-ink-2"
+                  }`}
+                >
+                  {serverPlan.deadline.late
+                    ? t.stops.arriveLate(
+                        serverPlan.deadline.position + 1,
+                        formatTime(new Date(new Date(serverPlan.departAt).getTime() + serverPlan.deadline.arriveSeconds * 1000)),
+                      )
+                    : t.stops.arriveOk(
+                        serverPlan.deadline.position + 1,
+                        serverPlan.deadline.slackSeconds >= 60 ? t.stops.arriveSlack(Math.round(serverPlan.deadline.slackSeconds / 60)) : "",
+                      )}
+                </p>
               )}
 
               {noRouteMessage && (

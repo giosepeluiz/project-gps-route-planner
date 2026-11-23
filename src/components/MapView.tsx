@@ -1088,8 +1088,7 @@ export default function MapView({
             finish(null);
           }
         };
-        // Espera os blocos do mapa; se o "idle" não vier (nada mudou, ou algum bloco
-        // demora), segue em 3 s. Depois de um desenho novo, copia o canvas.
+        // Espera os blocos do mapa carregarem (até 8 s) e só então copia o canvas.
         let started = false;
         const start = () => {
           if (started) return;
@@ -1097,9 +1096,17 @@ export default function MapView({
           map.once("render", draw);
           map.triggerRepaint();
         };
-        map.once("idle", start);
-        window.setTimeout(start, 3_000);
-        map.triggerRepaint();
+        const waitTiles = (tries: number) => {
+          if (done) return;
+          if ((map.areTilesLoaded() && !map.isMoving()) || tries <= 0) {
+            // Um respiro para os blocos novos entrarem no desenho.
+            window.setTimeout(start, 350);
+            return;
+          }
+          map.triggerRepaint();
+          window.setTimeout(() => waitTiles(tries - 1), 200);
+        };
+        window.setTimeout(() => waitTiles(40), 300);
       });
     return () => {
       captureRef.current = null;

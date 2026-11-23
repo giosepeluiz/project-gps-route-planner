@@ -20,9 +20,29 @@ export interface ReportRow {
   legSeconds: number;
   legMeters: number | null;
   breakSeconds: number;
+  /** Parada travada na posição. */
+  locked?: boolean;
+  /** Horário de chegada obrigatório (já formatado, hh:mm), quando há. */
+  mustArrive?: string | null;
+  /** Espera até o horário obrigatório (s). */
+  waitSeconds?: number;
+}
+
+/** Condições do planejamento: travas e chegada obrigatória (para o texto do relatório). */
+export interface ReportConstraints {
+  locked: { n: string; name: string }[];
+  mandatory: {
+    n: number;
+    name: string;
+    time: string;
+    mode: "back" | "fixed";
+    /** Só no modo "fixed": folga (>0) ou atraso (<0), em minutos. */
+    slackMinutes?: number | null;
+  } | null;
 }
 
 interface Common {
+  constraints?: ReportConstraints;
   locale: Locale;
   version: string;
   generatedAt: Date;
@@ -101,6 +121,19 @@ interface L {
   start: string;
   end: string;
   backToStart: string;
+  constraints: string;
+  tagLocked: string;
+  tagArrive: (t: string) => string;
+  lockedLabel: string;
+  lockedNone: string;
+  lockedList: (items: string) => string;
+  mandatoryLabel: string;
+  mandatoryNone: string;
+  mandatoryBack: (n: number, name: string, t: string) => string;
+  mandatoryFixed: (n: number, name: string, t: string, extra: string) => string;
+  slack: (m: number) => string;
+  late: (m: number) => string;
+  wait: string;
   depIntro: (start: string, n: number, end: string, dep: string, arr: string, total: string, km: string) => string;
   depBreaks: (count: number, total: string) => string;
   finalIntro: (actual: string, planned: string | null, km: string, done: number, planned2: number) => string;
@@ -159,6 +192,19 @@ const ptBR: L = {
   start: "Início",
   end: "Fim",
   backToStart: "Volta ao início",
+  constraints: "Condições do planejamento",
+  tagLocked: "travada",
+  tagArrive: (t) => `chega às ${t}`,
+  lockedLabel: "Paradas travadas na posição",
+  lockedNone: "Nenhuma parada está travada: a ordem foi escolhida livremente pelo cálculo.",
+  lockedList: (items) => `Estão travadas na posição indicada: ${items}.`,
+  mandatoryLabel: "Chegada obrigatória no horário",
+  mandatoryNone: "Nenhuma parada tem horário de chegada obrigatório.",
+  mandatoryBack: (n, name, t) => `A parada ${n} (${name}) deve ser alcançada às ${t}. A saída da origem foi calculada para trás a partir desse horário.`,
+  mandatoryFixed: (n, name, t, extra) => `A parada ${n} (${name}) deve ser alcançada às ${t}, com a saída da origem mantida; o cálculo escolheu a posição que chega mais perto do horário sem passar dele${extra}.`,
+  slack: (m) => `; chega ${m} min antes e aguarda até lá`,
+  late: (m) => `; mesmo na melhor posição chega ${m} min depois do horário`,
+  wait: "espera",
   depIntro: (s, n, e, d, a, t, k) =>
     `A rota sai de ${s}, passa por ${n} parada(s) e ${e}. A saída está prevista para ${d} e a chegada para ${a}, num total de ${t}${k ? ` e cerca de ${k}` : ""}.`,
   depBreaks: (c, t) => `Estão planejadas ${c} pausa(s) para descanso, somando ${t}, já incluídas nos horários.`,
@@ -179,6 +225,19 @@ const ptPT: L = {
   author: "Criador da aplicação",
   stopped: "Parado",
   printHint: "Para guardar em PDF, escolha \"Guardar como PDF\" na janela de impressão.",
+  constraints: "Condições do planeamento",
+  tagLocked: "bloqueada",
+  tagArrive: (t) => `chega às ${t}`,
+  lockedLabel: "Paragens bloqueadas na posição",
+  lockedNone: "Nenhuma paragem está bloqueada: a ordem foi escolhida livremente pelo cálculo.",
+  lockedList: (items) => `Estão bloqueadas na posição indicada: ${items}.`,
+  mandatoryLabel: "Chegada obrigatória à hora",
+  mandatoryNone: "Nenhuma paragem tem hora de chegada obrigatória.",
+  mandatoryBack: (n, name, t) => `A paragem ${n} (${name}) deve ser alcançada às ${t}. A partida da origem foi calculada para trás a partir dessa hora.`,
+  mandatoryFixed: (n, name, t, extra) => `A paragem ${n} (${name}) deve ser alcançada às ${t}, com a partida mantida; o cálculo escolheu a posição que chega mais perto da hora sem a ultrapassar${extra}.`,
+  slack: (m) => `; chega ${m} min antes e aguarda até lá`,
+  late: (m) => `; mesmo na melhor posição chega ${m} min depois da hora`,
+  wait: "espera",
   footer: (a, v, d) => `Planeador de Rotas ${v} · criado por ${a} · gerado a ${d}`,
 };
 
@@ -231,6 +290,19 @@ const enGB: L = {
   start: "Start",
   end: "End",
   backToStart: "Back to start",
+  constraints: "Planning conditions",
+  tagLocked: "locked",
+  tagArrive: (t) => `arrive ${t}`,
+  lockedLabel: "Stops locked in position",
+  lockedNone: "No stop is locked: the order was chosen freely by the calculation.",
+  lockedList: (items) => `Locked in the position shown: ${items}.`,
+  mandatoryLabel: "Mandatory arrival time",
+  mandatoryNone: "No stop has a mandatory arrival time.",
+  mandatoryBack: (n, name, t) => `Stop ${n} (${name}) must be reached at ${t}. The departure from the origin was calculated backwards from that time.`,
+  mandatoryFixed: (n, name, t, extra) => `Stop ${n} (${name}) must be reached at ${t}, with the departure kept; the calculation chose the position that arrives closest to the time without passing it${extra}.`,
+  slack: (m) => `; arrives ${m} min early and waits until then`,
+  late: (m) => `; even in the best position it arrives ${m} min late`,
+  wait: "wait",
   depIntro: (s, n, e, d, a, t, k) =>
     `The route leaves from ${s}, visits ${n} stop(s) and ${e}. Departure is planned for ${d} and arrival for ${a}, ${t} in total${k ? ` over about ${k}` : ""}.`,
   depBreaks: (c, t) => `${c} rest break(s) are planned, adding up to ${t}, already included in the times.`,
@@ -290,6 +362,19 @@ const esES: L = {
   start: "Inicio",
   end: "Fin",
   backToStart: "Vuelta al inicio",
+  constraints: "Condiciones de la planificación",
+  tagLocked: "fijada",
+  tagArrive: (t) => `llega a las ${t}`,
+  lockedLabel: "Paradas fijadas en su posición",
+  lockedNone: "Ninguna parada está fijada: el orden lo eligió libremente el cálculo.",
+  lockedList: (items) => `Fijadas en la posición indicada: ${items}.`,
+  mandatoryLabel: "Llegada obligatoria a la hora",
+  mandatoryNone: "Ninguna parada tiene hora de llegada obligatoria.",
+  mandatoryBack: (n, name, t) => `La parada ${n} (${name}) debe alcanzarse a las ${t}. La salida del origen se calculó hacia atrás desde esa hora.`,
+  mandatoryFixed: (n, name, t, extra) => `La parada ${n} (${name}) debe alcanzarse a las ${t}, manteniendo la salida; el cálculo eligió la posición que llega más cerca de la hora sin pasarse${extra}.`,
+  slack: (m) => `; llega ${m} min antes y espera hasta entonces`,
+  late: (m) => `; incluso en la mejor posición llega ${m} min tarde`,
+  wait: "espera",
   depIntro: (s, n, e, d, a, t, k) =>
     `La ruta sale de ${s}, pasa por ${n} parada(s) y ${e}. La salida está prevista a las ${d} y la llegada a las ${a}, con un total de ${t}${k ? ` y unos ${k}` : ""}.`,
   depBreaks: (c, t) => `Hay ${c} pausa(s) de descanso planificadas, que suman ${t}, ya incluidas en los horarios.`,
@@ -336,35 +421,37 @@ const aiBadge = (locale: Locale) =>
 const STYLE = `
 @page { size: A4; margin: 16mm 14mm 18mm; }
 * { box-sizing: border-box; }
-body { margin: 0; color: ${C.ink}; font: 10.5pt/1.5 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; color: ${C.ink}; font: 11pt/1.5 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .page { max-width: 190mm; margin: 0 auto; padding: 8mm 0; }
 header { display: flex; align-items: center; gap: 12px; border-bottom: 3px solid ${C.brand}; padding-bottom: 10px; }
-header img { width: 44px; height: 44px; border-radius: 11px; }
-header .app { font-size: 10pt; color: ${C.brand}; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-h1 { margin: 0; font-size: 20pt; line-height: 1.2; }
-h2 { font-size: 12.5pt; color: ${C.brand}; margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; break-after: avoid; }
-.meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px; margin: 10px 0 4px; font-size: 9pt; color: ${C.muted}; }
-.meta b { display: block; color: ${C.ink}; font-size: 10pt; }
-p { margin: 0 0 8px; text-align: justify; }
-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; break-inside: auto; }
-th { text-align: left; font-size: 8pt; letter-spacing: .04em; text-transform: uppercase; color: ${C.muted}; border-bottom: 2px solid ${C.line}; padding: 6px; }
-td { border-bottom: 1px solid ${C.line}; padding: 6px; vertical-align: top; }
+header img { width: 52px; height: 52px; border-radius: 11px; }
+header .app { font-size: 11pt; color: ${C.brand}; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 24pt; line-height: 1.2; }
+h2 { font-size: 14.5pt; color: ${C.brand}; margin: 16px 0 8px; display: flex; align-items: center; gap: 8px; break-after: avoid; }
+.meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin: 12px 0 4px; font-size: 10pt; color: ${C.muted}; }
+.meta b { display: block; color: ${C.ink}; font-size: 11.5pt; }
+p { margin: 0 0 7px; text-align: justify; }
+table { width: 100%; border-collapse: collapse; font-size: 10pt; break-inside: auto; }
+th { text-align: left; font-size: 9pt; letter-spacing: .04em; text-transform: uppercase; color: ${C.muted}; border-bottom: 2px solid ${C.line}; padding: 6px; }
+td { border-bottom: 1px solid ${C.line}; padding: 6px 6px; vertical-align: top; }
 tr { break-inside: avoid; }
 td.r, th.r { text-align: right; white-space: nowrap; }
 .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.kpi { border: 1px solid ${C.line}; border-radius: 10px; padding: 8px 10px; background: ${C.soft}; }
-.kpi span { display: block; font-size: 8pt; color: ${C.muted}; text-transform: uppercase; letter-spacing: .04em; }
-.kpi b { font-size: 13pt; }
-.map { width: 100%; border-radius: 10px; border: 1px solid ${C.line}; display: block; max-height: 120mm; object-fit: contain; background: ${C.soft}; }
-.pill { display: inline-block; border: 1.5px solid; border-radius: 99px; padding: 0 7px; font-weight: 700; font-size: 8.5pt; }
-.ai { display: inline-flex; align-items: center; gap: 3px; border: 1.5px solid ${C.brand}; color: ${C.brand}; border-radius: 6px; padding: 1px 6px; font-size: 8pt; font-weight: 800; letter-spacing: .04em; }
-.box { border: 1px solid ${C.line}; border-radius: 10px; padding: 10px 12px; background: ${C.soft}; break-inside: avoid; }
+.kpi { border: 1px solid ${C.line}; border-radius: 10px; padding: 7px 10px; background: ${C.soft}; }
+.kpi span { display: block; font-size: 9pt; color: ${C.muted}; text-transform: uppercase; letter-spacing: .04em; }
+.kpi b { font-size: 14pt; }
+.map { width: 100%; border-radius: 10px; border: 1px solid ${C.line}; display: block; height: 230px; object-fit: contain; background: ${C.soft}; }
+.pill { display: inline-block; border: 1.5px solid; border-radius: 99px; padding: 0 7px; font-weight: 700; font-size: 9.5pt; }
+.tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 6px; font-size: 9pt; font-weight: 700; border: 1.5px solid ${C.brand}; color: ${C.brand}; white-space: nowrap; }
+.tag.lock { border-color: #b45309; color: #b45309; }
+.ai { display: inline-flex; align-items: center; gap: 3px; border: 1.5px solid ${C.brand}; color: ${C.brand}; border-radius: 6px; padding: 1px 6px; font-size: 9pt; font-weight: 800; letter-spacing: .04em; }
+.box { border: 1px solid ${C.line}; border-radius: 10px; padding: 12px 14px; background: ${C.soft}; break-inside: avoid; }
 .finding { border-left: 4px solid; padding: 4px 10px; margin: 8px 0; background: #fff; border-radius: 6px; break-inside: avoid; }
 .finding b { display: block; }
-.note { font-size: 8pt; color: ${C.muted}; margin-top: 6px; }
+.note { font-size: 9pt; color: ${C.muted}; margin-top: 6px; }
 .charts { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; break-inside: avoid; }
-.chart-title { font-size: 9pt; font-weight: 700; margin-bottom: 4px; }
-footer { margin-top: 22px; border-top: 1px solid ${C.line}; padding-top: 8px; font-size: 8pt; color: ${C.muted}; text-align: center; }
+.chart-title { font-size: 10.5pt; font-weight: 700; margin-bottom: 4px; }
+footer { margin-top: 16px; border-top: 1px solid ${C.line}; padding-top: 8px; font-size: 9pt; color: ${C.muted}; text-align: center; }
 .hint { background: #fff7d6; border: 1px solid #f1d27a; border-radius: 8px; padding: 6px 10px; font-size: 9pt; margin-bottom: 10px; }
 @media print { .hint { display: none; } .page { padding: 0; } }
 `;
@@ -387,11 +474,32 @@ ${body}
 const kpi = (label: string, value: string) => `<div class="kpi"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 const mapBlock = (L: L, c: Common) => (c.mapImage ? `<h2>${esc(L.map)}</h2><img class="map" src="${esc(c.mapImage)}" alt="${esc(L.map)}">` : "");
 
+/** Texto das condições do planejamento: paradas travadas e chegada obrigatória no horário. */
+function constraintsBlock(L: L, c: ReportConstraints | undefined): string {
+  if (!c) return "";
+  const lockedText = c.locked.length
+    ? L.lockedList(c.locked.map((l) => `${l.n}. ${l.name}`).join("; "))
+    : L.lockedNone;
+  let mandatoryText: string = L.mandatoryNone;
+  if (c.mandatory) {
+    const m = c.mandatory;
+    if (m.mode === "back") mandatoryText = L.mandatoryBack(m.n, m.name, m.time);
+    else {
+      const slack = m.slackMinutes ?? null;
+      const extra = slack === null ? "" : slack >= 1 ? L.slack(Math.round(slack)) : slack <= -1 ? L.late(Math.round(-slack)) : "";
+      mandatoryText = L.mandatoryFixed(m.n, m.name, m.time, extra);
+    }
+  }
+  return `<h2>${esc(L.constraints)}</h2>
+<p><b>${esc(L.lockedLabel)}.</b> ${esc(lockedText)}</p>
+<p><b>${esc(L.mandatoryLabel)}.</b> ${esc(mandatoryText)}</p>`;
+}
+
 function stopsTable(L: L, locale: Locale, rows: ReportRow[]): string {
   return `<table><tr><th>${esc(L.n)}</th><th>${esc(L.place)}</th><th class="r">${esc(L.drive)}</th><th class="r">${esc(L.distance)}</th><th class="r">${esc(L.rest)}</th><th class="r">${esc(L.arrive)}</th><th class="r">${esc(L.dwell)}</th><th class="r">${esc(L.leave)}</th></tr>${rows
     .map(
       (r) =>
-        `<tr><td><b>${esc(r.n)}</b></td><td>${esc(r.name)}</td><td class="r">${esc(dur(r.legSeconds))}</td><td class="r">${esc(km(r.legMeters))}</td><td class="r">${r.breakSeconds ? esc(dur(r.breakSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.arriveAt))}</td><td class="r">${r.dwellSeconds ? esc(dur(r.dwellSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.leaveAt))}</td></tr>`,
+        `<tr><td><b>${esc(r.n)}</b></td><td>${esc(r.name)}${r.locked ? `<span class="tag lock">🔒 ${esc(L.tagLocked)}</span>` : ""}${r.mustArrive ? `<span class="tag">⚑ ${esc(L.tagArrive(r.mustArrive))}</span>` : ""}</td><td class="r">${esc(dur(r.legSeconds))}</td><td class="r">${esc(km(r.legMeters))}</td><td class="r">${r.breakSeconds ? esc(dur(r.breakSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.arriveAt))}</td><td class="r">${r.dwellSeconds ? esc(dur(r.dwellSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.leaveAt))}</td></tr>`,
     )
     .join("")}</table>`;
 }
@@ -407,6 +515,7 @@ export function departureReportHtml(r: DepartureReport): string {
 ${breaksCount ? `<p>${esc(L.depBreaks(breaksCount, dur(r.breakSeconds)))}</p>` : ""}
 <div class="kpis">${kpi(L.departure, time(r.locale, r.departAt))}${kpi(L.arrival, time(r.locale, r.arriveAt))}${kpi(L.totalTime, dur(r.totalSeconds))}${kpi(L.totalDistance, km(r.totalMeters))}${kpi(L.driving, dur(r.driveSeconds))}${kpi(L.dwell, dur(r.dwellSeconds))}${kpi(L.restBreaks, dur(r.breakSeconds))}${kpi(L.stopCount, String(stopsCount))}</div>
 ${mapBlock(L, r)}
+${constraintsBlock(L, r.constraints)}
 <h2>${esc(L.stops)}</h2>
 ${stopsTable(L, r.locale, r.rows)}
 ${r.aiComment ? `<h2>${aiBadge(r.locale)}${esc(L.aiComment)}</h2><div class="box"><p>${esc(r.aiComment)}</p><div class="note">${esc(L.aiNote)}</div></div>` : ""}`;
@@ -419,7 +528,7 @@ function legsChart(L: L, legs: TripReport["trip"]["legs"]): string {
   if (data.length === 0) return "";
   const max = Math.max(1, ...data.flatMap((d) => [d.p, d.a]));
   const W = 420;
-  const H = 190;
+  const H = 160;
   const left = 30;
   const bottom = 24;
   const slot = (W - left - 6) / data.length;
@@ -490,9 +599,10 @@ ${t.legs
 ${mapBlock(L, r)}
 <h2>${esc(L.comparison)}</h2>
 ${comparison}
+${ai}
 <h2>${esc(L.charts)}</h2>
 <div class="charts">${legsChart(L, t.legs)}${timeChart(L, s, t.pausedSeconds)}</div>
-${ai}
+${constraintsBlock(L, r.constraints)}
 <h2>${esc(L.stops)}</h2>
 ${stopsTable(L, r.locale, r.rows)}`;
   return shell(r.locale, L.finalTitle, L, r, body);

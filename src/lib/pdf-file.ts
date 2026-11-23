@@ -145,7 +145,9 @@ export async function htmlToPdf(html: string, title: string): Promise<Blob> {
 
     const body = doc.body;
     const top = body.getBoundingClientRect().top;
-    const height = Math.ceil(body.scrollHeight);
+    // Altura do conteúdo (o rodapé é o último bloco); body.scrollHeight nunca é menor que a janela do iframe.
+    const last = body.querySelector("footer") ?? body.querySelector(".page") ?? body;
+    const height = Math.ceil(last.getBoundingClientRect().bottom - top);
     const bottoms = [...body.querySelectorAll("header,.meta,p,tr,.kpis,.map,.charts,.finding,.box,table,footer")]
       // Linha de cabeçalho de tabela não termina página (ficaria sozinha).
       .filter((el) => !(el.tagName === "TR" && el.querySelector("th")))
@@ -160,7 +162,8 @@ export async function htmlToPdf(html: string, title: string): Promise<Blob> {
     }
     for (const child of [...body.childNodes]) root.appendChild(child.cloneNode(true));
     const xhtml = new XMLSerializer().serializeToString(root);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CONTENT_W}" height="${height}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
+    // O desenho nasce em 2x (viewBox em tamanho normal): os cortes abaixo usam pixels de 2x e o texto fica nítido.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CONTENT_W * SCALE}" height="${height * SCALE}" viewBox="0 0 ${CONTENT_W} ${height}"><foreignObject width="${CONTENT_W}" height="${height}">${xhtml}</foreignObject></svg>`;
     const image = new Image();
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
@@ -168,9 +171,12 @@ export async function htmlToPdf(html: string, title: string): Promise<Blob> {
       image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     });
 
-    // Passou pouco de uma folha A4: encolhe o conteúdo para caber numa só, em vez de deixar uma segunda folha quase vazia.
-    const shrink = height > CONTENT_H && height <= CONTENT_H * 1.3 ? CONTENT_H / height : 1;
-    const ranges: [number, number][] = shrink < 1 ? [[0, height]] : pageBreaks(height, bottoms);
+    // Passou pouco do número inteiro de folhas A4: encolhe o conteúdo para caber nelas, em vez de
+    // deixar uma folha a mais quase vazia (até ~30% numa folha só, até ~25% nas seguintes).
+    const ratio = height / CONTENT_H;
+    const sheets = ratio <= 1.3 ? 1 : Math.max(1, Math.ceil(ratio - 0.25));
+    const shrink = ratio > 1 ? Math.min(1, (sheets * CONTENT_H) / height) : 1;
+    const ranges: [number, number][] = shrink < 1 && sheets === 1 ? [[0, height]] : pageBreaks(height, bottoms, CONTENT_H / shrink);
     const pages: PdfPage[] = [];
     for (const [start, end] of ranges) {
       const canvas = document.createElement("canvas");

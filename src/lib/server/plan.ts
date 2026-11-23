@@ -28,6 +28,27 @@ export interface PlanRequest {
   at: Date | null;
   /** Direção do carro no início (viagem em andamento), em graus. */
   heading?: number;
+  /**
+   * Chegada obrigatória numa parada, com a saída fixa (mode "depart"): o solver
+   * escolhe a posição dela na visita em que chega o mais perto possível do horário
+   * sem passar dele.
+   */
+  deadline?: { stopId: string; at: Date };
+}
+
+/** Resultado da chegada obrigatória: onde a parada ficou e quanto sobra (ou falta) de tempo. */
+export interface DeadlineResult {
+  stopId: string;
+  /** Posição na visita (0 = primeira parada). */
+  position: number;
+  /** Segundos desde a saída até chegar nela (direção + permanência das anteriores). */
+  arriveSeconds: number;
+  /** Segundos entre a saída e o horário obrigatório. */
+  targetSeconds: number;
+  /** Folga (positiva: chega antes e espera) ou atraso (negativo), em segundos. */
+  slackSeconds: number;
+  /** true = nem na melhor posição dá para chegar a tempo. */
+  late: boolean;
 }
 
 export interface PlanResponse {
@@ -56,6 +77,8 @@ export interface PlanResponse {
   checkedSeconds: number | null;
   /** Modo "Chegar até": quantas vezes a matriz foi recalculada e se estabilizou. */
   arrival: { iterations: number; converged: boolean } | null;
+  /** Chegada obrigatória numa parada com saída fixa, quando pedida. */
+  deadline: DeadlineResult | null;
 }
 
 export interface PlanDeps {
@@ -91,11 +114,55 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     }
   });
   let bestSeconds = 0;
+  const deadlineBox: { value: DeadlineResult | null } = { value: null };
+  const deadlineStop = request.deadline ? stops.findIndex((s) => s.id === request.deadline!.stopId) + 1 : 0;
   const solveAt = async (departAt: Date): Promise<RouteSolution> => {
     lastMatrix = await deps.matrix.getMatrix(nodes, departAt);
     const problem = { matrix: lastMatrix.seconds, start: 0, stops: stopIndexes, end: endIndex };
     const best = solveRoute(problem);
     bestSeconds = best.cost;
+    if (request.deadline && deadlineStop > 0 && mode === "depart") {
+      const matrixSeconds = lastMatrix.seconds;
+      const target = Math.round((request.deadline.at.getTime() - departAt.getTime()) / 1000);
+      const arriveAt = (order: readonly number[]) => {
+        const stopAt = order.indexOf(deadlineStop);
+        const sequence = [0, ...order.slice(0, stopAt + 1)];
+        let seconds = 0;
+        sequence.forEach((node, i) => {
+          if (i > 0) seconds += matrixSeconds[sequence[i - 1]][node];
+          if (i > 0 && i < sequence.length - 1) seconds += dwellOf(nodes[node]);
+        });
+        return seconds;
+      };
+      // Se a parada já está travada numa posição, só essa vale; senão, testa cada posição.
+      const lockedAt = [...fixed].find(([, stop]) => stop === deadlineStop)?.[0];
+      const candidates: { position: number; solution: RouteSolution; arrive: number }[] = [];
+      for (let position = 0; position < stops.length; position++) {
+        if (lockedAt !== undefined && position !== lockedAt) continue;
+        if (lockedAt === undefined && fixed.has(position)) continue;
+        const withDeadline = new Map(fixed);
+        withDeadline.set(position, deadlineStop);
+        const candidate = solveRoute({ ...problem, fixed: withDeadline });
+        candidates.push({ position, solution: candidate, arrive: arriveAt(candidate.order) });
+      }
+      const onTime = candidates.filter((c) => c.arrive <= target);
+      // A que chega mais perto do horário sem passar dele; empate: a mais rápida no total.
+      const chosen =
+        onTime.length > 0
+          ? onTime.reduce((a, b) => (b.arrive > a.arrive || (b.arrive === a.arrive && b.solution.cost < a.solution.cost) ? b : a))
+          : candidates.reduce((a, b) => (b.arrive < a.arrive ? b : a), candidates[0]);
+      if (chosen) {
+        deadlineBox.value = {
+          stopId: request.deadline.stopId,
+          position: chosen.position,
+          arriveSeconds: chosen.arrive,
+          targetSeconds: target,
+          slackSeconds: target - chosen.arrive,
+          late: chosen.arrive > target,
+        };
+        return chosen.solution;
+      }
+    }
     // Com travas, a melhor ordem livre fica só para comparação.
     return fixed.size > 0 ? solveRoute({ ...problem, fixed }) : best;
   };
@@ -126,13 +193,16 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const typedSeconds = routeCost(problem, stopIndexes);
   // Empate: mantém a ordem digitada, para a lista não mudar sem ganho.
   const typedRespectsLocks = [...fixed].every(([position, stop]) => stopIndexes[position] === stop);
+  const deadlineResult = deadlineBox.value;
   const order =
-    solution.cost >= typedSeconds && typedRespectsLocks ? stopIndexes : solution.order;
+    !deadlineResult && solution.cost >= typedSeconds && typedRespectsLocks ? stopIndexes : solution.order;
 
   const sequence = [0, ...order, ...(endIndex === null ? [] : [endIndex])];
   const legSeconds = sequence.slice(1).map((to, i) => matrix.seconds[sequence[i]][to]);
   const totalSeconds = legSeconds.reduce((sum, s) => sum + s, 0);
   const dwellSeconds = dwellFor(order);
+  // O tempo de espera até o horário obrigatório (chegou antes) entra no fim da rota.
+  const waitSeconds = deadlineResult && deadlineResult.slackSeconds > 0 ? deadlineResult.slackSeconds : 0;
 
   const route =
     sequence.length >= 2
@@ -156,7 +226,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     exact: solution.exact,
     lockedCount: fixed.size,
     departAt: departAt.toISOString(),
-    arriveAt: new Date(departAt.getTime() + (totalSeconds + dwellSeconds) * 1000).toISOString(),
+    arriveAt: new Date(departAt.getTime() + (totalSeconds + dwellSeconds + waitSeconds) * 1000).toISOString(),
     source: {
       name: matrix.source,
       label: matrix.label,
@@ -167,5 +237,6 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
     streetSource: route?.source ?? null,
     checkedSeconds: route?.seconds ?? null,
     arrival,
+    deadline: deadlineResult,
   };
 }

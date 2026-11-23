@@ -42,6 +42,11 @@ export function computePlan(
    * replanejado em volta dessa hora.
    */
   arriveLeg: number | null = null,
+  /**
+   * Chegada obrigatória numa parada com a saída fixa: se o trecho `leg` chega
+   * antes de `at`, o relógio espera até lá (a espera fica em `waitSeconds`).
+   */
+  hold: { leg: number; at: Date } | null = null,
 ): Plan {
   const times = sequence.slice(1).map((to, i) => legTime(sequence[i], to));
   const dwells = sequence.map((place, i) => (i === 0 || i === sequence.length - 1 ? 0 : dwellSecondsOf(place)));
@@ -62,6 +67,11 @@ export function computePlan(
   let clock = departAt.getTime();
   const legs: PlanLeg[] = times.map((t, i) => {
     clock += (t.seconds + legBreaks[i]) * 1000;
+    let waitSeconds = 0;
+    if (hold && hold.leg === i && clock < hold.at.getTime()) {
+      waitSeconds = Math.round((hold.at.getTime() - clock) / 1000);
+      clock = hold.at.getTime();
+    }
     const arriveAt = new Date(clock);
     const dwell = dwells[i + 1];
     clock += dwell * 1000;
@@ -73,13 +83,15 @@ export function computePlan(
       dwellSeconds: dwell,
       leaveAt: new Date(clock),
       breakSeconds: legBreaks[i],
+      waitSeconds,
       estimated: t.estimated,
     };
   });
 
+  const waitedSeconds = legs.reduce((sum, leg) => sum + leg.waitSeconds, 0);
   return {
     legs,
-    totalSeconds,
+    totalSeconds: totalSeconds + waitedSeconds,
     driveSeconds,
     dwellSeconds,
     breakSeconds,

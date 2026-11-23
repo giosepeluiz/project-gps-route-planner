@@ -26,6 +26,8 @@ const Body = z.object({
   at: z.iso.datetime({ offset: true }).nullable(),
   /** Direção do carro no início, em graus (só na viagem). */
   heading: z.number().min(0).max(360).optional(),
+  /** Chegada obrigatória numa parada, com a saída fixa. */
+  deadline: z.object({ stopId: z.string().min(1).max(64), at: z.iso.datetime({ offset: true }) }).optional(),
 });
 
 /**
@@ -46,7 +48,11 @@ export async function POST(request: NextRequest) {
   const { matrix, geometry } = getServices();
   try {
     const plan = await planRoute(
-      { ...parsed.data, at: parsed.data.at ? new Date(parsed.data.at) : null },
+      {
+        ...parsed.data,
+        at: parsed.data.at ? new Date(parsed.data.at) : null,
+        deadline: parsed.data.deadline ? { stopId: parsed.data.deadline.stopId, at: new Date(parsed.data.deadline.at) } : undefined,
+      },
       { matrix, geometry },
     );
     return NextResponse.json(plan, { headers: { "Cache-Control": "no-store" } });

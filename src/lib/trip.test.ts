@@ -405,3 +405,22 @@ describe("link: letras no lugar de símbolos", () => {
     expect(neu?.items[0]).toMatchObject({ locked: true, arriveHere: true });
   });
 });
+
+describe("link com chegada obrigatória e saída fixa", () => {
+  it("leva a saída (d…), a hora obrigatória (f…) e o c na parada", () => {
+    const route = {
+      start: { lat: 38.7, lng: -9.1, dwellMinutes: 0 },
+      end: "none" as const,
+      items: [
+        { kind: "stop" as const, lat: 38.71, lng: -9.12, dwellMinutes: 0 },
+        { kind: "stop" as const, lat: 38.72, lng: -9.13, dwellMinutes: 0, arriveHere: true },
+      ],
+      time: { mode: "depart" as const, at: "2026-11-20T08:00" },
+      deadline: "2026-11-20T11:00",
+    };
+    const path = sharedPath(route);
+    expect(path).toBe("/r/38.7,-9.1/-/38.71,-9.12/38.72,-9.13c/d202611200800/f202611201100");
+    expect(parseSharedRoute(path, "")).toEqual(route);
+    expect(parseSharedRoute("/", sharedQuery(route).slice(1))).toEqual(route);
+  });
+});

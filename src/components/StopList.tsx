@@ -47,8 +47,10 @@ interface StopListProps {
   arriveAtStop: string | null;
   /** Hora marcada (hh:mm), quando há. */
   arriveTime: string;
+  /** Como vale a hora marcada: recuando a saída ou mantendo a saída. */
+  arriveMode: "back" | "fixed";
   /** Marca (ou tira, com null) a hora de chegada numa parada; o resto da rota é replanejado. */
-  onArriveAt: (id: string, time: string | null) => void;
+  onArriveAt: (id: string, time: string | null, mode: "back" | "fixed") => void;
 }
 
 function CupIcon() {
@@ -77,6 +79,7 @@ export default function StopList({
   onRemoveBreak,
   arriveAtStop,
   arriveTime,
+  arriveMode,
   onArriveAt,
 }: StopListProps) {
   const t = useT();
@@ -86,6 +89,8 @@ export default function StopList({
   const [editing, setEditing] = useState<string | null>(null);
   /** Parada com o campo de hora de chegada aberto. */
   const [arriveEditing, setArriveEditing] = useState<string | null>(null);
+  /** Forma escolhida no editor da hora de chegada (começa na que já está valendo). */
+  const [arriveStrategy, setArriveStrategy] = useState<"back" | "fixed">(arriveMode);
 
   return (
     <ol className="flex flex-col" style={{ gap: reorder.gapPx }}>
@@ -336,14 +341,39 @@ export default function StopList({
             </div>
 
             {arriveEditing === stop.id && (
-              <div className="mb-1 ml-[3.25rem] mr-1 mt-1.5 flex items-center gap-2">
+              <div className="mb-1 ml-[3.25rem] mr-1 mt-1.5 flex flex-col gap-2">
+                <div role="group" aria-label={t.stops.arriveTitle} className="grid grid-cols-2 gap-0.5 rounded-lg bg-sunken p-0.5">
+                  {(
+                    [
+                      ["back", t.stops.arriveBack],
+                      ["fixed", t.stops.arriveFixed],
+                    ] as const
+                  ).map(([value, text]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={arriveStrategy === value}
+                      onClick={() => {
+                        setArriveStrategy(value);
+                        if (arriveAtStop === stop.id && arriveTime) onArriveAt(stop.id, arriveTime, value);
+                      }}
+                      className={`focus-ring rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 ${
+                        arriveStrategy === value ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]" : "text-muted hover:text-ink"
+                      }`}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-2xs text-muted">{arriveStrategy === "back" ? t.stops.arriveBackHint : t.stops.arriveFixedHint}</p>
+                <div className="flex items-center gap-2">
                 <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-ink-2">
                   <span className="truncate">{t.stops.arriveLabel(stop.label)}</span>
                   <input
                     type="time"
                     autoFocus
                     defaultValue={arriveAtStop === stop.id ? arriveTime : ""}
-                    onChange={(e) => e.target.value && onArriveAt(stop.id, e.target.value)}
+                    onChange={(e) => e.target.value && onArriveAt(stop.id, e.target.value, arriveStrategy)}
                     className="focus-ring w-[6.5rem] shrink-0 rounded-lg border border-line-strong bg-surface px-2 py-1 text-sm text-ink"
                   />
                 </label>
@@ -351,7 +381,7 @@ export default function StopList({
                   <button
                     type="button"
                     onClick={() => {
-                      onArriveAt(stop.id, null);
+                      onArriveAt(stop.id, null, arriveStrategy);
                       setArriveEditing(null);
                     }}
                     className="focus-ring shrink-0 rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 hover:bg-hover"
@@ -359,6 +389,7 @@ export default function StopList({
                     {t.stops.arriveClear}
                   </button>
                 )}
+                </div>
               </div>
             )}
 

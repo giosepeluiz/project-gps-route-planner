@@ -476,6 +476,32 @@ describe("sem travessia por mar", () => {
     expect(new Date(without.departAt).getTime() - new Date(withDwell.departAt).getTime()).toBe(30 * 60_000);
   });
 
+  it("chegada obrigatória com saída fixa: escolhe a posição que chega mais perto do horário, sem passar", async () => {
+    const deps = {
+      matrix: createMatrixService({ providers: [], cache: new MemoryCache() }),
+      geometry: { getRoute: async () => null },
+      now: () => NOW,
+    };
+    const base = { start: pts[0], end: null, roundTrip: false, mode: "depart" as const, at: TUESDAY_9, stops: [pts[1], pts[2], pts[3]] };
+    // Sem restrição, vê os tempos de cada posição da parada 3 (pts[3]).
+    const early = await planRoute({ ...base, deadline: { stopId: pts[3].id, at: new Date(TUESDAY_9.getTime() + 24 * 3600_000) } }, deps);
+    // Horário longe: chega o mais tarde possível (última posição) e sobra folga.
+    expect(early.deadline?.late).toBe(false);
+    expect(early.deadline?.position).toBe(2);
+    expect(early.deadline!.slackSeconds).toBeGreaterThan(0);
+    // Horário apertado: já na primeira posição só dá para chegar a tempo se o horário for maior que o tempo até ela.
+    const first = await planRoute({ ...base, deadline: { stopId: pts[3].id, at: new Date(TUESDAY_9.getTime() + 1) } }, deps);
+    expect(first.deadline?.late).toBe(true);
+    expect(first.deadline?.position).toBe(0);
+    expect(first.order[0]).toBe(pts[3].id);
+    // Um horário no meio: a posição escolhida chega antes dele e a seguinte depois.
+    const arrive0 = first.deadline!.arriveSeconds;
+    const mid = await planRoute({ ...base, deadline: { stopId: pts[3].id, at: new Date(TUESDAY_9.getTime() + (arrive0 + (early.deadline!.arriveSeconds - arrive0) / 2) * 1000) } }, deps);
+    expect(mid.deadline?.late).toBe(false);
+    expect(mid.deadline!.arriveSeconds).toBeLessThanOrEqual(mid.deadline!.targetSeconds);
+    expect(mid.order.indexOf(pts[3].id)).toBe(mid.deadline!.position);
+  });
+
   it("o plano falha com NoRouteError mesmo quando os tempos vêm da estimativa", async () => {
     await expect(
       planRoute(

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.8.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.9.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -141,6 +141,7 @@ https://rotas.arqueirover.de/?s=<início>&e=<fim>&p1=<parada1>&p2=<parada2>…[&
 - **Fim:** `s` volta ao início; `-` (ou, nos parâmetros, não pôr o `e`) termina na última parada; ou as coordenadas de outro lugar.
 - **Pausa para descanso:** `b20` (20 minutos) no lugar de uma parada.
 - **Parada travada** na posição: `l` no fim, como `38.7253,-9.15@10l`.
+- **Chegada obrigatória com a saída fixa:** além do `d…` (saída), `f` + `AAAAMMDDhhmm` no fim (ou `f=` nos parâmetros), com o `c` na parada.
 - **Hora de chegada numa parada:** `c` no fim (depois do `l`, se houver), junto com a hora `a…`: `38.7253,-9.15@10lc`.
 - **Hora:** `d` (sair em) ou `a` (chegar até) seguido de `AAAAMMDDhhmm`, como `d202611200830`. No caminho é o último segmento; nos parâmetros, `t=`.
 - Exemplo: `/r/38.7075,-9.1364/s/38.7253,-9.15@10l/b20/38.7445,-9.1745/d202611200830`.
@@ -229,6 +230,14 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### ⚑ Versão 0.9.0 (beta)
+
+- **Chegada obrigatória numa parada, de duas formas** (botão de bandeira na parada):
+  - **Recuar a saída:** todos os trechos partem do horário da parada; a saída da origem é calculada para trás.
+  - **Manter a saída:** a saída da origem fica (por exemplo, 08:00) e o cálculo escolhe em que posição a parada vai para chegar o mais perto do horário (por exemplo, 11:00) sem passar dele; se chega antes, espera até lá. Se nem na melhor posição dá, avisa qual é o horário mais cedo possível. A ordem sai sempre do algoritmo (não da IA).
+- **Relatórios em PDF:** o conteúdo agora preenche a folha A4 (antes saía pela metade da largura) e cabe em menos folhas; trazem as **paradas travadas** e a **chegada obrigatória** (marcas na tabela e um texto de condições do planejamento). O relatório final foi reorganizado (comparação, análise, gráficos, condições e paradas).
+- **Link compartilhado** leva também a chegada obrigatória com saída fixa: `f` + data/hora (ex.: `f202611201100`) e o `c` na parada.
 
 ### 🏁 Versão 0.8.2 (beta)
 

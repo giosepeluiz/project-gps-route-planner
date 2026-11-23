@@ -24,6 +24,14 @@ export interface RouteState {
    * parada saiu da rota), a hora é a de chegada ao fim.
    */
   arriveAtStop?: string | null;
+  /**
+   * Como vale a hora de chegada da parada: "back" = a saída recua para chegar na
+   * hora (padrão); "fixed" = a saída é a escolhida e a parada vai para a posição
+   * que chega mais perto da hora, sem passar dela.
+   */
+  arriveMode?: "back" | "fixed";
+  /** No modo "fixed": o horário obrigatório da chegada (datetime-local). */
+  arriveAtTime?: string | null;
 }
 
 export const ROUTE_KEY = "rotas:rota:v2";
@@ -63,7 +71,9 @@ export function isRouteState(value: unknown): value is RouteState {
     (r.timeMode === "depart" || r.timeMode === "arrive") &&
     (r.dateTime === undefined || r.dateTime === null || typeof r.dateTime === "string") &&
     (r.breaks === undefined || (Array.isArray(r.breaks) && r.breaks.length <= 50 && r.breaks.every(isRestBreak))) &&
-    (r.arriveAtStop === undefined || r.arriveAtStop === null || typeof r.arriveAtStop === "string")
+    (r.arriveAtStop === undefined || r.arriveAtStop === null || typeof r.arriveAtStop === "string") &&
+    (r.arriveMode === undefined || r.arriveMode === "back" || r.arriveMode === "fixed") &&
+    (r.arriveAtTime === undefined || r.arriveAtTime === null || typeof r.arriveAtTime === "string")
   );
 }
 

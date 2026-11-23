@@ -16,6 +16,8 @@
  * - Fim: "s" = volta ao início; "-" = sem fim (termina na última parada). Nos
  *   parâmetros, sem "e" também quer dizer sem fim.
  * - Pausa para descanso: "b<minutos>" no lugar de uma parada (ex.: b20).
+ * - Hora obrigatória numa parada com a saída fixa: "f" + AAAAMMDDhhmm (ex.: f202611201100),
+ *   junto com a hora de saída "d…" e o "c" na parada; nos parâmetros, f=.
  * - Hora: "d" (saída) ou "a" (chegada) + AAAAMMDDhhmm, hora local
  *   (ex.: d202611190830). No caminho é o último segmento; nos parâmetros, t=.
  */
@@ -45,16 +47,18 @@ export interface SharedRoute {
   end: "none" | "start" | SharedPoint;
   items: SharedItem[];
   time?: SharedTime | null;
+  /** Chegada obrigatória (saída fixa): datetime-local da hora; a parada vem marcada com "c". */
+  deadline?: string | null;
 }
 
 /** Limite de itens (paradas + pausas) num link. */
 const MAX_ITEMS = MAX_STOPS * 2 + 1;
 const POINT = /^(-?\d{1,2}(?:\.\d{1,7})?),(-?\d{1,3}(?:\.\d{1,7})?)(?:@(\d{1,3}))?([l!])?([c^])?$/;
 const BREAK = /^b(\d{1,3})$/;
-const TIME = /^([da])(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/;
+const TIME = /^([daf])(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/;
 
 /** null = sem hora no link; undefined = hora inválida (o link inteiro é recusado). */
-function parseTime(token: string | null): SharedTime | null | undefined {
+function parseTime(token: string | null): (SharedTime & { kind: string }) | null | undefined {
   if (token === null || token === "") return null;
   const m = TIME.exec(token);
   if (!m) return undefined;
@@ -68,7 +72,7 @@ function parseTime(token: string | null): SharedTime | null | undefined {
     date.getHours() === Number(h) &&
     date.getMinutes() === Number(mi);
   if (!same) return undefined;
-  return { mode: kind === "d" ? "depart" : "arrive", at: `${y}-${mo}-${d}T${h}:${mi}` };
+  return { mode: kind === "a" ? "arrive" : "depart", at: `${y}-${mo}-${d}T${h}:${mi}`, kind };
 }
 
 function parsePoint(token: string): SharedPoint | null {
@@ -109,18 +113,30 @@ function build(
   endToken: string | null,
   itemTokens: string[],
   timeToken: string | null,
+  deadlineToken: string | null = null,
 ): SharedRoute | null {
-  // No formato de caminho, a hora vem como último segmento.
-  const last = itemTokens[itemTokens.length - 1];
-  if (timeToken === null && last !== undefined && TIME.test(last)) {
-    timeToken = last;
+  // No formato de caminho, as horas (saída/chegada e a obrigatória) vêm como últimos segmentos.
+  for (let n = 0; n < 2; n++) {
+    const last = itemTokens[itemTokens.length - 1];
+    if (last === undefined || !TIME.test(last)) break;
+    if (last.startsWith("f")) {
+      if (deadlineToken !== null) return null;
+      deadlineToken = last;
+    } else {
+      if (timeToken !== null) return null;
+      timeToken = last;
+    }
     itemTokens = itemTokens.slice(0, -1);
   }
   if (itemTokens.length > MAX_ITEMS) return null;
   const start = unlocked(parsePoint(startToken));
   const end = parseEnd(endToken);
-  const time = parseTime(timeToken);
-  if (!start || !end || time === undefined) return null;
+  const parsedTime = parseTime(timeToken);
+  const parsedDeadline = parseTime(deadlineToken);
+  if (!start || !end || parsedTime === undefined || parsedDeadline === undefined) return null;
+  if (parsedTime && parsedTime.kind === "f") return null;
+  if (parsedDeadline && parsedDeadline.kind !== "f") return null;
+  const time = parsedTime ? { mode: parsedTime.mode, at: parsedTime.at } : null;
   const items: SharedItem[] = [];
   for (const token of itemTokens) {
     const item = parseItem(token);
@@ -128,7 +144,7 @@ function build(
     items.push(item);
   }
   if (items.filter((i) => i.kind === "stop").length > MAX_STOPS) return null;
-  return { start, end, items, time };
+  return { start, end, items, time, ...(parsedDeadline ? { deadline: parsedDeadline.at } : {}) };
 }
 
 /** Lê uma rota do endereço (caminho /r/… ou parâmetros). null = não há rota válida. */
@@ -136,6 +152,7 @@ export function parseSharedRoute(pathname: string, search: string): SharedRoute 
   const segments = pathname.split("/").filter(Boolean);
   const params = new URLSearchParams(search);
   const timeParam = params.get("t")?.trim() ?? null;
+  const deadlineParam = params.get("f")?.trim() ?? null;
   if (segments[0] === "r" && segments.length >= 3) {
     let decoded: string[];
     try {
@@ -143,7 +160,7 @@ export function parseSharedRoute(pathname: string, search: string): SharedRoute 
     } catch {
       return null;
     }
-    return build(decoded[0], decoded[1], decoded.slice(2), timeParam);
+    return build(decoded[0], decoded[1], decoded.slice(2), timeParam, deadlineParam);
   }
   const start = params.get("s");
   if (!start) return null;
@@ -153,7 +170,7 @@ export function parseSharedRoute(pathname: string, search: string): SharedRoute 
     .filter((e): e is { m: RegExpExecArray; value: string } => e.m !== null)
     .sort((a, b) => Number(a.m[1]) - Number(b.m[1]))
     .map((e) => e.value);
-  return build(start.trim(), params.get("e")?.trim() ?? null, numbered, timeParam);
+  return build(start.trim(), params.get("e")?.trim() ?? null, numbered, timeParam, deadlineParam);
 }
 
 const fmt = (n: number) => String(Number(n.toFixed(5)));
@@ -162,11 +179,12 @@ const pointToken = (p: SharedPoint) =>
 const itemToken = (item: SharedItem) => (item.kind === "break" ? `b${Math.round(item.minutes)}` : pointToken(item));
 const endToken = (end: SharedRoute["end"]) =>
   end === "none" ? "-" : end === "start" ? "s" : pointToken(unlocked(end)!);
+const deadlineToken = (at: string) => `f${at.replace(/\D/g, "").slice(0, 12)}`;
 const timeToken = (time: SharedTime) => `${time.mode === "depart" ? "d" : "a"}${time.at.replace(/\D/g, "").slice(0, 12)}`;
 
 /** Link no formato de caminho: /r/início/fim/parada1/…[/hora] */
 export function sharedPath(route: SharedRoute): string {
-  const time = route.time ? [timeToken(route.time)] : [];
+  const time = [...(route.time ? [timeToken(route.time)] : []), ...(route.deadline ? [deadlineToken(route.deadline)] : [])];
   return `/r/${[pointToken(unlocked(route.start)!), endToken(route.end), ...route.items.map(itemToken), ...time].join("/")}`;
 }
 
@@ -176,5 +194,6 @@ export function sharedQuery(route: SharedRoute): string {
   if (route.end !== "none") params.set("e", endToken(route.end));
   route.items.forEach((item, i) => params.set(`p${i + 1}`, itemToken(item)));
   if (route.time) params.set("t", timeToken(route.time));
+  if (route.deadline) params.set("f", deadlineToken(route.deadline));
   return `/?${params.toString().replace(/%2C/g, ",").replace(/%40/g, "@").replace(/%21/g, "!")}`;
 }

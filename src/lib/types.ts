@@ -30,6 +30,8 @@ export interface PlanLeg {
   leaveAt: Date;
   /** Pausa para descanso no caminho deste trecho (já somada à chegada). */
   breakSeconds: number;
+  /** Espera até o horário obrigatório da parada (chegou antes). */
+  waitSeconds: number;
   /** true quando o tempo veio da estimativa por distância. */
   estimated: boolean;
 }
