@@ -448,7 +448,7 @@ td.r, th.r { text-align: right; white-space: nowrap; }
 .kpis-col .kpi span { font-size: 8.5pt; }
 .kpis-col .kpi b { font-size: 12.5pt; white-space: nowrap; }
 .pill { display: inline-block; border: 1.5px solid; border-radius: 99px; padding: 0 7px; font-weight: 700; font-size: 9.5pt; }
-.tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 6px; font-size: 9pt; font-weight: 700; border: 1.5px solid ${C.brand}; color: ${C.brand}; white-space: nowrap; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; font-size: 9pt; font-weight: 700; border: 1.5px solid ${C.brand}; color: ${C.brand}; white-space: nowrap; }
 .tag.lock { border-color: #b45309; color: #b45309; }
 .ai { display: inline-flex; align-items: center; gap: 3px; border: 1.5px solid ${C.brand}; color: ${C.brand}; border-radius: 6px; padding: 1px 6px; font-size: 9pt; font-weight: 800; letter-spacing: .04em; }
 .box { border: 1px solid ${C.line}; border-radius: 10px; padding: 12px 14px; background: ${C.soft}; break-inside: avoid; }
@@ -505,11 +505,17 @@ function constraintsBlock(L: L, c: ReportConstraints | undefined): string {
 <p><b>${esc(L.mandatoryLabel)}.</b> ${esc(mandatoryText)}</p>`;
 }
 
+/** Ícones minimalistas (Material Design, preenchidos), herdam a cor do contorno. */
+const icon = (path: string) =>
+  `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="vertical-align:-1px"><path d="${path}"/></svg>`;
+const LOCK_ICON = icon("M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z");
+const FLAG_ICON = icon("M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z") + " ";
+
 function stopsTable(L: L, locale: Locale, rows: ReportRow[]): string {
   return `<table><tr><th>${esc(L.n)}</th><th>${esc(L.place)}</th><th class="r">${esc(L.drive)}</th><th class="r">${esc(L.distance)}</th><th class="r">${esc(L.rest)}</th><th class="r">${esc(L.arrive)}</th><th class="r">${esc(L.dwell)}</th><th class="r">${esc(L.leave)}</th></tr>${rows
     .map(
       (r) =>
-        `<tr><td><b>${esc(r.n)}</b></td><td>${esc(r.name)}${r.locked ? `<span class="tag lock">🔒 ${esc(L.tagLocked)}</span>` : ""}${r.mustArrive ? `<span class="tag">⚑ ${esc(L.tagArrive(r.mustArrive))}</span>` : ""}</td><td class="r">${esc(dur(r.legSeconds))}</td><td class="r">${esc(km(r.legMeters))}</td><td class="r">${r.breakSeconds ? esc(dur(r.breakSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.arriveAt))}</td><td class="r">${r.dwellSeconds ? esc(dur(r.dwellSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.leaveAt))}</td></tr>`,
+        `<tr><td><b>${esc(r.n)}</b></td><td>${esc(r.name)}${r.locked ? `<span class="tag lock" title="${esc(L.tagLocked)}" aria-label="${esc(L.tagLocked)}">${LOCK_ICON}</span>` : ""}${r.mustArrive ? `<span class="tag">${FLAG_ICON}${esc(L.tagArrive(r.mustArrive))}</span>` : ""}</td><td class="r">${esc(dur(r.legSeconds))}</td><td class="r">${esc(km(r.legMeters))}</td><td class="r">${r.breakSeconds ? esc(dur(r.breakSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.arriveAt))}</td><td class="r">${r.dwellSeconds ? esc(dur(r.dwellSeconds)) : "—"}</td><td class="r">${esc(time(locale, r.leaveAt))}</td></tr>`,
     )
     .join("")}</table>`;
 }
