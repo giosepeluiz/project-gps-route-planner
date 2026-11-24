@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.9.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.9.3%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -230,6 +230,14 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🚗 Versão 0.9.3 (beta)
+
+- **Viagem com a ordem trancada:** ao iniciar, todas as paradas ficam travadas na ordem combinada e nada muda sozinho (nem a ordem, nem sugestão da IA); mudar é sempre ação sua.
+- **Parada nova em viagem:** entra travada no fim, depois da última, e a rota é recalculada com ela junto; para outro lugar, é só arrastá-la na lista (ela trava onde for solta).
+- **Concluir ou excluir uma parada** (mesmo sem ter chegado nela) recalcula a rota com o que resta, sem mexer na ordem das demais.
+- **Celular: a bandeja recolhe sozinha** depois de 6 s sem mexer nela, com o carro andando.
+- **Bandeja mais visível em viagem:** borda e alça maiores na cor de destaque, texto maior e seta ampliada, para enxergar de longe com o celular no suporte.
 
 ### 🔒 Versão 0.9.2 (beta)
 

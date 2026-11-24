@@ -236,6 +236,8 @@ const TOUR_KEY = "rotas:tutorial:v1";
 /** Posição atual como local da rota (início da rota que falta, na viagem). */
 /** Até esta distância da parada (depois de chegar), a seta vira a bandeira em cima dela. */
 const GOAL_MAGNET_M = 60;
+/** Tempo sem mexer na bandeja (celular, carro andando) antes de ela recolher sozinha. */
+const SHEET_IDLE_MS = 6_000;
 
 const subscribeNever = () => () => {};
 const readLocal = () => isLocalHost(window.location.hostname);
@@ -536,6 +538,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [start, sequenceOf, stops, serverPlan],
   );
 
+  /** Viagem em andamento (lida nas ações, para a parada nova entrar travada no fim). */
+  const tripActiveRef = useRef(false);
+
   /** Adiciona a parada sobre o estado mais recente. Devolve a mensagem de erro, se houver. */
   const tryAddStop = (newPlace: Place): string | null => {
     // Toda parada nova recebe a permanência padrão das configurações.
@@ -547,7 +552,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         problem = result.reason === "limit" ? t.stops.limit(MAX_STOPS) : t.stops.duplicate;
         return prev;
       }
-      return { ...prev, stops: result.stops };
+      // Em viagem, a parada nova vai para depois da última (travada ali); para outro lugar,
+      // arraste-a na lista: ela fica travada onde for solta e o resto é recalculado.
+      const locks = tripActiveRef.current ? { ...(prev.locks ?? {}), [place.id]: prev.stops.length } : prev.locks;
+      return { ...prev, stops: result.stops, locks };
     });
     return problem;
   };
@@ -801,6 +809,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [headerPage, setHeaderPage] = useState(0);
   /** Nome da parada de onde a pessoa se afastou (modal "seguindo para a próxima?"), ou null. */
   const [leaveAsk, setLeaveAsk] = useState<string | null>(null);
+  /** Última vez que a mão mexeu na bandeja (celular): depois de uns segundos andando, ela recolhe. */
+  const sheetTouchRef = useRef(0);
   /** Acesso local (localhost ou rede de casa): aparece a viagem de teste. */
   const localAccess = useSyncExternalStore(subscribeNever, readLocal, () => false);
   /** Viagem de teste: o GPS é simulado andando pela rota a 70 km/h. */
@@ -850,6 +860,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // Rota que falta, saindo da posição atual: as paradas pendentes na ordem combinada e o fim.
   const tripActive = trip !== null && trip.status !== "finished";
+  useEffect(() => {
+    tripActiveRef.current = tripActive;
+  }, [tripActive]);
   const tripRequest = useMemo(() => {
     if (!tripActive || !tripOrigin) return null;
     const route = remainingRoute(herePlace(tripOrigin, t.gps.here), pendingStops, finalPlace);
@@ -1148,6 +1161,15 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const tripRunning = trip?.status === "running";
   /** GPS ligado: andando ou parado numa parada (a seta continua acompanhando o carro). */
   const gpsOn = tripRunning || trip?.status === "arrived";
+  // Celular, viagem e carro andando: sem mexer na bandeja por alguns segundos, ela recolhe sozinha.
+  useEffect(() => {
+    if (isDesktop || !tripRunning || !moving || !sheetOpen) return;
+    sheetTouchRef.current = nowMs();
+    const timer = window.setInterval(() => {
+      if (nowMs() - sheetTouchRef.current >= SHEET_IDLE_MS) setSheetOpen(false);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isDesktop, tripRunning, moving, sheetOpen]);
   /** Uma leitura do carro de teste: anda SIM_SPEED_MS pela linha do trecho atual (parado na parada). */
   const simTick = useEffectEvent(() => {
     const sim = simRef.current;
@@ -1211,6 +1233,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   };
   const beginTrip = () => {
     setTripWarning(false);
+    // Daqui em diante a ordem é só sua: todas as paradas ficam travadas onde estão e nada
+    // muda sozinho (nem recálculo de ordem, nem sugestão da IA). Mudar é sempre ação manual.
+    setRoute((prev) => ({ ...prev, locks: Object.fromEntries(displayedIds.map((id, i) => [id, i])) }));
     const simulate = wantSimRef.current && localAccess;
     wantSimRef.current = false;
     setSimulating(simulate);
@@ -2739,19 +2764,31 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       ) : (
       <aside
         aria-label={t.app.panel}
-        className="fixed inset-x-0 bottom-0 z-10 flex max-h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t border-line bg-surface shadow-sheet"
+        className={`fixed inset-x-0 bottom-0 z-10 flex max-h-[62dvh] flex-col overflow-hidden rounded-t-2xl bg-surface shadow-sheet ${
+          // Em viagem, a bandeja se destaca (de longe, com o celular no suporte): borda e alça na cor de destaque.
+          tripActive ? "border-t-[3px] border-accent shadow-[0_-10px_28px_rgb(0_0_0/0.35)]" : "border-t border-line"
+        }`}
       >
         <button
           type="button"
           aria-expanded={sheetOpen}
           aria-controls="hud-conteudo"
           onClick={() => setSheetOpen((open) => !open)}
-          className="focus-ring flex w-full shrink-0 flex-col items-center gap-2 px-4 pb-3 pt-2 outline-offset-[-2px]"
+          className={`focus-ring flex w-full shrink-0 flex-col items-center outline-offset-[-2px] ${
+            tripActive ? "gap-2.5 px-4 pb-4 pt-3" : "gap-2 px-4 pb-3 pt-2"
+          }`}
         >
-          <span aria-hidden="true" className="h-1 w-9 rounded-full bg-line-strong" />
-          <span className="flex w-full items-center justify-between gap-2 text-sm font-semibold text-ink">
+          <span
+            aria-hidden="true"
+            className={`rounded-full ${tripActive ? "h-1.5 w-16 bg-accent" : "h-1 w-9 bg-line-strong"}`}
+          />
+          <span
+            className={`flex w-full items-center justify-between gap-2 font-semibold text-ink ${
+              tripActive ? "text-base font-bold" : "text-sm"
+            }`}
+          >
             <span className="truncate">{handleSummary}</span>
-            <span className="rotate-180 text-faint">
+            <span className={`rotate-180 ${tripActive ? "origin-center scale-150 text-accent" : "text-faint"}`}>
               <Chevron open={sheetOpen} />
             </span>
           </span>
@@ -2761,6 +2798,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         <div
           id="hud-conteudo"
           inert={!sheetOpen}
+          onPointerDownCapture={() => (sheetTouchRef.current = nowMs())}
+          onTouchMoveCapture={() => (sheetTouchRef.current = nowMs())}
+          onKeyDownCapture={() => (sheetTouchRef.current = nowMs())}
+          onScrollCapture={() => (sheetTouchRef.current = nowMs())}
           className={`grid min-h-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${
             sheetOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           }`}
