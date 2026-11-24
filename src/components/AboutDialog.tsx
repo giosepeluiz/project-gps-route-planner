@@ -228,6 +228,7 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
             <Service name="OpenFreeMap · OpenStreetMap" role={a.serviceRoles.map} state="always" href="https://openfreemap.org" />
             <Service name="Nominatim (OpenStreetMap)" role={a.serviceRoles.nominatim} state="always" href="https://nominatim.org" />
             <Service name="TomTom" role={a.serviceRoles.tomtom} state={s(status?.tomtom)} href="https://developer.tomtom.com" />
+            <Service name="HERE" role={a.serviceRoles.here} state={s(status?.here)} href="https://www.here.com" />
             <Service
               name="OpenRouteService"
               role={a.serviceRoles.ors}

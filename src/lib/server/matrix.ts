@@ -1,6 +1,8 @@
 /**
- * Matriz de tempos com fallback: TomTom (com trânsito) → OpenRouteService
- * (sem trânsito) → estimativa por distância.
+ * Matriz de tempos com fallback: TomTom (matriz, com trânsito) → HERE (matriz,
+ * com trânsito) → TomTom rota a rota (com trânsito) → OpenRouteService (sem
+ * trânsito) → estimativa por distância. Quando a cota de um provedor acaba, ele
+ * fica em pausa e a cadeia segue para o próximo, sem gastar chamadas à toa.
  *
  * Cota: o plano gratuito da TomTom tem poucas requisições de matriz por mês.
  * Por isso o cache é POR PAR de locais (origem → destino): ao adicionar uma
@@ -9,7 +11,7 @@
 import { estimateSeconds, haversineMeters } from "../geo";
 import { timeSlot } from "../solver";
 import type { Cache } from "./cache";
-import { CircuitBreaker, DefinitiveError, withPolicy } from "./resilience";
+import { CircuitBreaker, DefinitiveError, QuotaError, withPolicy } from "./resilience";
 
 export interface Point {
   lat: number;
@@ -72,7 +74,35 @@ const pointKey = (p: Point) => `${round4(p.lat)},${round4(p.lng)}`;
 const LIVE_WINDOW_MS = 60 * 60 * 1000;
 export const isNearNow = (departAt: Date, now: number) => departAt.getTime() - now < LIVE_WINDOW_MS;
 
-async function postJson(fetchFn: FetchFn, url: string, body: unknown, headers: Record<string, string>, signal: AbortSignal) {
+/** Pausa depois de um limite de cota (403 da TomTom, 401/403/429 da HERE): tenta de novo só depois de 1 h. */
+export const QUOTA_PAUSE_S = 3600;
+/** Pausa depois de excesso de ritmo (429 da TomTom: QPS ou fila de cálculo ocupada). */
+export const RATE_PAUSE_S = 60;
+
+/**
+ * Status HTTP → erro. TomTom: 403 = chave inativa/sem direito/cota excedida, 429 = QPS ou recursos
+ * em uso. HERE: 401/403 = chave inválida ou sem acesso, 429 = muitas requisições (cota).
+ */
+function httpError(provider: string, status: number): Error {
+  if (provider === "tomtom" || provider === "tomtom-rota") {
+    if (status === 403) return new QuotaError(provider, status, QUOTA_PAUSE_S);
+    if (status === 429) return new QuotaError(provider, status, RATE_PAUSE_S);
+  }
+  if (provider === "here" && (status === 401 || status === 403 || status === 429)) {
+    // 429 pode ser só ritmo: tenta de novo em 5 min; 401/403 (chave ou acesso): em 1 h.
+    return new QuotaError(provider, status, status === 429 ? 300 : QUOTA_PAUSE_S);
+  }
+  return new Error(`HTTP ${status}`);
+}
+
+async function postJson(
+  fetchFn: FetchFn,
+  url: string,
+  body: unknown,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  provider = "",
+) {
   const res = await fetchFn(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
@@ -80,7 +110,7 @@ async function postJson(fetchFn: FetchFn, url: string, body: unknown, headers: R
     signal,
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw httpError(provider, res.status);
   return res.json();
 }
 
@@ -151,6 +181,7 @@ export function createTomTomMatrix(
             { origins: chunk.map(toPoint), destinations: destinations.map(toPoint), options: opts },
             {},
             signal,
+            "tomtom",
           ) as Promise<TomTomMatrixResponse>;
         let data = await ask(options);
         // Com trânsito ao vivo, uma interdição momentânea (evento, obra) faz a TomTom
@@ -222,6 +253,173 @@ export function createOrsMatrix(apiKey: string, fetchFn: FetchFn = fetch): Matri
       const meters = data.distances
         ? origins.map((_, i) => destinations.map((_, j) => data.distances?.[i]?.[j] ?? NaN))
         : undefined;
+      return { seconds, meters };
+    },
+  };
+}
+
+interface HereMatrixResponse {
+  matrix?: {
+    numOrigins: number;
+    numDestinations: number;
+    travelTimes?: number[];
+    distances?: number[];
+    errorCodes?: number[];
+  };
+}
+
+/** Modo "Flexible" (região world) do HERE: até 15 origens × 100 destinos por pedido síncrono. */
+const HERE_MAX_ORIGINS = 15;
+const HERE_MAX_DESTINATIONS = 100;
+
+/**
+ * HERE Matrix Routing v8, síncrono, modo Flexible (regionDefinition world: rotas de qualquer
+ * tamanho, com trânsito). POST https://matrix.router.hereapi.com/v8/matrix?async=false&apiKey=…
+ * A resposta traz as matrizes achatadas: posição k = numDestinations × origem + destino.
+ * errorCodes: 0 ok, 1 sem caminho, 2/4 não casou com a via, 3 rota com violação (o tempo vale).
+ */
+export function createHereMatrix(
+  apiKey: string,
+  fetchFn: FetchFn = fetch,
+  now: () => number = Date.now,
+): MatrixProvider {
+  const url = `https://matrix.router.hereapi.com/v8/matrix?async=false&apiKey=${encodeURIComponent(apiKey)}`;
+  const toPoint = (p: Point) => ({ lat: p.lat, lng: p.lng });
+  return {
+    name: "here",
+    trafficAware: true,
+    label: "HERE com trânsito",
+
+    async getCells(origins, destinations, departAt, signal) {
+      // Sem departureTime vale o trânsito de agora; com data, o previsto para aquele horário.
+      const departureTime = departAt.getTime() - now() < 60_000 ? undefined : departAt.toISOString();
+      const seconds = emptyBlock(origins.length, destinations.length);
+      const meters = emptyBlock(origins.length, destinations.length);
+      if (destinations.length > HERE_MAX_DESTINATIONS) throw new Error("here: destinos demais para um pedido.");
+
+      for (let from = 0; from < origins.length; from += HERE_MAX_ORIGINS) {
+        const chunk = origins.slice(from, from + HERE_MAX_ORIGINS);
+        const data = (await postJson(
+          fetchFn,
+          url,
+          {
+            origins: chunk.map(toPoint),
+            destinations: destinations.map(toPoint),
+            regionDefinition: { type: "world" },
+            transportMode: "car",
+            routingMode: "fast",
+            ...(departureTime ? { departureTime } : {}),
+            matrixAttributes: ["travelTimes", "distances"],
+          },
+          {},
+          signal,
+          "here",
+        )) as HereMatrixResponse;
+        const matrix = data.matrix;
+        if (!matrix || matrix.numOrigins !== chunk.length || matrix.numDestinations !== destinations.length) {
+          throw new Error("here: resposta fora do formato.");
+        }
+        for (let i = 0; i < chunk.length; i++) {
+          for (let j = 0; j < destinations.length; j++) {
+            const k = matrix.numDestinations * i + j;
+            const code = matrix.errorCodes?.[k] ?? 0;
+            // 1 = grafo desconectado: não há caminho de carro entre os dois pontos.
+            if (code === 1) throw new NoRouteError(chunk[i], destinations[j]);
+            if (code !== 0 && code !== 3) continue;
+            const time = matrix.travelTimes?.[k];
+            if (typeof time !== "number") continue;
+            seconds[from + i][j] = time;
+            meters[from + i][j] = matrix.distances?.[k] ?? NaN;
+          }
+        }
+      }
+      assertComplete(seconds, "here");
+      return { seconds, meters };
+    },
+  };
+}
+
+interface TomTomRouteResponse {
+  routes?: { summary?: { travelTimeInSeconds?: number; lengthInMeters?: number } }[];
+  detailedError?: { code?: string };
+}
+
+/** Pares por pedido de matriz: acima disso o rota a rota gastaria chamadas demais (o próximo da cadeia assume). */
+export const PAIRWISE_MAX_PAIRS = 150;
+
+/**
+ * TomTom "simples": uma chamada de Calculate Route por par (com trânsito, só o resumo).
+ * GET https://api.tomtom.com/routing/1/calculateRoute/lat,lng:lat,lng/json?routeRepresentation=summaryOnly
+ * Usa a cota de rotas comuns da TomTom, que é separada da cota de matriz.
+ */
+export function createTomTomPairwise(
+  apiKey: string,
+  fetchFn: FetchFn = fetch,
+  now: () => number = Date.now,
+  maxPairs = PAIRWISE_MAX_PAIRS,
+  concurrency = 4,
+): MatrixProvider {
+  return {
+    name: "tomtom-rota",
+    trafficAware: true,
+    label: "TomTom com trânsito (rota a rota)",
+
+    async getCells(origins, destinations, departAt, signal) {
+      const pairs: [number, number][] = [];
+      origins.forEach((a, i) =>
+        destinations.forEach((b, j) => {
+          if (a.lat !== b.lat || a.lng !== b.lng) pairs.push([i, j]);
+        }),
+      );
+      if (pairs.length > maxPairs) throw new Error("tomtom-rota: pares demais para consultar um a um.");
+
+      const seconds = emptyBlock(origins.length, destinations.length);
+      const meters = emptyBlock(origins.length, destinations.length);
+      for (let i = 0; i < origins.length; i++) {
+        for (let j = 0; j < destinations.length; j++) {
+          if (origins[i].lat === destinations[j].lat && origins[i].lng === destinations[j].lng) {
+            seconds[i][j] = 0;
+            meters[i][j] = 0;
+          }
+        }
+      }
+
+      let next = 0;
+      const worker = async () => {
+        while (next < pairs.length) {
+          const [i, j] = pairs[next++];
+          const a = origins[i];
+          const b = destinations[j];
+          const params = new URLSearchParams({
+            key: apiKey,
+            traffic: "true",
+            travelMode: "car",
+            routeType: "fastest",
+            routeRepresentation: "summaryOnly",
+            avoid: "ferries",
+          });
+          if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
+          const res = await fetchFn(
+            `https://api.tomtom.com/routing/1/calculateRoute/${a.lat.toFixed(6)},${a.lng.toFixed(6)}:${b.lat.toFixed(6)},${b.lng.toFixed(6)}/json?${params}`,
+            { signal, cache: "no-store" },
+          );
+          if (!res.ok) {
+            // 400 com NO_ROUTE_FOUND = sem caminho de carro entre os dois pontos.
+            if (res.status === 400 || res.status === 404) {
+              const body = (await res.json().catch(() => null)) as TomTomRouteResponse | null;
+              if (body?.detailedError?.code === "NO_ROUTE_FOUND") throw new NoRouteError(a, b);
+            }
+            throw httpError("tomtom-rota", res.status);
+          }
+          const body = (await res.json()) as TomTomRouteResponse;
+          const summary = body.routes?.[0]?.summary;
+          if (typeof summary?.travelTimeInSeconds !== "number") continue;
+          seconds[i][j] = summary.travelTimeInSeconds;
+          meters[i][j] = summary.lengthInMeters ?? NaN;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, pairs.length) }, worker));
+      assertComplete(seconds, "tomtom-rota");
       return { seconds, meters };
     },
   };
@@ -301,6 +499,17 @@ export function createMatrixService({
 }: MatrixServiceOptions): MatrixService {
   const chain = [...providers.filter((p) => !p.local), estimateProvider];
   const breakers = new Map(chain.map((p) => [p.name, new CircuitBreaker(p.name, 3, 60_000, now)]));
+  // Provedores em pausa por cota (também guardado no cache compartilhado, para todas as instâncias).
+  const pausedUntil = new Map<string, number>();
+  const pauseKey = (name: string) => `mx:pause:${name}`;
+  const isPaused = async (name: string) => {
+    if ((pausedUntil.get(name) ?? 0) > now()) return true;
+    return (await cache.get<number>(pauseKey(name))) !== null;
+  };
+  const pause = async (name: string, seconds: number) => {
+    pausedUntil.set(name, now() + seconds * 1000);
+    await cache.set(pauseKey(name), 1, seconds);
+  };
 
   async function fromProvider(provider: MatrixProvider, points: readonly Point[], departAt: Date) {
     const n = points.length;
@@ -384,6 +593,8 @@ export function createMatrixService({
     async getMatrix(points, departAt) {
       let lastError: unknown;
       for (const provider of chain) {
+        // Cota acabada há pouco: nem tenta (economiza a chamada e o tempo de espera).
+        if (!provider.local && (await isPaused(provider.name))) continue;
         try {
           const { seconds, meters } = await fromProvider(provider, points, departAt);
           return {
@@ -397,6 +608,13 @@ export function createMatrixService({
         } catch (err) {
           // "Sem caminho" é resposta, não falha: não cai na estimativa em linha reta.
           if (err instanceof NoRouteError) throw err;
+          // Cota esgotada: pausa o provedor e segue para o próximo da cadeia.
+          if (err instanceof QuotaError) {
+            await pause(provider.name, err.pauseSeconds);
+            lastError = err;
+            console.warn(`Matriz: ${err.message} Em pausa por ${Math.round(err.pauseSeconds / 60)} min.`);
+            continue;
+          }
           lastError = err;
           console.warn(`Matriz: ${provider.name} falhou, tentando o próximo.`, err);
         }

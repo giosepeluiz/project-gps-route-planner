@@ -444,6 +444,7 @@ const enGB: Messages = {
       map: "Base map (Liberty style), data © OpenStreetMap contributors",
       nominatim: "Address search, address of a point and area name",
       tomtom: "Traffic times, ferry-free road routes, address suggestions and backup search",
+      here: "Second matrix with traffic, used when the TomTom quota runs out",
       ors: "Backup for travel times, no traffic forecast",
       osrm: "Road routes without a TomTom key, for testing only",
       estimate: "Last resort: straight line × 1.4 at 35 km/h, no traffic",

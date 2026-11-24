@@ -15,6 +15,21 @@ export class CircuitOpenError extends Error {
  */
 export class DefinitiveError extends Error {}
 
+/**
+ * A cota do provedor acabou (ou ele limitou o ritmo): a cadeia pula para o
+ * próximo, e este fica "em pausa" por `pauseSeconds` (sem gastar tentativas à toa).
+ */
+export class QuotaError extends DefinitiveError {
+  constructor(
+    readonly provider: string,
+    readonly status: number,
+    readonly pauseSeconds: number,
+  ) {
+    super(`${provider}: cota esgotada ou limite de ritmo (HTTP ${status}).`);
+    this.name = "QuotaError";
+  }
+}
+
 export class CircuitBreaker {
   private failures = 0;
   private openUntil = 0;

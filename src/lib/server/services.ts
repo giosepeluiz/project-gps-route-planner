@@ -3,9 +3,11 @@ import { createAiService, createGemini, createGroq, type AiProvider, type AiServ
 import { createCache, type Cache } from "./cache";
 import { createGeocoder, createNominatim, createTomTom, type GeocodeProvider, type Geocoder } from "./geocode";
 import {
+  createHereMatrix,
   createMatrixService,
   createOrsMatrix,
   createTomTomMatrix,
+  createTomTomPairwise,
   type MatrixProvider,
   type MatrixService,
 } from "./matrix";
@@ -34,6 +36,7 @@ let services: Services | null = null;
 /** O que está ligado neste servidor, para a tela Sobre. Nunca inclui as chaves. */
 export interface ServiceStatus {
   tomtom: boolean;
+  here: boolean;
   openRouteService: boolean;
   osrmDemo: boolean;
   gemini: { enabled: boolean; model: string };
@@ -52,6 +55,7 @@ export function serviceStatus(): ServiceStatus {
   const has = (name: string) => !!process.env[name]?.trim();
   return {
     tomtom: has("TOMTOM_API_KEY"),
+    here: has("HERE_API_KEY"),
     openRouteService: has("ORS_API_KEY"),
     osrmDemo: process.env.NODE_ENV === "development",
     gemini: { enabled: has("GEMINI_API_KEY"), model: geminiModel() },
@@ -69,6 +73,7 @@ export function getServices(): Services {
   const cache = createCache();
   const tomtomKey = process.env.TOMTOM_API_KEY?.trim();
   const orsKey = process.env.ORS_API_KEY?.trim();
+  const hereKey = process.env.HERE_API_KEY?.trim();
 
   const geocoders: GeocodeProvider[] = [
     createNominatim(process.env.NOMINATIM_USER_AGENT?.trim() || "rotas-pessoal/1.0"),
@@ -76,9 +81,12 @@ export function getServices(): Services {
   if (tomtomKey) geocoders.push(createTomTom(tomtomKey));
   const geocoder = createGeocoder({ providers: geocoders, cache });
 
-  // TomTom (com trânsito) → OpenRouteService (sem trânsito) → estimativa (sempre presente).
+  // TomTom matriz → HERE matriz → TomTom rota a rota (todas com trânsito) → OpenRouteService
+  // (sem trânsito) → estimativa (sempre presente). Quando a cota de um acaba, passa para o seguinte.
   const matrixProviders: MatrixProvider[] = [];
   if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey));
+  if (hereKey) matrixProviders.push(createHereMatrix(hereKey));
+  if (tomtomKey) matrixProviders.push(createTomTomPairwise(tomtomKey));
   if (orsKey) matrixProviders.push(createOrsMatrix(orsKey));
 
   // Rota pelas ruas: TomTom. Sem chave, e só em desenvolvimento, o servidor demo do OSRM.

@@ -444,6 +444,7 @@ const ptPT: Messages = {
       map: "Mapa base (estilo Liberty), com dados © contribuidores do OpenStreetMap",
       nominatim: "Pesquisa de moradas, morada de um ponto e nome da zona",
       tomtom: "Tempos com trânsito, traçado pelas ruas sem ferries, sugestões de morada e pesquisa de reserva",
+      here: "Segunda matriz com trânsito, quando a quota da TomTom acaba",
       ors: "Reserva para os tempos, sem previsão de trânsito",
       osrm: "Traçado pelas ruas sem chave da TomTom, só para testes",
       estimate: "Último recurso: linha reta × 1.4 a 35 km/h, sem trânsito",

@@ -451,6 +451,7 @@ const ptBR = {
       map: "Mapa base (estilo Liberty), com dados © colaboradores do OpenStreetMap",
       nominatim: "Busca de endereços, endereço de um ponto e nome da zona",
       tomtom: "Tempos com trânsito, traçado pelas ruas sem balsas, sugestões de endereço e busca reserva",
+      here: "Segunda matriz com trânsito, quando a cota da TomTom acaba",
       ors: "Reserva para os tempos, sem previsão de trânsito",
       osrm: "Traçado pelas ruas sem chave da TomTom, só para testes",
       estimate: "Último recurso: linha reta × 1.4 a 35 km/h, sem trânsito",

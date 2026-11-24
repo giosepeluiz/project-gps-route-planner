@@ -444,6 +444,7 @@ const esES: Messages = {
       map: "Mapa base (estilo Liberty), datos © colaboradores de OpenStreetMap",
       nominatim: "Búsqueda de direcciones, dirección de un punto y nombre de la zona",
       tomtom: "Tiempos con tráfico, rutas por carretera sin ferris, sugerencias de dirección y búsqueda de reserva",
+      here: "Segunda matriz con tráfico, cuando se acaba la cuota de TomTom",
       ors: "Reserva para los tiempos, sin previsión de tráfico",
       osrm: "Rutas por carretera sin clave de TomTom, solo para pruebas",
       estimate: "Último recurso: línea recta × 1.4 a 35 km/h, sin tráfico",

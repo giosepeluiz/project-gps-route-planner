@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.9.3%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.10.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -189,8 +189,12 @@ O idioma pode ser trocado em **Configurações → Idioma**. O comentário da IA
 O navegador manda os locais para `POST /api/plan`, que monta a matriz de tempos, roda o algoritmo e devolve a ordem, os trechos e o traçado. A fonte dos tempos aparece sempre no Resumo:
 
 1. **TomTom Matrix Routing v2**, com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras).
-2. **OpenRouteService**, sem previsão de trânsito, se a TomTom falhar.
-3. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
+2. **HERE Matrix Routing v8** (modo Flexible, rotas de qualquer tamanho), com trânsito, quando a cota de matriz da TomTom acaba.
+3. **TomTom rota a rota** (Calculate Route, só o resumo, com trânsito), quando a HERE também acaba; usa a cota de rotas comuns da TomTom e só para matrizes pequenas (até 150 pares).
+4. **OpenRouteService**, sem previsão de trânsito.
+5. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
+
+Quando um serviço responde que a cota acabou (TomTom 403; HERE 401/403/429; excesso de ritmo da TomTom, 429), ele fica **em pausa** (1 h, 5 min ou 1 min, conforme o caso, também no cache compartilhado) e a cadeia segue para o próximo sem gastar chamadas à toa; depois da pausa, ele é testado de novo.
 
 Cada serviço tem tempo limite de 8 s, uma nova tentativa e um *circuit breaker* que o pausa por 60 s depois de 3 falhas seguidas. O cache é por par de locais e faixa de 15 minutos, então uma parada nova só consulta os pares novos.
 
@@ -230,6 +234,10 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🔁 Versão 0.10.0 (beta)
+
+- **Matriz de tempos em cadeia, com a HERE:** TomTom (matriz) → **HERE (matriz, com trânsito)** → TomTom rota a rota (com trânsito) → OpenRouteService (sem trânsito) → estimativa. Quando a cota de um acaba, ele fica em pausa e o próximo assume, sem gastar chamadas à toa. A HERE é opcional (`HERE_API_KEY`, só no servidor) e aparece na tela Sobre.
 
 ### 🚗 Versão 0.9.3 (beta)
 
@@ -406,6 +414,7 @@ npm run build       # build de produção
 | `TOMTOM_API_KEY` | Tempos com trânsito, traçado pelas ruas, sugestões e busca reserva | Recomendada |
 | `GEMINI_API_KEY` | IA primária | Opcional |
 | `GROQ_API_KEY` | IA reserva | Opcional |
+| `HERE_API_KEY` | Segunda matriz com trânsito, quando a cota de matriz da TomTom acaba ([HERE Matrix Routing v8](https://www.here.com)) | Opcional |
 | `ORS_API_KEY` | Tempos de reserva (sem trânsito) | Opcional |
 | `GEMINI_MODEL` · `GROQ_MODEL` | Trocar o modelo de IA sem mexer no código | Opcional |
 | `NOMINATIM_USER_AGENT` | Identificação do app no Nominatim | Recomendada |
@@ -460,7 +469,7 @@ Desenvolvido por **Giosepe Luiz dos Santos**, com colaboração do **Anthropic C
 [![Facebook](https://img.shields.io/badge/Facebook-giosepeluiz-1877F2?style=flat-square&logo=facebook&logoColor=white)](https://facebook.com/giosepeluiz)
 [![E-mail](https://img.shields.io/badge/E--mail-contato%40arqueirover.de-6ccb5f?style=flat-square&logo=maildotru&logoColor=white)](mailto:contato@arqueirover.de)
 
-Mapa: [OpenFreeMap](https://openfreemap.org) e dados © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright). Tempos e traçado: [TomTom](https://developer.tomtom.com) e [OpenRouteService](https://openrouteservice.org). Busca: [Nominatim](https://nominatim.org).
+Mapa: [OpenFreeMap](https://openfreemap.org) e dados © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright). Tempos e traçado: [TomTom](https://developer.tomtom.com), [HERE](https://www.here.com) e [OpenRouteService](https://openrouteservice.org). Busca: [Nominatim](https://nominatim.org).
 
 </td>
 </tr>
