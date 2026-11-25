@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.10.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.11.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -191,8 +191,9 @@ O navegador manda os locais para `POST /api/plan`, que monta a matriz de tempos,
 1. **TomTom Matrix Routing v2**, com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras).
 2. **HERE Matrix Routing v8** (modo Flexible, rotas de qualquer tamanho), com trânsito, quando a cota de matriz da TomTom acaba.
 3. **TomTom rota a rota** (Calculate Route, só o resumo, com trânsito), quando a HERE também acaba; usa a cota de rotas comuns da TomTom e só para matrizes pequenas (até 150 pares).
-4. **OpenRouteService**, sem previsão de trânsito.
-5. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
+4. **Google Routes API (Compute Route Matrix, com trânsito)**, a última com trânsito: cota grátis menor e contada por elemento.
+5. **OpenRouteService**, sem previsão de trânsito.
+6. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
 
 Quando um serviço responde que a cota acabou (TomTom 403; HERE 401/403/429; excesso de ritmo da TomTom, 429), ele fica **em pausa** (1 h, 5 min ou 1 min, conforme o caso, também no cache compartilhado) e a cadeia segue para o próximo sem gastar chamadas à toa; depois da pausa, ele é testado de novo.
 
@@ -234,6 +235,18 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
 
 ## 🕰️ Histórico de versões
+
+### 🛡️ Versão 0.11.0 (beta)
+
+- **Cartão da viagem no topo (celular e tablet):** estado, próxima parada, números (cada toque troca a tela) e os botões de pausar/retomar/próxima/encerrar, num só lugar; a gaveta de baixo não tem mais esses botões e volta a se chamar "Planejamento da rota". Os botões do mapa (girar, configurações com engrenagem, ajuda) viram uma fileira horizontal acima do cartão. A bolinha muda de cor: **verde** andando, **vermelho** parado na parada, **amarelo** depois de se afastar sem tocar em "Próxima" (e também com a viagem pausada).
+- **Botões do mapa:** fora da viagem ficam como antes, numa coluna no canto superior direito, agora com **"Nova rota"** (pede confirmação e apaga a rota deste aparelho) e, no celular, **"Compartilhar"** (folha do sistema com o link da rota, ou copia o link). Na viagem do celular, "Girar" fica no canto esquerdo, e "Configurações" e "Ajuda" no direito, acima do cartão da viagem; "Nova rota" não aparece em viagem.
+- **Viagem encerrada sai do armazenamento:** ao terminar a viagem (ao chegar no destino ou ao encerrar à mão), a rota deixa de ficar guardada no navegador, então o app não pergunta mais "continuar de onde parou" depois dela. A tela atual não muda, e uma viagem interrompida (aba fechada no meio) continua guardada.
+- **Gaveta em acordeão (celular, fora da viagem):** ao abrir um bloco (Início e fim, Paradas, Abrir e compartilhar, Resumo), os outros se fecham para poupar espaço.
+- **Aviso "Traçado aproximado" não pisca mais:** ele só aparece se a rota pelas ruas realmente falhou, e não enquanto o mapa calcula nem durante a viagem.
+- **Tempo não pula mais ao travar uma parada:** enquanto o servidor recalcula, a tela mantém o último cálculo (e usa os tempos já conhecidos) em vez de cair na estimativa em linha reta.
+- **Viagem com um pedido só:** com todas as paradas travadas (o caso da viagem em andamento), o servidor não monta matriz nem roda o solver: pede **uma única rota com todos os pontos** (TomTom Routing, depois Google Compute Routes), que já traz o tempo de cada trecho com trânsito e o traçado. É o que mais poupa cota, porque a rota é refeita a cada 2 min ou 250 m.
+- **Trava de cota mensal:** o app conta o uso de cada serviço no mês (cache compartilhado) e **recusa a chamada antes de passar do limite**, que por padrão fica 10% abaixo da cota grátis: TomTom matriz 2.250, TomTom rotas 18.000, HERE 2.250 (contado por célula, o pior caso, até confirmar a unidade), Google matriz 4.500 elementos e Google rotas 4.500. Muda por variável de ambiente (`QUOTA_TOMTOM`, `QUOTA_TOMTOM_ROTA`, `QUOTA_HERE`, `QUOTA_GOOGLE`, `QUOTA_GOOGLE_ROTA`; `0` desliga). A tela Sobre mostra o uso do mês.
+- **Google como reserva** (opcional, `GOOGLE_MAPS_API_KEY`): entra depois da HERE e do TomTom rota a rota, na matriz, e depois da TomTom, no traçado. Como o Google cobra acima da cota grátis, restrinja a chave à Routes API e **limite a quota no Google Cloud ao grátis**.
 
 ### 🔁 Versão 0.10.0 (beta)
 
@@ -414,6 +427,8 @@ npm run build       # build de produção
 | `TOMTOM_API_KEY` | Tempos com trânsito, traçado pelas ruas, sugestões e busca reserva | Recomendada |
 | `GEMINI_API_KEY` | IA primária | Opcional |
 | `GROQ_API_KEY` | IA reserva | Opcional |
+| `GOOGLE_MAPS_API_KEY` | Reserva com trânsito (Routes API do Google); a trava de cota do app impede passar do grátis | Opcional |
+| `QUOTA_*`, `HERE_COUNT` | Limites mensais da trava de cota e unidade de contagem da HERE (veja `.env.example`) | Opcional |
 | `HERE_API_KEY` | Segunda matriz com trânsito, quando a cota de matriz da TomTom acaba ([HERE Matrix Routing v8](https://www.here.com)) | Opcional |
 | `ORS_API_KEY` | Tempos de reserva (sem trânsito) | Opcional |
 | `GEMINI_MODEL` · `GROQ_MODEL` | Trocar o modelo de IA sem mexer no código | Opcional |

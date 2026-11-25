@@ -174,6 +174,54 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
       0,
     );
 
+  // Todas as paradas travadas (é o caso da viagem em andamento): a ordem já está decidida, então a
+  // matriz e o solver não servem. Uma só consulta de rota, com todos os pontos, traz o tempo de cada
+  // trecho (com trânsito) e o traçado: um pedido em vez de uma matriz inteira.
+  if (mode === "depart" && !request.deadline && stops.length > 0 && fixed.size === stops.length) {
+    const lockedOrder = stops.map((_, position) => fixed.get(position));
+    if (lockedOrder.every((node): node is number => node !== undefined)) {
+      const sequence = [0, ...lockedOrder, ...(endIndex === null ? [] : [endIndex])];
+      const routeDepartAt = request.at ?? new Date(now());
+      const only = await deps.geometry.getRoute(
+        sequence.map((i) => nodes[i]),
+        routeDepartAt,
+        request.heading === undefined ? undefined : { heading: request.heading },
+      );
+      if (only === "no-route") throw new NoRouteError();
+      if (only && only.legs.length === sequence.length - 1) {
+        const legSeconds = only.legs.map((leg) => Math.round(leg.seconds));
+        const totalSeconds = legSeconds.reduce((sum, s) => sum + s, 0);
+        const dwellSeconds = dwellFor(lockedOrder);
+        const trafficAware = !/sem tr[âa]nsito/i.test(only.source);
+        const slug = only.source.toLowerCase().startsWith("google") ? "google-rota" : only.source.toLowerCase().startsWith("tomtom") ? "tomtom-rota" : "osrm";
+        return {
+          order: lockedOrder.map((i) => nodes[i].id),
+          legSeconds,
+          totalSeconds,
+          dwellSeconds,
+          typedSeconds: totalSeconds,
+          bestSeconds: totalSeconds,
+          exact: true,
+          lockedCount: fixed.size,
+          departAt: routeDepartAt.toISOString(),
+          arriveAt: new Date(routeDepartAt.getTime() + (totalSeconds + dwellSeconds) * 1000).toISOString(),
+          source: {
+            name: slug,
+            label: trafficAware ? `${only.source} com trânsito (rota)` : `${only.source}`,
+            trafficAware,
+            estimated: false,
+          },
+          streetLegs: only.legs,
+          streetSource: only.source,
+          checkedSeconds: only.seconds,
+          arrival: null,
+          deadline: null,
+        };
+      }
+      // Sem rota (provedor sem cota ou fora do ar): segue pelo caminho da matriz.
+    }
+  }
+
   const at = request.at ?? new Date(now());
   let departAt: Date;
   let solution: RouteSolution;

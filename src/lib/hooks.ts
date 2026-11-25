@@ -72,6 +72,18 @@ export function useLocalStorageState<T>(
   return [value, setValue];
 }
 
+/**
+ * Apaga só a cópia gravada no navegador (localStorage). A cópia em memória continua, então a tela
+ * atual não muda; ao recarregar a página não há mais nada guardado.
+ */
+export function forgetStoredCopy(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Sem acesso ao localStorage: não há o que apagar.
+  }
+}
+
 /** true quando a media query casa. No servidor vale false (layout de celular). */
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(

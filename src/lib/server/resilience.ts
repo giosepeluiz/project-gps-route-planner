@@ -25,7 +25,11 @@ export class QuotaError extends DefinitiveError {
     readonly status: number,
     readonly pauseSeconds: number,
   ) {
-    super(`${provider}: cota esgotada ou limite de ritmo (HTTP ${status}).`);
+    super(
+      status === 0
+        ? `${provider}: limite mensal de segurança atingido (a chamada nem foi feita).`
+        : `${provider}: cota esgotada ou limite de ritmo (HTTP ${status}).`,
+    );
     this.name = "QuotaError";
   }
 }

@@ -84,6 +84,12 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
   const a = t.about;
   const ref = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<ServiceStatus | null>(null);
+  /** Texto do serviço com o uso do mês (só quando há contador). */
+  const withUsage = (role: string, ...keys: ("tomtom" | "tomtom-rota" | "here" | "google" | "google-rota")[]) => {
+    const parts = keys.flatMap((key) => (status?.usage?.[key] ? [status.usage[key]!] : []));
+    if (parts.length === 0) return role;
+    return `${role} · ${parts.map((p) => a.usageMonth(p.used, p.limit)).join(" · ")}`;
+  };
   const versionLabel = `${pkg.version}${IS_BETA ? ` (${a.betaLabel})` : ""}`;
 
   useEffect(() => {
@@ -227,8 +233,14 @@ export default function AboutDialog({ open, onClose, settings, theme, onNotify }
           <ul className="divide-y divide-line">
             <Service name="OpenFreeMap · OpenStreetMap" role={a.serviceRoles.map} state="always" href="https://openfreemap.org" />
             <Service name="Nominatim (OpenStreetMap)" role={a.serviceRoles.nominatim} state="always" href="https://nominatim.org" />
-            <Service name="TomTom" role={a.serviceRoles.tomtom} state={s(status?.tomtom)} href="https://developer.tomtom.com" />
-            <Service name="HERE" role={a.serviceRoles.here} state={s(status?.here)} href="https://www.here.com" />
+            <Service name="TomTom" role={withUsage(a.serviceRoles.tomtom, "tomtom", "tomtom-rota")} state={s(status?.tomtom)} href="https://developer.tomtom.com" />
+            <Service name="HERE" role={withUsage(a.serviceRoles.here, "here")} state={s(status?.here)} href="https://www.here.com" />
+            <Service
+              name="Google Maps Platform"
+              role={withUsage(a.serviceRoles.google, "google", "google-rota")}
+              state={s(status?.google)}
+              href="https://developers.google.com/maps"
+            />
             <Service
               name="OpenRouteService"
               role={a.serviceRoles.ors}

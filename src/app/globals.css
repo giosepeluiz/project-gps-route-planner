@@ -300,9 +300,32 @@ body {
   }
 }
 
-/* Viagem no celular/tablet: os controles do mapa descem para baixo do cabeçalho da viagem. */
+/*
+ * Viagem no celular/tablet: os botões do mapa (girar, configurações, ajuda) viram uma fileira
+ * horizontal no topo à esquerda, acima do cartão da viagem.
+ */
+.rotas-nav-header .maplibregl-ctrl-top-right,
+.rotas-nav-header .maplibregl-ctrl-top-left {
+  top: calc(env(safe-area-inset-top) + 0.5rem);
+}
+.rotas-nav-header .maplibregl-ctrl-top-left {
+  left: 0.5rem;
+}
 .rotas-nav-header .maplibregl-ctrl-top-right {
-  top: calc(env(safe-area-inset-top) + 4.5rem);
+  right: 0.5rem;
+}
+.rotas-nav-header .maplibregl-ctrl-top-right .maplibregl-ctrl-group,
+.rotas-nav-header .maplibregl-ctrl-top-left .maplibregl-ctrl-group {
+  display: flex;
+  flex-direction: row;
+}
+.rotas-nav-header .maplibregl-ctrl-top-left .maplibregl-ctrl,
+.rotas-nav-header .maplibregl-ctrl-top-right .maplibregl-ctrl {
+  margin: 0;
+}
+.rotas-nav-header .maplibregl-ctrl-group button + button {
+  border-top: 0;
+  border-left: 1px solid var(--line);
 }
 
 /*

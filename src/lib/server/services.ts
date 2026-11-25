@@ -3,6 +3,7 @@ import { createAiService, createGemini, createGroq, type AiProvider, type AiServ
 import { createCache, type Cache } from "./cache";
 import { createGeocoder, createNominatim, createTomTom, type GeocodeProvider, type Geocoder } from "./geocode";
 import {
+  createGoogleMatrix,
   createHereMatrix,
   createMatrixService,
   createOrsMatrix,
@@ -12,10 +13,12 @@ import {
   type MatrixService,
 } from "./matrix";
 import { apiLimitPerMinute } from "./rate-limit";
+import { budgetLimits, createBudget, type Budget, type BudgetKey } from "./usage";
 import { createResolver } from "./resolve";
 import { createTomTomSuggest, noSuggest, type SuggestService } from "./suggest";
 import {
   chainGeometry,
+  createGoogleGeometry,
   createOsrmDemoGeometry,
   createTomTomGeometry,
   type GeometryService,
@@ -23,6 +26,7 @@ import {
 
 interface Services {
   cache: Cache;
+  budget: Budget;
   geocoder: Geocoder;
   resolveInput: ReturnType<typeof createResolver>;
   matrix: MatrixService;
@@ -37,6 +41,7 @@ let services: Services | null = null;
 export interface ServiceStatus {
   tomtom: boolean;
   here: boolean;
+  google: boolean;
   openRouteService: boolean;
   osrmDemo: boolean;
   gemini: { enabled: boolean; model: string };
@@ -46,6 +51,8 @@ export interface ServiceStatus {
   rateLimitPerMinute: number;
   /** Envio das estatísticas anônimas da viagem por e-mail. */
   tripReport: boolean;
+  /** Uso mensal de cada serviço com cota (preenchido pela rota /api/status). */
+  usage?: Partial<Record<BudgetKey, { used: number; limit: number }>>;
 }
 
 export const geminiModel = () => process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
@@ -56,6 +63,7 @@ export function serviceStatus(): ServiceStatus {
   return {
     tomtom: has("TOMTOM_API_KEY"),
     here: has("HERE_API_KEY"),
+    google: has("GOOGLE_MAPS_API_KEY"),
     openRouteService: has("ORS_API_KEY"),
     osrmDemo: process.env.NODE_ENV === "development",
     gemini: { enabled: has("GEMINI_API_KEY"), model: geminiModel() },
@@ -71,9 +79,12 @@ export function getServices(): Services {
   if (services) return services;
 
   const cache = createCache();
+  // Trava de cota: nenhum serviço passa do limite mensal (10% abaixo da cota grátis, por padrão).
+  const budget = createBudget({ cache, limits: budgetLimits() });
   const tomtomKey = process.env.TOMTOM_API_KEY?.trim();
   const orsKey = process.env.ORS_API_KEY?.trim();
   const hereKey = process.env.HERE_API_KEY?.trim();
+  const googleKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
 
   const geocoders: GeocodeProvider[] = [
     createNominatim(process.env.NOMINATIM_USER_AGENT?.trim() || "rotas-pessoal/1.0"),
@@ -84,14 +95,17 @@ export function getServices(): Services {
   // TomTom matriz → HERE matriz → TomTom rota a rota (todas com trânsito) → OpenRouteService
   // (sem trânsito) → estimativa (sempre presente). Quando a cota de um acaba, passa para o seguinte.
   const matrixProviders: MatrixProvider[] = [];
-  if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey));
-  if (hereKey) matrixProviders.push(createHereMatrix(hereKey));
-  if (tomtomKey) matrixProviders.push(createTomTomPairwise(tomtomKey));
+  const hereUnit = process.env.HERE_COUNT?.trim() === "request" ? "request" : "element";
+  if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey, fetch, Date.now, 100, budget));
+  if (hereKey) matrixProviders.push(createHereMatrix(hereKey, fetch, Date.now, budget, hereUnit));
+  if (tomtomKey) matrixProviders.push(createTomTomPairwise(tomtomKey, fetch, Date.now, undefined, undefined, budget));
+  if (googleKey) matrixProviders.push(createGoogleMatrix(googleKey, fetch, Date.now, budget));
   if (orsKey) matrixProviders.push(createOrsMatrix(orsKey));
 
   // Rota pelas ruas: TomTom. Sem chave, e só em desenvolvimento, o servidor demo do OSRM.
   const geometries: GeometryService[] = [];
-  if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache));
+  if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache, fetch, Date.now, budget));
+  if (googleKey) geometries.push(createGoogleGeometry(googleKey, cache, fetch, Date.now, budget));
   if (process.env.NODE_ENV === "development") geometries.push(createOsrmDemoGeometry(cache));
 
   // IA: Gemini Flash-Lite (primária) → Groq (backup). Sem chaves, a lista fica vazia
@@ -105,6 +119,7 @@ export function getServices(): Services {
 
   services = {
     cache,
+    budget,
     geocoder,
     resolveInput: createResolver({ geocoder, cache }),
     matrix: createMatrixService({ providers: matrixProviders, cache }),

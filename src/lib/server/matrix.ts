@@ -12,6 +12,7 @@ import { estimateSeconds, haversineMeters } from "../geo";
 import { timeSlot } from "../solver";
 import type { Cache } from "./cache";
 import { CircuitBreaker, DefinitiveError, QuotaError, withPolicy } from "./resilience";
+import type { Budget } from "./usage";
 
 export interface Point {
   lat: number;
@@ -83,10 +84,14 @@ export const RATE_PAUSE_S = 60;
  * Status HTTP → erro. TomTom: 403 = chave inativa/sem direito/cota excedida, 429 = QPS ou recursos
  * em uso. HERE: 401/403 = chave inválida ou sem acesso, 429 = muitas requisições (cota).
  */
-function httpError(provider: string, status: number): Error {
+export function httpError(provider: string, status: number): Error {
   if (provider === "tomtom" || provider === "tomtom-rota") {
     if (status === 403) return new QuotaError(provider, status, QUOTA_PAUSE_S);
     if (status === 429) return new QuotaError(provider, status, RATE_PAUSE_S);
+  }
+  // Google: 403 = API desligada, chave sem acesso ou cobrança; 429 = RESOURCE_EXHAUSTED (ritmo ou cota).
+  if ((provider === "google" || provider === "google-rota") && (status === 403 || status === 429)) {
+    return new QuotaError(provider, status, status === 429 ? 300 : QUOTA_PAUSE_S);
   }
   if (provider === "here" && (status === 401 || status === 403 || status === 429)) {
     // 429 pode ser só ritmo: tenta de novo em 5 min; 401/403 (chave ou acesso): em 1 h.
@@ -143,6 +148,7 @@ export function createTomTomMatrix(
   fetchFn: FetchFn = fetch,
   now: () => number = Date.now,
   maxCells = 100,
+  budget?: Budget,
 ): MatrixProvider {
   const url = `https://api.tomtom.com/routing/matrix/2?key=${encodeURIComponent(apiKey)}`;
   const toPoint = (p: Point) => ({ point: { latitude: p.lat, longitude: p.lng } });
@@ -174,8 +180,10 @@ export function createTomTomMatrix(
 
       for (let from = 0; from < origins.length; from += rowsPerRequest) {
         const chunk = origins.slice(from, from + rowsPerRequest);
-        const ask = (opts: typeof options) =>
-          postJson(
+        const ask = async (opts: typeof options) => {
+          // Trava de cota: reserva o pedido (a TomTom conta por pedido) antes de fazê-lo.
+          await budget?.take("tomtom", 1);
+          return postJson(
             fetchFn,
             url,
             { origins: chunk.map(toPoint), destinations: destinations.map(toPoint), options: opts },
@@ -183,6 +191,7 @@ export function createTomTomMatrix(
             signal,
             "tomtom",
           ) as Promise<TomTomMatrixResponse>;
+        };
         let data = await ask(options);
         // Com trânsito ao vivo, uma interdição momentânea (evento, obra) faz a TomTom
         // dizer NO_ROUTE_FOUND até de um ponto para ele mesmo. Antes de concluir que
@@ -282,6 +291,9 @@ export function createHereMatrix(
   apiKey: string,
   fetchFn: FetchFn = fetch,
   now: () => number = Date.now,
+  budget?: Budget,
+  /** Unidade da cobrança da HERE: "element" (cada par origem-destino; o pior caso) ou "request". */
+  unit: "element" | "request" = "element",
 ): MatrixProvider {
   const url = `https://matrix.router.hereapi.com/v8/matrix?async=false&apiKey=${encodeURIComponent(apiKey)}`;
   const toPoint = (p: Point) => ({ lat: p.lat, lng: p.lng });
@@ -299,6 +311,7 @@ export function createHereMatrix(
 
       for (let from = 0; from < origins.length; from += HERE_MAX_ORIGINS) {
         const chunk = origins.slice(from, from + HERE_MAX_ORIGINS);
+        await budget?.take("here", unit === "element" ? chunk.length * destinations.length : 1);
         const data = (await postJson(
           fetchFn,
           url,
@@ -358,6 +371,7 @@ export function createTomTomPairwise(
   now: () => number = Date.now,
   maxPairs = PAIRWISE_MAX_PAIRS,
   concurrency = 4,
+  budget?: Budget,
 ): MatrixProvider {
   return {
     name: "tomtom-rota",
@@ -399,6 +413,7 @@ export function createTomTomPairwise(
             avoid: "ferries",
           });
           if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
+          await budget?.take("tomtom-rota", 1);
           const res = await fetchFn(
             `https://api.tomtom.com/routing/1/calculateRoute/${a.lat.toFixed(6)},${a.lng.toFixed(6)}:${b.lat.toFixed(6)},${b.lng.toFixed(6)}/json?${params}`,
             { signal, cache: "no-store" },
@@ -420,6 +435,86 @@ export function createTomTomPairwise(
       };
       await Promise.all(Array.from({ length: Math.min(concurrency, pairs.length) }, worker));
       assertComplete(seconds, "tomtom-rota");
+      return { seconds, meters };
+    },
+  };
+}
+
+interface GoogleMatrixElement {
+  originIndex?: number;
+  destinationIndex?: number;
+  status?: { code?: number };
+  condition?: string;
+  distanceMeters?: number;
+  duration?: string;
+}
+
+/** Duração do Google: texto em segundos, como "1234s". */
+export const googleSeconds = (value: string | undefined) => {
+  const n = value === undefined ? NaN : Number.parseFloat(value);
+  return Number.isFinite(n) ? Math.round(n) : NaN;
+};
+
+/**
+ * Google Routes API, Compute Route Matrix (reserva, com trânsito).
+ * POST https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix
+ * Cobrança por ELEMENTO (origens × destinos); com trânsito (TRAFFIC_AWARE) entra no SKU Pro,
+ * com cota grátis de 5.000 elementos por mês. A trava de cota conta cada elemento.
+ */
+export function createGoogleMatrix(
+  apiKey: string,
+  fetchFn: FetchFn = fetch,
+  now: () => number = Date.now,
+  budget?: Budget,
+): MatrixProvider {
+  const waypoint = (p: Point) => ({ waypoint: { location: { latLng: { latitude: p.lat, longitude: p.lng } } } });
+  return {
+    name: "google",
+    trafficAware: true,
+    label: "Google com trânsito",
+
+    async getCells(origins, destinations, departAt, signal) {
+      const elements = origins.length * destinations.length;
+      // Limite do Google por pedido (625 elementos); as nossas matrizes ficam bem abaixo.
+      if (elements > 625) throw new Error("google: matriz grande demais para um pedido.");
+      await budget?.take("google", elements);
+      const body = {
+        origins: origins.map(waypoint),
+        destinations: destinations.map(waypoint),
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_AWARE",
+        // Sem departureTime vale "agora"; horário no passado não é aceito.
+        ...(departAt.getTime() - now() >= 60_000 ? { departureTime: departAt.toISOString() } : {}),
+      };
+      const res = await fetchFn("https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          // Sem "status" na máscara, todos os elementos pareceriam bem-sucedidos.
+          "X-Goog-FieldMask": "originIndex,destinationIndex,status,condition,distanceMeters,duration",
+        },
+        body: JSON.stringify(body),
+        signal,
+        cache: "no-store",
+      });
+      if (!res.ok) throw httpError("google", res.status);
+      const data = (await res.json()) as GoogleMatrixElement[];
+
+      const seconds = emptyBlock(origins.length, destinations.length);
+      const meters = emptyBlock(origins.length, destinations.length);
+      for (const cell of Array.isArray(data) ? data : []) {
+        const i = cell.originIndex;
+        const j = cell.destinationIndex;
+        if (i === undefined || j === undefined || !seconds[i]) continue;
+        if (cell.condition === "ROUTE_NOT_FOUND") throw new NoRouteError(origins[i], destinations[j]);
+        if (cell.status?.code) continue;
+        const time = googleSeconds(cell.duration);
+        if (!Number.isFinite(time)) continue;
+        seconds[i][j] = time;
+        meters[i][j] = cell.distanceMeters ?? NaN;
+      }
+      assertComplete(seconds, "google");
       return { seconds, meters };
     },
   };

@@ -10,8 +10,9 @@
 import { haversineMeters } from "../geo";
 import { timeSlot } from "../solver";
 import type { Cache } from "./cache";
-import { isNearNow, type Point } from "./matrix";
+import { googleSeconds, httpError, isNearNow, type Point } from "./matrix";
 import { CircuitBreaker, withPolicy } from "./resilience";
+import type { Budget } from "./usage";
 
 export interface RouteLeg {
   /** Linha do trecho em [lng, lat]. */
@@ -90,6 +91,7 @@ export function createTomTomGeometry(
   cache: Cache,
   fetchFn: FetchFn = fetch,
   now: () => number = Date.now,
+  budget?: Budget,
 ): GeometryService {
   const breaker = new CircuitBreaker("tomtom-rota", 3, 60_000, now);
 
@@ -124,6 +126,8 @@ export function createTomTomGeometry(
       if (heading !== null) params.set("vehicleHeading", String(heading));
 
       try {
+        // Trava de cota: reserva a chamada (cota de rotas comuns da TomTom) antes de fazê-la.
+        await budget?.take("tomtom-rota", 1);
         const data = (await withPolicy(breaker, async (signal) => {
           const res = await fetchFn(`https://api.tomtom.com/routing/1/calculateRoute/${path}/json?${params}`, {
             signal,
@@ -154,6 +158,92 @@ export function createTomTomGeometry(
         return geometry;
       } catch (err) {
         console.warn("Geometria da rota (TomTom) indisponível.", err);
+        return null;
+      }
+    },
+  };
+}
+
+interface GoogleRoutesResponse {
+  routes?: {
+    legs?: {
+      duration?: string;
+      distanceMeters?: number;
+      polyline?: { geoJsonLinestring?: { coordinates?: [number, number][] } };
+    }[];
+  }[];
+}
+
+/** O Compute Routes aceita até 25 pontos intermediários (origem e destino à parte). */
+const GOOGLE_MAX_POINTS = 27;
+
+/**
+ * Google Routes API, Compute Routes (reserva do traçado, com trânsito).
+ * POST https://routes.googleapis.com/directions/v2:computeRoutes
+ * Cobrança por pedido; com TRAFFIC_AWARE entra no SKU Pro (5.000 grátis por mês).
+ */
+export function createGoogleGeometry(
+  apiKey: string,
+  cache: Cache,
+  fetchFn: FetchFn = fetch,
+  now: () => number = Date.now,
+  budget?: Budget,
+): GeometryService {
+  const breaker = new CircuitBreaker("google-rota", 3, 60_000, now);
+  const waypoint = (p: Point) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+
+  return {
+    async getRoute(points, departAt) {
+      if (points.length < 2 || points.length > GOOGLE_MAX_POINTS) return null;
+      const path = points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(":");
+      const live = isNearNow(departAt, now());
+      const key = `rt:v2:google:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${path}`;
+      const cached = await cache.get<RouteGeometry>(key);
+      if (cached) return cached;
+
+      const body = {
+        origin: waypoint(points[0]),
+        destination: waypoint(points[points.length - 1]),
+        ...(points.length > 2 ? { intermediates: points.slice(1, -1).map(waypoint) } : {}),
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_AWARE",
+        polylineEncoding: "GEO_JSON_LINESTRING",
+        routeModifiers: { avoidFerries: true },
+        units: "METRIC",
+        ...(departAt.getTime() - now() >= 60_000 ? { departureTime: departAt.toISOString() } : {}),
+      };
+      try {
+        await budget?.take("google-rota", 1);
+        const data = (await withPolicy(breaker, async (signal) => {
+          const res = await fetchFn("https://routes.googleapis.com/directions/v2:computeRoutes", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Goog-Api-Key": apiKey,
+              "X-Goog-FieldMask": "routes.legs.duration,routes.legs.distanceMeters,routes.legs.polyline.geoJsonLinestring",
+            },
+            body: JSON.stringify(body),
+            signal,
+            cache: "no-store",
+          });
+          if (!res.ok) throw httpError("google-rota", res.status);
+          return res.json();
+        })) as GoogleRoutesResponse;
+
+        const legs: RouteLeg[] = (data.routes?.[0]?.legs ?? []).map((leg) => ({
+          coordinates: leg.polyline?.geoJsonLinestring?.coordinates ?? [],
+          seconds: googleSeconds(leg.duration),
+          meters: leg.distanceMeters ?? NaN,
+        }));
+        const valid =
+          legs.length === points.length - 1 &&
+          legs.every((leg) => leg.coordinates.length >= 2 && Number.isFinite(leg.seconds) && Number.isFinite(leg.meters));
+        if (!valid) return null;
+        const geometry = total(legs, "Google");
+        await cache.set(key, geometry, live ? 15 * 60 : 7 * 24 * 3600);
+        return geometry;
+      } catch (err) {
+        console.warn("Geometria da rota (Google) indisponível.", err instanceof Error ? err.message : err);
         return null;
       }
     },

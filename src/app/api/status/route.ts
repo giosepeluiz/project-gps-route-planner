@@ -1,5 +1,5 @@
 import { connection, NextResponse } from "next/server";
-import { serviceStatus } from "@/lib/server/services";
+import { getServices, serviceStatus } from "@/lib/server/services";
 
 /**
  * GET /api/status
@@ -10,5 +10,6 @@ export async function GET() {
   // Com Cache Components, um GET sem dados da requisição seria pré-renderizado no
   // build; connection() faz ele rodar a cada pedido, lendo as variáveis de agora.
   await connection();
-  return NextResponse.json(serviceStatus(), { headers: { "Cache-Control": "no-store" } });
+  const usage = await getServices().budget.usage();
+  return NextResponse.json({ ...serviceStatus(), usage }, { headers: { "Cache-Control": "no-store" } });
 }

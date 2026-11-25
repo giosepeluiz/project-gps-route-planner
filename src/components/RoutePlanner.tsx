@@ -17,6 +17,7 @@ import ActionsPanel from "./ActionsPanel";
 import CollapsibleCard, { Chevron, type HeaderDrag } from "./CollapsibleCard";
 import AiBadge from "./AiBadge";
 import LeaveStopDialog from "./LeaveStopDialog";
+import NewRouteDialog from "./NewRouteDialog";
 import { isLocalHost, pointAlong, SIM_INTERVAL_MS, SIM_SPEED_KMH, SIM_SPEEDS_KMH } from "@/lib/trip-sim";
 import pkg from "../../package.json";
 import { departureReportHtml, finalReportHtml, type ReportConstraints, type ReportRow } from "@/lib/pdf-report";
@@ -43,7 +44,7 @@ import {
   formatTimeWithDay,
   toLocalInputValue,
 } from "@/lib/format";
-import { useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
+import { forgetStoredCopy, useCurrentMinute, useLocalStorageState, useMediaQuery } from "@/lib/hooks";
 import {
   fetchParsedPlaces,
   fetchReview,
@@ -68,6 +69,7 @@ import {
   type PlaceDraft,
 } from "@/lib/place-input";
 import { computePlan, estimateLegTime } from "@/lib/plan";
+import { blendedLegTime, placesSignature, rememberPlan, type RememberedPlan } from "@/lib/plan-memory";
 import { fetchPlan, planRequestBody, type PlanOutcome } from "@/lib/plan-client";
 import type { PlanResponse } from "@/lib/server/plan";
 import {
@@ -236,6 +238,11 @@ const TOUR_KEY = "rotas:tutorial:v1";
 /** Posição atual como local da rota (início da rota que falta, na viagem). */
 /** Até esta distância da parada (depois de chegar), a seta vira a bandeira em cima dela. */
 const GOAL_MAGNET_M = 60;
+/** Botões do cartão da viagem (topo, no celular). */
+const tripCardButton =
+  "focus-ring flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-compact font-semibold transition-colors duration-150 motion-reduce:transition-none";
+const tripCardPrimary = `${tripCardButton} bg-ink text-on-ink hover:bg-ink/85`;
+const tripCardSecondary = `${tripCardButton} border border-line-strong text-ink hover:bg-hover`;
 /** Tempo sem mexer na bandeja (celular, carro andando) antes de ela recolher sozinha. */
 const SHEET_IDLE_MS = 6_000;
 
@@ -391,8 +398,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [actionsOpen, setActionsOpen] = useState(false);
   const isOpen = (id: BlockId) => (id === "acoes" ? actionsOpen : (openBlocks[id] ?? BLOCKS_DEFAULT[id]));
   const toggle = (id: BlockId) => {
+    const opening = !isOpen(id);
+    // Celular, fora da viagem: ao abrir um bloco, os outros se fecham (poupa espaço na gaveta).
+    const accordion = !isDesktop && trip === null && opening;
+    if (accordion) {
+      setActionsOpen(id === "acoes");
+      setOpenBlocks({
+        ...BLOCKS_DEFAULT,
+        ...openBlocks,
+        inicio: id === "inicio",
+        paradas: id === "paradas",
+        resumo: id === "resumo",
+      });
+      return;
+    }
     if (id === "acoes") setActionsOpen((open) => !open);
-    else setOpenBlocks({ ...BLOCKS_DEFAULT, ...openBlocks, [id]: !isOpen(id) });
+    else setOpenBlocks({ ...BLOCKS_DEFAULT, ...openBlocks, [id]: opening });
   };
 
   // O aviso some sozinho depois de alguns segundos.
@@ -442,13 +463,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     [start, typedStops, end, endSame, locks, timeMode, dateTime, fixedDeadline],
   );
   const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
+  /** Último cálculo bom do servidor: cobre o intervalo até a próxima resposta (e falhas). */
+  const [lastOk, setLastOk] = useState<RememberedPlan | null>(null);
+  const requestSignature = useMemo(() => (requestBody ? placesSignature(requestBody) : null), [requestBody]);
 
   useEffect(() => {
     if (!requestBody) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void fetchPlan(requestBody, controller.signal).then((outcome) => {
-        if (!controller.signal.aborted) setRemote({ body: requestBody, outcome });
+        if (controller.signal.aborted) return;
+        setRemote({ body: requestBody, outcome });
+        if (outcome.kind === "ok") setLastOk(rememberPlan(requestBody, outcome.plan));
       });
     }, 500);
     return () => {
@@ -459,21 +485,27 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   /** Resposta do servidor para a rota atual; null enquanto calcula ou se falhou. */
   const outcome = requestBody && remote?.body === requestBody ? remote.outcome : null;
-  const serverPlan: PlanResponse | null = outcome?.kind === "ok" ? outcome.plan : null;
+  // Mudou só a trava, o horário ou a permanência (os mesmos locais)? Até a resposta nova chegar,
+  // vale o último cálculo do servidor, em vez de pular para a estimativa em linha reta.
+  const staleServerPlan =
+    !outcome && lastOk && requestSignature !== null && lastOk.signature === requestSignature ? lastOk.plan : null;
+  const serverPlan: PlanResponse | null = outcome?.kind === "ok" ? outcome.plan : staleServerPlan;
   const planStatus: "loading" | "ok" | "failed" | "no-route" =
     !outcome ? "loading" : outcome.kind === "ok" ? "ok" : outcome.kind;
 
-  // Enquanto o servidor não responde (ou se falhar), vale a estimativa local por distância.
+  // Sem resposta do servidor para estes locais (ou se falhar), vale a estimativa local: os pares que o
+  // servidor já calculou entram com o tempo certo e só o que é novo é estimado por distância.
+  const knownLegTime = useMemo(() => blendedLegTime(lastOk), [lastOk]);
   const local = useMemo(() => {
     if (!start) return { stops: [...typedStops], seconds: 0, typedSeconds: 0, exact: true, bestSeconds: 0 };
-    const constrained = optimizeStops(start, typedStops, finalPlace, estimateLegTime, undefined, locks);
+    const constrained = optimizeStops(start, typedStops, finalPlace, knownLegTime, undefined, locks);
     // Com travas, a melhor ordem livre fica só para comparação.
     const bestSeconds =
       lockCount > 0
-        ? optimizeStops(start, typedStops, finalPlace, estimateLegTime).seconds
+        ? optimizeStops(start, typedStops, finalPlace, knownLegTime).seconds
         : constrained.seconds;
     return { ...constrained, bestSeconds };
-  }, [start, typedStops, finalPlace, locks, lockCount]);
+  }, [start, typedStops, finalPlace, locks, lockCount, knownLegTime]);
 
   // A melhor ordem vem do solver; a lista e os pins seguem essa ordem.
   const stops = useMemo(() => {
@@ -486,7 +518,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [serverPlan, local, typedStops]);
 
   const legTime = useMemo<LegTimeFn>(() => {
-    if (!serverPlan) return estimateLegTime;
+    if (!serverPlan) return knownLegTime;
     const sequence = sequenceOf(stops);
     const known = new Map<string, number>();
     serverPlan.legSeconds.forEach((seconds, i) => {
@@ -495,10 +527,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return (from, to) => {
       const seconds = known.get(`${from.id}>${to.id}`);
       return seconds === undefined
-        ? estimateLegTime(from, to)
+        ? knownLegTime(from, to)
         : { seconds, estimated: serverPlan.source.estimated };
     };
-  }, [sequenceOf, serverPlan, stops]);
+  }, [sequenceOf, serverPlan, stops, knownLegTime]);
 
   const typedSeconds = serverPlan?.typedSeconds ?? local.typedSeconds;
   const orderExact = serverPlan?.exact ?? local.exact;
@@ -659,6 +691,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   }, [start, end, endSame, stops, breaks, locks, dateTime, timeMode, route.arriveAtStop, fixedDeadline]);
   const sharePath = shareRoute ? sharedPath(shareRoute) : null;
 
+  /** Compartilhar a rota pelo botão do topo (celular): folha do sistema, ou copia o link. */
+  const shareRouteLink = async () => {
+    if (!sharePath) return;
+    const url = `${window.location.origin}${sharePath}`;
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({ title: t.actions.shareTitle, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      notify(t.actions.linkCopied);
+    } catch {
+      // Fechou a folha de compartilhamento (ou o navegador recusou a cópia): nada a fazer.
+    }
+  };
+
   // Abriu por um link (/r/… ou ?s=…): a rota do link entra no lugar da atual,
   // com "Desfazer" para voltar. O endereço é limpo logo em seguida.
   const linkReadRef = useRef(false);
@@ -809,6 +857,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const [headerPage, setHeaderPage] = useState(0);
   /** Nome da parada de onde a pessoa se afastou (modal "seguindo para a próxima?"), ou null. */
   const [leaveAsk, setLeaveAsk] = useState<string | null>(null);
+  /** Confirmação de "Nova rota" (botão do topo, na viagem). */
+  const [newRouteAsk, setNewRouteAsk] = useState(false);
   /** Última vez que a mão mexeu na bandeja (celular): depois de uns segundos andando, ela recolhe. */
   const sheetTouchRef = useRef(0);
   /** Acesso local (localhost ou rede de casa): aparece a viagem de teste. */
@@ -818,7 +868,13 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const wantSimRef = useRef(false);
   /** Velocidade escolhida para o carro de teste (km/h). */
   const [simSpeedKmh, setSimSpeedKmh] = useState<number>(SIM_SPEED_KMH);
-  const simRef = useRef<{ path: readonly [number, number][] | null; along: number; pos: { lat: number; lng: number } | null }>({
+  const simRef = useRef<{
+    line: readonly [number, number][] | null;
+    path: readonly [number, number][] | null;
+    along: number;
+    pos: { lat: number; lng: number } | null;
+  }>({
+    line: null,
     path: null,
     along: 0,
     pos: null,
@@ -1037,6 +1093,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       );
     }
     setStatsOpen(true);
+    // Viagem concluída: ela não volta mais na próxima vez que o app abrir (a tela atual fica como está).
+    forgetStoredCopy(ROUTE_KEY);
     setTrip({ status: "finished" });
   };
 
@@ -1173,15 +1231,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   /** Uma leitura do carro de teste: anda SIM_SPEED_MS pela linha do trecho atual (parado na parada). */
   const simTick = useEffectEvent(() => {
     const sim = simRef.current;
-    const path = (tripView?.server.streetLegs?.[0]?.coordinates ?? serverPlan?.streetLegs?.[targetLeg]?.coordinates ?? null) as
+    const line = (tripView?.server.streetLegs?.[0]?.coordinates ?? serverPlan?.streetLegs?.[targetLeg]?.coordinates ?? null) as
       | readonly [number, number][]
       | null;
-    if (!path || path.length < 2) return;
-    if (path !== sim.path) {
-      // Rota nova (recálculo ou próximo trecho): continua de onde o carro está nela.
-      sim.along = sim.pos ? (projectOnLine([sim.pos.lng, sim.pos.lat], path)?.alongM ?? 0) : 0;
-      sim.path = path;
+    if (!line || line.length < 2) return;
+    // Rota nova (recálculo ou próximo trecho): continua de onde o carro está nela. O carro de teste
+    // termina em cima da própria parada (a linha da via pode acabar a dezenas de metros dela).
+    if (sim.line !== line) {
+      sim.line = line;
+      sim.path = target ? [...line, [target.lng, target.lat]] : line;
+      sim.along = sim.pos ? (projectOnLine([sim.pos.lng, sim.pos.lat], sim.path)?.alongM ?? 0) : 0;
     }
+    const path = sim.path;
+    if (!path || path.length < 2) return;
     const driving = trip?.status === "running";
     const speedMs = simSpeedKmh / 3.6;
     if (driving) sim.along += speedMs * (SIM_INTERVAL_MS / 1000);
@@ -1239,7 +1301,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const simulate = wantSimRef.current && localAccess;
     wantSimRef.current = false;
     setSimulating(simulate);
-    simRef.current = { path: null, along: 0, pos: null };
+    simRef.current = { line: null, path: null, along: 0, pos: null };
     if (!simulate && !("geolocation" in navigator)) {
       notify(t.gps.unsupported);
       return;
@@ -1292,6 +1354,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     tripLogRef.current = null;
     setStatsOpen(false);
     setTrip(null);
+    // Viagem encerrada à mão (ou o botão Fechar depois de concluída): também sai do armazenamento.
+    forgetStoredCopy(ROUTE_KEY);
   };
 
   /** Aceita a ordem da IA: cada parada fica travada na posição sugerida (dá para destravar depois). */
@@ -1829,7 +1893,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const handleSummary = !start
     ? t.empty.handle
     : tripActive && target
-      ? `${t.trip.next}: ${target.label}`
+      ? isCompact
+        ? t.app.panel
+        : `${t.trip.next}: ${target.label}`
       : `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`;
   const liveKm = live ? `${live.estimated ? "≈ " : ""}${formatKm(live.nextMeters)}` : "—";
   const statsShort = tripStats
@@ -2008,70 +2074,153 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   /** Pins do mapa: o da parada some enquanto a bandeira está em cima dela. */
   const mapPoints = goalStop ? points.filter((p) => p.id !== goalStop.id) : points;
 
-  // Celular e tablet: cabeçalho da viagem com a chegada, o tempo e a distância até a próxima parada.
+  // Celular e tablet: cartão da viagem no topo (estado, próxima parada, números e botões). É o único
+  // lugar dos botões de pausar, retomar e encerrar; os botões do mapa ficam numa fileira acima dele.
+  /** Parada seguinte à que acabou de chegar (o que "Próxima" vai acompanhar), quando já se está parado numa parada. */
+  const tripNextAfterArrival =
+    trip?.status === "arrived" && trip.arrivedId
+      ? tripTarget(stops, new Set([...doneIds, trip.arrivedId]), finalPlace)
+      : null;
+  const tripStatusColor =
+    trip === null
+      ? ""
+      : trip.status === "running"
+        ? "bg-emerald-500 animate-pulse motion-reduce:animate-none"
+        : trip.status === "arrived"
+          ? // Parado na parada: vermelho. Já se afastou sem tocar em "Próxima": amarelo.
+            fix && !goalStop
+            ? "bg-amber-400"
+            : "bg-red-500"
+          : trip.status === "paused"
+            ? "bg-amber-400"
+            : "bg-emerald-500";
   const tripHeader =
-    isCompact && tripActive && target && trip?.status !== "arrived" ? (
-      <button
-        type="button"
+    isCompact && trip !== null ? (
+      <div
         aria-live="polite"
-        title={t.trip.headerHint}
-        onClick={() => setHeaderPage((page) => (page + 1) % 3)}
-        className="focus-ring fixed inset-x-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 mx-auto block max-w-[24rem] overflow-hidden rounded-xl border border-line bg-surface text-left shadow-panel transition-colors active:bg-hover"
+        className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-20 mx-auto flex max-w-[26rem] flex-col gap-2 overflow-hidden rounded-2xl border border-line bg-surface/95 p-3 shadow-panel backdrop-blur-sm"
       >
-        {achievement ? (
-          // Conquista: entra deslizando no lugar dos números, com o "OK" verde.
-          <div key={achievement.key} role="status" className="rotas-achieve flex items-center gap-2.5 px-3 py-2">
-            <span className="rotas-achieve-check grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_4px_rgb(16_185_129/0.25)]">
-              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4.5 10.5l3.5 3.5 7.5-8" />
-              </svg>
+        <div className="flex flex-col gap-0.5">
+          <p className="flex items-center gap-2 text-compact font-semibold text-accent">
+            <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${tripStatusColor}`} />
+            <span className="truncate">
+              {trip.status === "running"
+                ? t.trip.running
+                : trip.status === "paused"
+                  ? t.trip.paused
+                  : trip.status === "arrived"
+                    ? t.trip.arrived(stops.find((x) => x.id === trip.arrivedId)?.label ?? t.stops.fallbackName)
+                    : t.trip.finished}
             </span>
-            <span className="flex min-w-0 flex-col">
-              <span className="text-2xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                {t.trip.achieveLabel}
+            {simulating && (
+              <span className="rounded border border-dashed border-line-strong px-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+                {t.trip.testTag}
               </span>
-              <span className="truncate text-compact font-semibold text-ink">{t.trip.achieved(achievement.name)}</span>
-            </span>
-          </div>
-        ) : rerouting || !live ? (
-          <p className="px-3 py-2.5 text-center text-compact font-medium text-ink-2">
-            {rerouting ? t.trip.rerouting : fix ? t.trip.updating : t.trip.waitingGps}
+            )}
           </p>
-        ) : (
-          <dl className="grid grid-cols-3 divide-x divide-line">
-            {(
-              headerPage === 1
-                ? [
-                    [t.trip.headerEndArrival, formatTime(live.endArriveAt)],
-                    [t.trip.headerTotalTime, formatDuration(live.totalSeconds)],
-                    [t.trip.headerTotalDistance, `${live.estimated ? "≈ " : ""}${formatKm(live.totalMeters)}`],
-                  ]
-                : headerPage === 2
-                  ? [
-                      [t.trip.headerSpeed, `${Math.round(tripNumbers.speedKmh)} km/h`],
-                      [t.trip.headerAverage, tripNumbers.averageKmh === null ? "—" : `${Math.round(tripNumbers.averageKmh)} km/h`],
-                      [t.trip.headerReroutes, String(tripNumbers.reroutes)],
-                    ]
-                  : [
-                      [t.trip.headerArrival, formatTime(live.nextArriveAt)],
-                      [t.trip.headerTime, formatDuration(live.nextSeconds)],
-                      [t.trip.headerDistance, liveKm],
-                    ]
-            ).map(([label, value]) => (
-              <div key={label} className="flex flex-col items-center px-2 py-1.5">
-                <dt className="text-2xs font-medium text-muted">{label}</dt>
-                <dd className="whitespace-nowrap text-md font-semibold tabular-nums text-ink">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        {/* Qual das três telas está aparecendo. */}
-        <span aria-hidden="true" className="flex justify-center gap-1 pb-1">
-          {[0, 1, 2].map((page) => (
-            <span key={page} className={`h-1 w-1 rounded-full ${page === headerPage ? "bg-accent" : "bg-line-strong"}`} />
+          {trip.status !== "finished" && (trip.status === "arrived" ? tripNextAfterArrival : target) && (
+            <p className="truncate text-md font-semibold text-ink">
+              {t.trip.next}: {(trip.status === "arrived" ? tripNextAfterArrival : target)?.label}
+            </p>
+          )}
+        </div>
+
+        {trip.status !== "finished" &&
+          (achievement ? (
+            // Conquista: entra deslizando no lugar dos números, com o "OK" verde.
+            <div key={achievement.key} role="status" className="rotas-achieve flex items-center gap-2.5 py-1">
+              <span className="rotas-achieve-check grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_4px_rgb(16_185_129/0.25)]">
+                <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+                </svg>
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-2xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                  {t.trip.achieveLabel}
+                </span>
+                <span className="truncate text-compact font-semibold text-ink">{t.trip.achieved(achievement.name)}</span>
+              </span>
+            </div>
+          ) : rerouting || !live ? (
+            <p className="py-1 text-compact font-medium text-ink-2">
+              {rerouting ? t.trip.rerouting : fix ? t.trip.updating : t.trip.waitingGps}
+            </p>
+          ) : (
+            // Cada toque nos números troca a tela: próxima parada, totais da rota, velocidade.
+            <button
+              type="button"
+              title={t.trip.headerHint}
+              onClick={() => setHeaderPage((page) => (page + 1) % 3)}
+              className="focus-ring -mx-1 rounded-lg px-1 text-left transition-colors active:bg-hover"
+            >
+              <dl className="grid grid-cols-3 gap-2">
+                {(
+                  headerPage === 1
+                    ? [
+                        [t.trip.headerEndArrival, formatTime(live.endArriveAt)],
+                        [t.trip.headerTotalTime, formatDuration(live.totalSeconds)],
+                        [t.trip.headerTotalDistance, `${live.estimated ? "≈ " : ""}${formatKm(live.totalMeters)}`],
+                      ]
+                    : headerPage === 2
+                      ? [
+                          [t.trip.headerSpeed, `${Math.round(tripNumbers.speedKmh)} km/h`],
+                          [t.trip.headerAverage, tripNumbers.averageKmh === null ? "—" : `${Math.round(tripNumbers.averageKmh)} km/h`],
+                          [t.trip.headerReroutes, String(tripNumbers.reroutes)],
+                        ]
+                      : [
+                          [t.trip.headerArrival, formatTime(live.nextArriveAt)],
+                          [t.trip.headerTime, formatDuration(live.nextSeconds)],
+                          [t.trip.headerDistance, liveKm],
+                        ]
+                ).map(([label, value]) => (
+                  <div key={label} className="flex flex-col">
+                    <dt className="text-xs font-medium text-muted">{label}</dt>
+                    <dd className="whitespace-nowrap text-xl font-semibold tabular-nums text-ink">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {/* Qual das três telas está aparecendo. */}
+              <span aria-hidden="true" className="mt-1 flex gap-1">
+                {[0, 1, 2].map((page) => (
+                  <span key={page} className={`h-1 w-1 rounded-full ${page === headerPage ? "bg-accent" : "bg-line-strong"}`} />
+                ))}
+              </span>
+            </button>
           ))}
-        </span>
-      </button>
+
+        {trip.status === "arrived" && <p className="text-xs text-muted">{t.trip.arrivedHint}</p>}
+        {trip.status === "finished" && statsShort && <p className="text-xs text-ink-2">{statsShort}</p>}
+
+        <div className="flex justify-end gap-2">
+          {trip.status === "running" && (
+            <button type="button" onClick={pauseTrip} className={tripCardSecondary}>
+              <PauseIcon />
+              {t.trip.pause}
+            </button>
+          )}
+          {trip.status === "paused" && (
+            <button type="button" onClick={resumeTrip} className={tripCardPrimary}>
+              <PlayIcon />
+              {t.trip.resume}
+            </button>
+          )}
+          {trip.status === "arrived" && (
+            <button type="button" onClick={resumeTrip} className={tripCardPrimary}>
+              {t.trip.next}
+            </button>
+          )}
+          {trip.status === "finished" && tripStats && (
+            <button type="button" onClick={() => setStatsOpen(true)} className={tripCardPrimary}>
+              <FlagIcon />
+              {t.trip.seeStats}
+            </button>
+          )}
+          <button type="button" onClick={endTrip} className={tripCardSecondary}>
+            {trip.status === "finished" ? null : <StopIcon />}
+            {trip.status === "finished" ? t.trip.close : t.trip.end}
+          </button>
+        </div>
+      </div>
     ) : null;
 
   const tourSteps: TourStep[] = [
@@ -2436,7 +2585,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 </div>
               </dl>
 
-              {tripPanel}
+              {isCompact && trip !== null ? null : tripPanel}
 
               <div className="flex items-start justify-between gap-2">
                 <p className="text-compact text-ink-2">
@@ -2649,6 +2798,10 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         rotateControl={tripActive ? { pressed: headingUp, onToggle: () => setHeadingUp((on) => !on) } : null}
         columnInsets={columnInsets}
         fitVersion={fitVersion}
+        onNewRoute={trip === null ? () => setNewRouteAsk(true) : undefined}
+        onShare={!isDesktop && trip === null && sharePath ? shareRouteLink : undefined}
+        // O aviso só aparece se a rota pelas ruas realmente falhou (não enquanto calcula nem na viagem).
+        showApproximate={planStatus === "failed" && !tripActive}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAbout={() => setAboutOpen(true)}
         layout={layout}
@@ -2825,6 +2978,16 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           setSettingsOpen(false);
           setTourRun((n) => n + 1);
           setTourSeen(false);
+        }}
+      />
+
+      <NewRouteDialog
+        open={newRouteAsk}
+        onNo={() => setNewRouteAsk(false)}
+        onYes={() => {
+          setNewRouteAsk(false);
+          // Encerra a viagem e começa do zero (apaga a rota; as configurações ficam).
+          startFresh();
         }}
       />
 

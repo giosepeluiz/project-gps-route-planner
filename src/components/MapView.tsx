@@ -102,6 +102,12 @@ interface MapViewProps {
    */
   fitVersion: number;
   /** Abre a tela de configurações (botão junto do zoom). */
+  /** Botão "Nova rota", junto de configurações e ajuda (só fora da viagem). */
+  onNewRoute?: () => void;
+  /** Botão "Compartilhar", junto de configurações e ajuda (só no celular e fora da viagem). */
+  onShare?: () => void;
+  /** Avisa que o traçado é só em linha reta (a rota pelas ruas falhou). */
+  showApproximate?: boolean;
   onOpenSettings: () => void;
   /** Abre a tela Sobre (botão "?"). */
   onOpenAbout: () => void;
@@ -253,8 +259,15 @@ interface CtrlButton {
   pressed?: boolean;
 }
 
+/** Engrenagem (Material Design "settings"). */
+/** Nova rota (Material Design "add_road", simplificado: mais num círculo). */
+const NEW_ROUTE_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
+/** Compartilhar (Material Design "share"). */
+const SHARE_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>';
 const GEAR_ICON =
-  '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>';
+  '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>';
 const HELP_ICON =
   '<svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.25"/><path d="M7.9 7.6a2.2 2.2 0 014.25.75c0 1.5-2.15 1.9-2.15 3.15"/><circle cx="10" cy="14.2" r=".35" fill="currentColor"/></svg>';
 
@@ -345,6 +358,9 @@ export default function MapView({
   columnInsets,
   fitVersion,
   captureRef,
+  onNewRoute,
+  onShare,
+  showApproximate = false,
   onOpenSettings,
   onOpenAbout,
   fallbackStyleUrl,
@@ -400,6 +416,8 @@ export default function MapView({
   const handlePointClick = useEffectEvent((id: string) => onPointClick(id));
   const handlePopupClose = useEffectEvent(() => onPopupClose());
   const t = useT();
+  const handleNewRoute = useEffectEvent(() => onNewRoute?.());
+  const handleShare = useEffectEvent(() => onShare?.());
   const handleOpenSettings = useEffectEvent(() => onOpenSettings());
   const handleOpenAbout = useEffectEvent(() => onOpenAbout());
   const handleToggleRotate = useEffectEvent(() => rotateControl?.onToggle());
@@ -522,33 +540,55 @@ export default function MapView({
     if (!map || !lib || styleVersion === 0) return;
 
     const media = window.matchMedia(DESKTOP_QUERY);
-    const settings = createButtonsControl([
-      ...(hasRotate
-        ? [
-            {
-              title: rotatePressed ? t.map.rotateOn : t.map.rotateOff,
-              label: t.map.rotate,
-              icon: ROTATE_ICON,
-              pressed: rotatePressed,
-              onClick: () => handleToggleRotate(),
-            },
-          ]
-        : []),
-      {
-        title: t.map.settings,
-        label: t.map.openSettings,
-        icon: GEAR_ICON,
-        opensDialog: true,
-        onClick: () => handleOpenSettings(),
-      },
-      {
-        title: t.map.about,
-        label: t.map.openAbout,
-        icon: HELP_ICON,
-        opensDialog: true,
-        onClick: () => handleOpenAbout(),
-      },
-    ]);
+    const rotateButton: CtrlButton[] = hasRotate
+      ? [
+          {
+            title: rotatePressed ? t.map.rotateOn : t.map.rotateOff,
+            label: t.map.rotate,
+            icon: ROTATE_ICON,
+            pressed: rotatePressed,
+            onClick: () => handleToggleRotate(),
+          },
+        ]
+      : [];
+    const settingsButton: CtrlButton = {
+      title: t.map.settings,
+      label: t.map.openSettings,
+      icon: GEAR_ICON,
+      opensDialog: true,
+      onClick: () => handleOpenSettings(),
+    };
+    const aboutButton: CtrlButton = {
+      title: t.map.about,
+      label: t.map.openAbout,
+      icon: HELP_ICON,
+      opensDialog: true,
+      onClick: () => handleOpenAbout(),
+    };
+    // Viagem no celular: duas fileiras no topo, uma em cada canto (esquerda: girar; direita: configurações
+    // e ajuda). Fora da viagem: uma coluna só, à direita, com compartilhar (celular) e nova rota na frente.
+    const split = navHeader;
+    const newRouteButton: CtrlButton = {
+      title: t.map.newRoute,
+      label: t.map.newRoute,
+      icon: NEW_ROUTE_ICON,
+      opensDialog: true,
+      onClick: () => handleNewRoute(),
+    };
+    const shareButton: CtrlButton = {
+      title: t.actions.share,
+      label: t.actions.share,
+      icon: SHARE_ICON,
+      onClick: () => handleShare(),
+    };
+    const extra: CtrlButton[] = split
+      ? []
+      : [...(onShare ? [shareButton] : []), ...(onNewRoute ? [newRouteButton] : [])];
+    const settings = createButtonsControl(
+      split ? [settingsButton, aboutButton] : [...extra, ...rotateButton, settingsButton, aboutButton],
+    );
+    const leftGroup = split && rotateButton.length > 0 ? createButtonsControl(rotateButton) : null;
+    let leftAdded = false;
     let attribution: InstanceType<MapLibre["AttributionControl"]> | null = null;
     let zoom: InstanceType<MapLibre["NavigationControl"]> | null = null;
     let settingsAdded = false;
@@ -558,14 +598,20 @@ export default function MapView({
       if (attribution) map.removeControl(attribution);
       if (zoom) map.removeControl(zoom);
       if (settingsAdded) map.removeControl(settings);
+      if (leftAdded && leftGroup) map.removeControl(leftGroup);
       attribution = null;
       zoom = null;
       settingsAdded = false;
+      leftAdded = false;
     };
     const place = () => {
       clear();
       map.addControl(settings, "top-right");
       settingsAdded = true;
+      if (leftGroup) {
+        map.addControl(leftGroup, "top-left");
+        leftAdded = true;
+      }
       // Botões de zoom só no desktop; no celular o zoom é por gesto.
       if (media.matches) {
         zoom = new lib.NavigationControl({ showCompass: false });
@@ -583,7 +629,7 @@ export default function MapView({
       media.removeEventListener("change", place);
       clear();
     };
-  }, [styleVersion, t, hasRotate, rotatePressed]);
+  }, [styleVersion, t, hasRotate, rotatePressed, navHeader, onNewRoute !== undefined, onShare !== undefined]);
 
   const doneKey = [...doneLegs].sort((a, b) => a - b).join(",");
   const colorKey = legColors?.join(",") ?? "";
@@ -1160,11 +1206,11 @@ export default function MapView({
           {t.map.error}
         </p>
       )}
-      {(!streetLegs || status === "fallback") && status !== "error" && status !== "loading" && (
+      {((!streetLegs && showApproximate) || status === "fallback") && status !== "error" && status !== "loading" && (
         <ul
           className="pointer-events-none absolute bottom-[9.5rem] left-2 flex flex-col gap-1 text-xs font-medium md:bottom-auto md:left-[calc(var(--inset-left)+0.75rem)] md:top-2.5"
         >
-          {!streetLegs && (
+          {!streetLegs && showApproximate && (
             <li className="w-fit rounded-md bg-surface px-2 py-1 text-ink-2 shadow-panel">
               {t.map.approximate}
             </li>
