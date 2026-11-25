@@ -410,6 +410,8 @@ const enGB: Messages = {
     route: "Route",
     defaultDwell: "Default time at stops",
     defaultDwellHint: "Time each new stop gets. You can change it on each stop with the clock icon.",
+    avoidTolls: "Avoid tolls",
+    avoidTollsHint: "Steers clear of toll roads when there is an alternative. It is a preference: with no other way, the route uses the toll. It may make the route longer.",
     defaultDwellGroup: "Default time at new stops",
     blocks: "Blocks",
     blocksPosition: "Block position",

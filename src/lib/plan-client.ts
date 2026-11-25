@@ -18,6 +18,8 @@ interface RouteInput {
   heading?: number | null;
   /** Chegada obrigatória numa parada (saída fixa): id da parada e o datetime-local do horário. */
   deadline?: { stopId: string; at: string } | null;
+  /** Desviar de pedágios. */
+  avoidTolls?: boolean;
 }
 
 const point = (p: Place) => ({ id: p.id, lat: p.lat, lng: p.lng });
@@ -28,7 +30,18 @@ const stopPoint = (p: Place) => {
   return dwellMin > 0 ? { ...point(p), dwellMin } : point(p);
 };
 
-export function planRequestBody({ start, stops, end, endSame, locks, mode, dateTime, heading, deadline }: RouteInput) {
+export function planRequestBody({
+  start,
+  stops,
+  end,
+  endSame,
+  locks,
+  mode,
+  dateTime,
+  heading,
+  deadline,
+  avoidTolls,
+}: RouteInput) {
   const at = dateTime ? new Date(dateTime) : null;
   const deadlineAt = deadline ? new Date(deadline.at) : null;
   return {
@@ -40,6 +53,7 @@ export function planRequestBody({ start, stops, end, endSame, locks, mode, dateT
     mode,
     at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : null,
     ...(heading == null ? {} : { heading: Math.round(((heading % 360) + 360) % 360) % 360 }),
+    ...(avoidTolls ? { avoidTolls: true } : {}),
     ...(deadline && deadlineAt && !Number.isNaN(deadlineAt.getTime())
       ? { deadline: { stopId: deadline.stopId, at: deadlineAt.toISOString() } }
       : {}),

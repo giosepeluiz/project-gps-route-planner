@@ -22,7 +22,11 @@ export const GOOGLE_WAYPOINTS_MOBILE = 3;
  * que o limite, a rota é dividida em vários links encadeados: o destino de um
  * é a origem do próximo.
  */
-export function googleMapsLinks(sequence: readonly LatLng[], maxWaypoints = GOOGLE_WAYPOINTS_DESKTOP): string[] {
+export function googleMapsLinks(
+  sequence: readonly LatLng[],
+  maxWaypoints = GOOGLE_WAYPOINTS_DESKTOP,
+  avoidTolls = false,
+): string[] {
   if (sequence.length < 2) return [];
   const links: string[] = [];
   // Cada link cobre origem + até maxWaypoints paradas + destino.
@@ -35,6 +39,8 @@ export function googleMapsLinks(sequence: readonly LatLng[], maxWaypoints = GOOG
       destination: coord(sequence[to]),
       travelmode: "driving",
     });
+    // Parâmetro "avoid" do Google Maps (preferência): tolls, highways, ferries, separados por vírgula.
+    if (avoidTolls) params.set("avoid", "tolls");
     const waypoints = sequence.slice(from + 1, to).map(coord);
     // URLSearchParams codifica "|" como %7C e "," como %2C, como a documentação pede.
     if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
@@ -64,13 +70,14 @@ export interface NavigationApp {
  * - Waze: ul?ll=…&navigate=yes.
  * - Apple Maps: ?daddr=…&dirflg=d (abre o app no iPhone e no Mac; nos outros, o site).
  */
-export function navigationLinks(point: { lat: number; lng: number }): NavigationApp[] {
+export function navigationLinks(point: { lat: number; lng: number }, avoidTolls = false): NavigationApp[] {
   const ll = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
   const google = new URL("https://www.google.com/maps/dir/");
   google.searchParams.set("api", "1");
   google.searchParams.set("destination", ll);
   google.searchParams.set("travelmode", "driving");
   google.searchParams.set("dir_action", "navigate");
+  if (avoidTolls) google.searchParams.set("avoid", "tolls");
   return [
     { id: "google", name: "Google Maps", href: google.toString() },
     { id: "waze", name: "Waze", href: wazeLink(point) },

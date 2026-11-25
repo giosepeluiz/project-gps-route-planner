@@ -26,6 +26,8 @@ const Body = z.object({
   at: z.iso.datetime({ offset: true }).nullable(),
   /** Direção do carro no início, em graus (só na viagem). */
   heading: z.number().min(0).max(360).optional(),
+  /** Desviar de pedágios. */
+  avoidTolls: z.boolean().optional(),
   /** Chegada obrigatória numa parada, com a saída fixa. */
   deadline: z.object({ stopId: z.string().min(1).max(64), at: z.iso.datetime({ offset: true }) }).optional(),
 });

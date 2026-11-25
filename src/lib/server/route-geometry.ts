@@ -48,6 +48,8 @@ export interface RouteOptions {
    * o carro já está, em vez de mandar dar meia-volta.
    */
   heading?: number;
+  /** Desviar de pedágios (preferência, não garantia). */
+  avoidTolls?: boolean;
 }
 
 /** O Calculate Route aceita no máximo 150 pontos intermediários. */
@@ -104,7 +106,7 @@ export function createTomTomGeometry(
 
       const path = points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(":");
       const live = isNearNow(departAt, now());
-      const key = `rt:v2:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${heading === null ? "" : `h${heading}:`}${path}`;
+      const key = `rt:v2:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${options?.avoidTolls ? "nt:" : ""}${heading === null ? "" : `h${heading}:`}${path}`;
       const cached = await cache.get<RouteGeometry>(key);
       if (cached) return cached;
 
@@ -124,6 +126,7 @@ export function createTomTomGeometry(
       // Sem departAt o padrão é "now"; datas precisam estar no futuro.
       if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
       if (heading !== null) params.set("vehicleHeading", String(heading));
+      if (options?.avoidTolls) params.append("avoid", "tollRoads");
 
       try {
         // Trava de cota: reserva a chamada (cota de rotas comuns da TomTom) antes de fazê-la.
@@ -193,11 +196,11 @@ export function createGoogleGeometry(
   const waypoint = (p: Point) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
 
   return {
-    async getRoute(points, departAt) {
+    async getRoute(points, departAt, options) {
       if (points.length < 2 || points.length > GOOGLE_MAX_POINTS) return null;
       const path = points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(":");
       const live = isNearNow(departAt, now());
-      const key = `rt:v2:google:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${path}`;
+      const key = `rt:v2:google:${live ? `live:${timeSlot(departAt)}` : `${departAt.getUTCDay()}:${timeSlot(departAt) % 96}`}:${options?.avoidTolls ? "nt:" : ""}${path}`;
       const cached = await cache.get<RouteGeometry>(key);
       if (cached) return cached;
 
@@ -208,7 +211,7 @@ export function createGoogleGeometry(
         travelMode: "DRIVE",
         routingPreference: "TRAFFIC_AWARE",
         polylineEncoding: "GEO_JSON_LINESTRING",
-        routeModifiers: { avoidFerries: true },
+        routeModifiers: { avoidFerries: true, ...(options?.avoidTolls ? { avoidTolls: true } : {}) },
         units: "METRIC",
         ...(departAt.getTime() - now() >= 60_000 ? { departureTime: departAt.toISOString() } : {}),
       };

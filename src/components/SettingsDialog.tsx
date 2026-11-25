@@ -174,6 +174,25 @@ export default function SettingsDialog({ open, onClose, settings, onChange, onRe
         </Section>
 
         <Section title={t.settings.route}>
+          <Row title={t.settings.avoidTolls} hint={t.settings.avoidTollsHint}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.avoidTolls}
+              aria-label={t.settings.avoidTolls}
+              onClick={() => set("avoidTolls", !settings.avoidTolls)}
+              className={`focus-ring relative h-[22px] w-[38px] shrink-0 self-start rounded-full transition-colors duration-200 motion-reduce:transition-none ${
+                settings.avoidTolls ? "bg-accent" : "bg-line-strong"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-200 motion-reduce:transition-none ${
+                  settings.avoidTolls ? "translate-x-4" : ""
+                }`}
+              />
+            </button>
+          </Row>
           <Row title={t.settings.defaultDwell} hint={t.settings.defaultDwellHint}>
             <DwellPicker
               label={t.settings.defaultDwellGroup}

@@ -62,7 +62,7 @@ export function serviceStatus(): ServiceStatus {
   const has = (name: string) => !!process.env[name]?.trim();
   return {
     tomtom: has("TOMTOM_API_KEY"),
-    here: has("HERE_API_KEY"),
+    here: has("HERE_API_KEY") && process.env.HERE_ENABLED?.trim() === "1",
     google: has("GOOGLE_MAPS_API_KEY"),
     openRouteService: has("ORS_API_KEY"),
     osrmDemo: process.env.NODE_ENV === "development",
@@ -92,20 +92,22 @@ export function getServices(): Services {
   if (tomtomKey) geocoders.push(createTomTom(tomtomKey));
   const geocoder = createGeocoder({ providers: geocoders, cache });
 
-  // TomTom matriz → HERE matriz → TomTom rota a rota (todas com trânsito) → OpenRouteService
-  // (sem trânsito) → estimativa (sempre presente). Quando a cota de um acaba, passa para o seguinte.
+  // Google matriz (principal, com trânsito) → TomTom matriz → TomTom rota a rota (com trânsito) →
+  // OpenRouteService (sem trânsito) → estimativa (sempre presente). Quando a cota de um acaba, passa
+  // para o seguinte. A HERE está desligada: só entra com HERE_ENABLED=1 (e HERE_API_KEY), depois da TomTom.
   const matrixProviders: MatrixProvider[] = [];
   const hereUnit = process.env.HERE_COUNT?.trim() === "request" ? "request" : "element";
-  if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey, fetch, Date.now, 100, budget));
-  if (hereKey) matrixProviders.push(createHereMatrix(hereKey, fetch, Date.now, budget, hereUnit));
-  if (tomtomKey) matrixProviders.push(createTomTomPairwise(tomtomKey, fetch, Date.now, undefined, undefined, budget));
+  const hereOn = process.env.HERE_ENABLED?.trim() === "1";
   if (googleKey) matrixProviders.push(createGoogleMatrix(googleKey, fetch, Date.now, budget));
+  if (tomtomKey) matrixProviders.push(createTomTomMatrix(tomtomKey, fetch, Date.now, 100, budget));
+  if (hereKey && hereOn) matrixProviders.push(createHereMatrix(hereKey, fetch, Date.now, budget, hereUnit));
+  if (tomtomKey) matrixProviders.push(createTomTomPairwise(tomtomKey, fetch, Date.now, undefined, undefined, budget));
   if (orsKey) matrixProviders.push(createOrsMatrix(orsKey));
 
-  // Rota pelas ruas: TomTom. Sem chave, e só em desenvolvimento, o servidor demo do OSRM.
+  // Rota pelas ruas: Google (principal), depois TomTom. Sem chaves, e só em desenvolvimento, o OSRM demo.
   const geometries: GeometryService[] = [];
-  if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache, fetch, Date.now, budget));
   if (googleKey) geometries.push(createGoogleGeometry(googleKey, cache, fetch, Date.now, budget));
+  if (tomtomKey) geometries.push(createTomTomGeometry(tomtomKey, cache, fetch, Date.now, budget));
   if (process.env.NODE_ENV === "development") geometries.push(createOsrmDemoGeometry(cache));
 
   // IA: Gemini Flash-Lite (primária) → Groq (backup). Sem chaves, a lista fica vazia

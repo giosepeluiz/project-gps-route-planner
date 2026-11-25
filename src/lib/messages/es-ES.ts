@@ -410,6 +410,8 @@ const esES: Messages = {
     route: "Ruta",
     defaultDwell: "Estancia predeterminada",
     defaultDwellHint: "Tiempo que recibe cada nueva parada. Puedes cambiarlo en cada parada con el icono del reloj.",
+    avoidTolls: "Evitar peajes",
+    avoidTollsHint: "Evita las carreteras de peaje cuando hay alternativa. Es una preferencia: si no hay otro camino, la ruta usa el peaje. Puede alargar la ruta.",
     defaultDwellGroup: "Estancia predeterminada en las nuevas paradas",
     blocks: "Bloques",
     blocksPosition: "Posición de los bloques",

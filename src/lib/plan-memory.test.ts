@@ -41,6 +41,17 @@ describe("memória do último cálculo do servidor", () => {
     expect(time(A, C).estimated).toBe(true);
   });
 
+  it("pares novos são estimados na mesma escala do que o servidor já calculou", () => {
+    const remembered = rememberPlan(body(), { ...plan, source: { estimated: false } } as PlanResponse)!;
+    // Estrada: o servidor andou bem mais rápido que a linha reta a 35 km/h.
+    expect(remembered.scale).toBeLessThan(0.6);
+    const raw = blendedLegTime(null)(place("A", 37.1, -8.35), place("C", 38.0, -9.0));
+    const scaled = blendedLegTime(remembered)(place("A", 37.1, -8.35), place("C", 38.0, -9.0));
+    expect(scaled.estimated).toBe(true);
+    expect(scaled.seconds).toBeLessThan(raw.seconds * 0.6);
+    expect(scaled.seconds).toBeGreaterThan(raw.seconds / 6.1);
+  });
+
   it("sem memória, é a estimativa por distância", () => {
     expect(blendedLegTime(null)(place("S", 38.58, -8.93), place("A", 37.1, -8.35)).estimated).toBe(true);
   });

@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.11.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.11.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -188,12 +188,11 @@ O idioma pode ser trocado em **Configurações → Idioma**. O comentário da IA
 
 O navegador manda os locais para `POST /api/plan`, que monta a matriz de tempos, roda o algoritmo e devolve a ordem, os trechos e o traçado. A fonte dos tempos aparece sempre no Resumo:
 
-1. **TomTom Matrix Routing v2**, com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras).
-2. **HERE Matrix Routing v8** (modo Flexible, rotas de qualquer tamanho), com trânsito, quando a cota de matriz da TomTom acaba.
-3. **TomTom rota a rota** (Calculate Route, só o resumo, com trânsito), quando a HERE também acaba; usa a cota de rotas comuns da TomTom e só para matrizes pequenas (até 150 pares).
-4. **Google Routes API (Compute Route Matrix, com trânsito)**, a última com trânsito: cota grátis menor e contada por elemento.
-5. **OpenRouteService**, sem previsão de trânsito.
-6. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
+1. **Google Routes API (Compute Route Matrix, com trânsito)**, o principal: cota grátis de 5.000 elementos por mês, contada por elemento.
+2. **TomTom Matrix Routing v2**, com trânsito ao vivo (saída na próxima hora) ou histórico (saídas futuras), quando a cota do Google acaba.
+3. **TomTom rota a rota** (Calculate Route, só o resumo, com trânsito), quando a matriz da TomTom também acaba; usa a cota de rotas comuns da TomTom e só para matrizes pequenas (até 150 pares).
+4. **OpenRouteService**, sem previsão de trânsito.
+5. **Estimativa por distância** (linha reta × 1.4 a 35 km/h), o último recurso, sempre identificada como estimativa.
 
 Quando um serviço responde que a cota acabou (TomTom 403; HERE 401/403/429; excesso de ritmo da TomTom, 429), ele fica **em pausa** (1 h, 5 min ou 1 min, conforme o caso, também no cache compartilhado) e a cadeia segue para o próximo sem gastar chamadas à toa; depois da pausa, ele é testado de novo.
 
@@ -232,9 +231,17 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 
 ### Mapa
 
-MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhuma API do Google** para mapa, rota ou busca.
+MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhum mapa do Google**: o Google entra só nos tempos e no traçado (Routes API). A HERE ficou desligada (`HERE_ENABLED=1` a religa, depois da TomTom).
 
 ## 🕰️ Histórico de versões
+
+### 🛣️ Versão 0.11.1 (beta)
+
+- **Botões do topo alinhados com o cartão da viagem** (mesmas bordas esquerda e direita) e **indicador de tela** (três marcas, a atual vira um traço) à esquerda dos botões de ação do cartão.
+- **Evitar pedágios (Configurações, switch desligado por padrão):** a matriz e o traçado do Google e da TomTom pedem o desvio (preferência: sem alternativa, a rota usa o pedágio), os links do Google Maps levam `avoid=tolls`, o recálculo da viagem também respeita, e o cache é separado com e sem pedágio. Provedores sem esse recurso (OpenRouteService, HERE) são pulados.
+- **Fim do tempo de viagem absurdo ao travar paradas:** enquanto o servidor recalcula, a tela mantém o último plano e estima pares novos na mesma escala dele. Se as cotas das matrizes acabarem (estimativa em linha reta a 35 km/h), o servidor passa a usar os tempos reais, com trânsito, da própria rota.
+
+- **Google Maps como principal (etapa 1, só o servidor):** a cadeia agora é **Google Routes (matriz e rota com trânsito) → TomTom (matriz) → TomTom rota a rota → OpenRouteService → estimativa**. O traçado também sai primeiro do Google, depois da TomTom. A HERE ficou **desligada** (só entra com `HERE_ENABLED=1`). A trava de cota mensal continua valendo para o Google (4.500 de 5.000 elementos/pedidos Pro grátis). O mapa em si ainda é o OpenFreeMap; trocá-lo pelo Google é a etapa 2.
 
 ### 🛡️ Versão 0.11.0 (beta)
 
@@ -427,9 +434,9 @@ npm run build       # build de produção
 | `TOMTOM_API_KEY` | Tempos com trânsito, traçado pelas ruas, sugestões e busca reserva | Recomendada |
 | `GEMINI_API_KEY` | IA primária | Opcional |
 | `GROQ_API_KEY` | IA reserva | Opcional |
-| `GOOGLE_MAPS_API_KEY` | Reserva com trânsito (Routes API do Google); a trava de cota do app impede passar do grátis | Opcional |
+| `GOOGLE_MAPS_API_KEY` | Principal para matriz e traçado com trânsito (Routes API do Google); restrinja a chave à Routes API, baixe a cota por dia no Google Cloud (160) e a trava do app impede passar do grátis | Recomendada |
 | `QUOTA_*`, `HERE_COUNT` | Limites mensais da trava de cota e unidade de contagem da HERE (veja `.env.example`) | Opcional |
-| `HERE_API_KEY` | Segunda matriz com trânsito, quando a cota de matriz da TomTom acaba ([HERE Matrix Routing v8](https://www.here.com)) | Opcional |
+| `HERE_API_KEY` + `HERE_ENABLED=1` | HERE Matrix Routing v8, desligada por padrão; entra depois da TomTom ([HERE](https://www.here.com)) | Opcional |
 | `ORS_API_KEY` | Tempos de reserva (sem trânsito) | Opcional |
 | `GEMINI_MODEL` · `GROQ_MODEL` | Trocar o modelo de IA sem mexer no código | Opcional |
 | `NOMINATIM_USER_AGENT` | Identificação do app no Nominatim | Recomendada |

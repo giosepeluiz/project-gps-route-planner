@@ -515,6 +515,27 @@ describe("sem travessia por mar", () => {
     ).rejects.toBeInstanceOf(NoRouteError);
   });
 
+  it("sem matriz real, usa os tempos da rota com trânsito em vez da estimativa", async () => {
+    const plan = await planRoute(
+      { start: pts[0], stops: [pts[1]], end: null, roundTrip: false, mode: "depart", at: TUESDAY_9 },
+      {
+        matrix: createMatrixService({ providers: [], cache: new MemoryCache() }),
+        geometry: {
+          getRoute: async () => ({
+            source: "TomTom",
+            line: [],
+            legs: [{ seconds: 1234, meters: 5000, line: [] }],
+          }),
+        } as never,
+        now: () => NOW,
+      },
+    );
+    expect(plan.legSeconds).toEqual([1234]);
+    expect(plan.totalSeconds).toBe(1234);
+    expect(plan.source.estimated).toBe(false);
+    expect(plan.source.name).toBe("tomtom-rota");
+  });
+
   it("o navegador recebe o aviso com os dois locais", async () => {
     const fetchFn = (async () =>
       Response.json({ error: "no_route", fromId: "B", toId: "Be" }, { status: 422 })) as unknown as typeof fetch;

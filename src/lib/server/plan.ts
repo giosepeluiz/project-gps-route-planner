@@ -28,6 +28,8 @@ export interface PlanRequest {
   at: Date | null;
   /** Direção do carro no início (viagem em andamento), em graus. */
   heading?: number;
+  /** Desviar de pedágios (preferência dos provedores, não garantia). */
+  avoidTolls?: boolean;
   /**
    * Chegada obrigatória numa parada, com a saída fixa (mode "depart"): o solver
    * escolhe a posição dela na visita em que chega o mais perto possível do horário
@@ -87,9 +89,28 @@ export interface PlanDeps {
   now?: () => number;
 }
 
+/** Fonte mostrada no Resumo quando os tempos vêm da própria rota (e não de uma matriz). */
+function routeSource(source: string): PlanResponse["source"] {
+  const lower = source.toLowerCase();
+  const trafficAware = !/sem tr[âa]nsito/i.test(source);
+  return {
+    name: lower.startsWith("google") ? "google-rota" : lower.startsWith("tomtom") ? "tomtom-rota" : "osrm",
+    label: trafficAware ? `${source} com trânsito (rota)` : source,
+    trafficAware,
+    estimated: false,
+  };
+}
+
 export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<PlanResponse> {
   const now = deps.now ?? Date.now;
   const { start, stops, mode } = request;
+  const routeOptions =
+    request.heading === undefined && !request.avoidTolls
+      ? undefined
+      : {
+          ...(request.heading === undefined ? {} : { heading: request.heading }),
+          ...(request.avoidTolls ? { avoidTolls: true } : {}),
+        };
 
   // Índices: 0 = início, 1..n = paradas, n+1 = fim (se diferente do início).
   const nodes: PlanPoint[] = [start, ...stops];
@@ -117,7 +138,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
   const deadlineBox: { value: DeadlineResult | null } = { value: null };
   const deadlineStop = request.deadline ? stops.findIndex((s) => s.id === request.deadline!.stopId) + 1 : 0;
   const solveAt = async (departAt: Date): Promise<RouteSolution> => {
-    lastMatrix = await deps.matrix.getMatrix(nodes, departAt);
+    lastMatrix = await deps.matrix.getMatrix(nodes, departAt, request.avoidTolls ? { avoidTolls: true } : undefined);
     const problem = { matrix: lastMatrix.seconds, start: 0, stops: stopIndexes, end: endIndex };
     const best = solveRoute(problem);
     bestSeconds = best.cost;
@@ -185,15 +206,13 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
       const only = await deps.geometry.getRoute(
         sequence.map((i) => nodes[i]),
         routeDepartAt,
-        request.heading === undefined ? undefined : { heading: request.heading },
+        routeOptions,
       );
       if (only === "no-route") throw new NoRouteError();
       if (only && only.legs.length === sequence.length - 1) {
         const legSeconds = only.legs.map((leg) => Math.round(leg.seconds));
         const totalSeconds = legSeconds.reduce((sum, s) => sum + s, 0);
         const dwellSeconds = dwellFor(lockedOrder);
-        const trafficAware = !/sem tr[âa]nsito/i.test(only.source);
-        const slug = only.source.toLowerCase().startsWith("google") ? "google-rota" : only.source.toLowerCase().startsWith("tomtom") ? "tomtom-rota" : "osrm";
         return {
           order: lockedOrder.map((i) => nodes[i].id),
           legSeconds,
@@ -205,12 +224,7 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
           lockedCount: fixed.size,
           departAt: routeDepartAt.toISOString(),
           arriveAt: new Date(routeDepartAt.getTime() + (totalSeconds + dwellSeconds) * 1000).toISOString(),
-          source: {
-            name: slug,
-            label: trafficAware ? `${only.source} com trânsito (rota)` : `${only.source}`,
-            trafficAware,
-            estimated: false,
-          },
+          source: routeSource(only.source),
           streetLegs: only.legs,
           streetSource: only.source,
           checkedSeconds: only.seconds,
@@ -257,30 +271,45 @@ export async function planRoute(request: PlanRequest, deps: PlanDeps): Promise<P
       ? await deps.geometry.getRoute(
           sequence.map((i) => nodes[i]),
           departAt,
-          request.heading === undefined ? undefined : { heading: request.heading },
+          routeOptions,
         )
       : null;
 
   // A rota pelas ruas confirma (ou nega) que dá para ir de carro, sem balsa.
   if (route === "no-route") throw new NoRouteError();
 
+  // Matriz só estimada em linha reta (as cotas de matriz acabaram) mas a rota pelas ruas, com trânsito,
+  // respondeu: os tempos de cada trecho vêm dela, que é bem mais fiel que a estimativa a 35 km/h.
+  const realRoute =
+    matrix.estimated &&
+    route &&
+    route.legs.length === legSeconds.length &&
+    !/sem tr[âa]nsito/i.test(route.source)
+      ? route
+      : null;
+  const finalLegSeconds = realRoute ? realRoute.legs.map((leg) => Math.round(leg.seconds)) : legSeconds;
+  const finalTotalSeconds = realRoute ? finalLegSeconds.reduce((sum, s) => sum + s, 0) : totalSeconds;
+
   return {
     order: order.map((i) => nodes[i].id),
-    legSeconds,
-    totalSeconds,
+    legSeconds: finalLegSeconds,
+    totalSeconds: finalTotalSeconds,
     dwellSeconds,
-    typedSeconds,
-    bestSeconds,
-    exact: solution.exact,
+    // Com os tempos da rota, a comparação com a ordem digitada (feita em estimativas) não vale.
+    typedSeconds: realRoute ? finalTotalSeconds : typedSeconds,
+    bestSeconds: realRoute ? finalTotalSeconds : bestSeconds,
+    exact: realRoute ? false : solution.exact,
     lockedCount: fixed.size,
     departAt: departAt.toISOString(),
-    arriveAt: new Date(departAt.getTime() + (totalSeconds + dwellSeconds + waitSeconds) * 1000).toISOString(),
-    source: {
-      name: matrix.source,
-      label: matrix.label,
-      trafficAware: matrix.trafficAware,
-      estimated: matrix.estimated,
-    },
+    arriveAt: new Date(departAt.getTime() + (finalTotalSeconds + dwellSeconds + waitSeconds) * 1000).toISOString(),
+    source: realRoute
+      ? routeSource(realRoute.source)
+      : {
+          name: matrix.source,
+          label: matrix.label,
+          trafficAware: matrix.trafficAware,
+          estimated: matrix.estimated,
+        },
     streetLegs: route?.legs ?? null,
     streetSource: route?.source ?? null,
     checkedSeconds: route?.seconds ?? null,

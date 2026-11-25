@@ -457,10 +457,11 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               mode: timeMode,
               dateTime,
               deadline: fixedDeadline,
+              avoidTolls: settings.avoidTolls,
             }),
           )
         : null,
-    [start, typedStops, end, endSame, locks, timeMode, dateTime, fixedDeadline],
+    [start, typedStops, end, endSame, locks, timeMode, dateTime, fixedDeadline, settings.avoidTolls],
   );
   const [remote, setRemote] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
   /** Último cálculo bom do servidor: cobre o intervalo até a próxima resposta (e falhas). */
@@ -932,12 +933,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       breakMap: remainingBreaks,
       // A direção do carro faz a rota nova sair para a frente, sem mandar dar meia-volta.
       body: JSON.stringify(
-        planRequestBody({ ...route, mode: "depart", dateTime: null, heading: tripOrigin.heading ?? null }),
+        planRequestBody({
+          ...route,
+          mode: "depart",
+          dateTime: null,
+          heading: tripOrigin.heading ?? null,
+          avoidTolls: settings.avoidTolls,
+        }),
       ),
       sequence: [route.start, ...route.stops, ...(route.end ? [route.end] : [])],
       at: tripOrigin.at,
     };
-  }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here, stops.length, breakMap]);
+  }, [tripActive, tripOrigin, pendingStops, finalPlace, t.gps.here, stops.length, breakMap, settings.avoidTolls]);
   const [tripRemote, setTripRemote] = useState<{
     body: string;
     sequence: Place[];
@@ -1849,10 +1856,19 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     () =>
       suggestionLocks && start
         ? JSON.stringify(
-            planRequestBody({ start, stops: typedStops, end, endSame, locks: suggestionLocks, mode: timeMode, dateTime }),
+            planRequestBody({
+              start,
+              stops: typedStops,
+              end,
+              endSame,
+              locks: suggestionLocks,
+              mode: timeMode,
+              dateTime,
+              avoidTolls: settings.avoidTolls,
+            }),
           )
         : null,
-    [suggestionLocks, start, typedStops, end, endSame, timeMode, dateTime],
+    [suggestionLocks, start, typedStops, end, endSame, timeMode, dateTime, settings.avoidTolls],
   );
   const [suggestionCheck, setSuggestionCheck] = useState<{ body: string; outcome: PlanOutcome } | null>(null);
   useEffect(() => {
@@ -2098,7 +2114,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     isCompact && trip !== null ? (
       <div
         aria-live="polite"
-        className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-20 mx-auto flex max-w-[26rem] flex-col gap-2 overflow-hidden rounded-2xl border border-line bg-surface/95 p-3 shadow-panel backdrop-blur-sm"
+        className="fixed left-[var(--trip-card-x)] top-[calc(env(safe-area-inset-top)+3.75rem)] z-20 flex w-[var(--trip-card-w)] flex-col gap-2 overflow-hidden rounded-2xl border border-line bg-surface/95 p-3 shadow-panel backdrop-blur-sm"
       >
         <div className="flex flex-col gap-0.5">
           <p className="flex items-center gap-2 text-compact font-semibold text-accent">
@@ -2179,19 +2195,26 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                   </div>
                 ))}
               </dl>
-              {/* Qual das três telas está aparecendo. */}
-              <span aria-hidden="true" className="mt-1 flex gap-1">
-                {[0, 1, 2].map((page) => (
-                  <span key={page} className={`h-1 w-1 rounded-full ${page === headerPage ? "bg-accent" : "bg-line-strong"}`} />
-                ))}
-              </span>
             </button>
           ))}
 
         {trip.status === "arrived" && <p className="text-xs text-muted">{t.trip.arrivedHint}</p>}
         {trip.status === "finished" && statsShort && <p className="text-xs text-ink-2">{statsShort}</p>}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-end gap-2">
+          {/* Qual das três telas de números está aparecendo: o ponto da tela atual vira um traço. */}
+          {trip.status !== "finished" && live && !rerouting && !achievement && (
+            <span aria-hidden="true" className="mr-auto flex items-center gap-1.5">
+              {[0, 1, 2].map((page) => (
+                <span
+                  key={page}
+                  className={`h-2 rounded-full transition-all duration-200 motion-reduce:transition-none ${
+                    page === headerPage ? "w-5 bg-accent" : "w-2 bg-line-strong"
+                  }`}
+                />
+              ))}
+            </span>
+          )}
           {trip.status === "running" && (
             <button type="button" onClick={pauseTrip} className={tripCardSecondary}>
               <PauseIcon />
@@ -2516,6 +2539,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
               roundTrip={endSame}
               plan={plan}
               isMobile={!isDesktop}
+              avoidTolls={settings.avoidTolls}
               onNotify={notify}
               onDepartureReport={() => void makeDepartureReport()}
             />

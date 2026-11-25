@@ -46,6 +46,8 @@ export interface Settings {
   fontSize: FontSize;
   /** Permanência que cada nova parada recebe (minutos). */
   defaultDwellMinutes: number;
+  /** Desviar de pedágios ao traçar a rota (preferência; desligado por padrão). */
+  avoidTolls: boolean;
   layout: BlockLayout;
 }
 
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   fontSize: "sm",
   defaultDwellMinutes: 0,
+  avoidTolls: false,
   layout: DEFAULT_LAYOUT,
 };
 
@@ -143,6 +146,7 @@ export function normalizeSettings(value: unknown): Settings {
       : DEFAULT_SETTINGS.fontSize,
     defaultDwellMinutes:
       Number.isFinite(dwell) && dwell > 0 ? Math.min(Math.round(dwell), MAX_DWELL_MINUTES) : 0,
+    avoidTolls: raw.avoidTolls === true,
     layout: current ? normalizeLayout(raw.layout) : normalizeLayout(DEFAULT_LAYOUT),
   };
 }

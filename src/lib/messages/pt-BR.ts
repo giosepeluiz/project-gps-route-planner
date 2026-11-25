@@ -417,6 +417,8 @@ const ptBR = {
     route: "Rota",
     defaultDwell: "Permanência padrão",
     defaultDwellHint: "Tempo que cada nova parada recebe. Dá para mudar em cada parada pelo ícone de relógio.",
+    avoidTolls: "Evitar pedágios",
+    avoidTollsHint: "Desvia das estradas com pedágio quando houver alternativa. É uma preferência: sem outro caminho, a rota usa o pedágio. Pode deixar a rota mais longa.",
     defaultDwellGroup: "Permanência padrão nas novas paradas",
     blocks: "Blocos",
     blocksPosition: "Posição dos blocos",

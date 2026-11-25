@@ -300,6 +300,12 @@ body {
   }
 }
 
+/* Cartão da viagem (celular/tablet) e os botões do mapa acima dele: mesma largura e mesmas bordas. */
+:root {
+  --trip-card-w: min(calc(100vw - 1rem), 26rem);
+  --trip-card-x: calc((100vw - var(--trip-card-w)) / 2);
+}
+
 /*
  * Viagem no celular/tablet: os botões do mapa (girar, configurações, ajuda) viram uma fileira
  * horizontal no topo à esquerda, acima do cartão da viagem.
@@ -309,10 +315,10 @@ body {
   top: calc(env(safe-area-inset-top) + 0.5rem);
 }
 .rotas-nav-header .maplibregl-ctrl-top-left {
-  left: 0.5rem;
+  left: var(--trip-card-x);
 }
 .rotas-nav-header .maplibregl-ctrl-top-right {
-  right: 0.5rem;
+  right: var(--trip-card-x);
 }
 .rotas-nav-header .maplibregl-ctrl-top-right .maplibregl-ctrl-group,
 .rotas-nav-header .maplibregl-ctrl-top-left .maplibregl-ctrl-group {

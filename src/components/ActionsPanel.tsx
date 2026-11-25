@@ -24,6 +24,8 @@ interface ActionsPanelProps {
   plan: Plan | null;
   /** true em telas estreitas: o Google Maps aceita menos paradas por link no celular. */
   isMobile: boolean;
+  /** Pede ao Google Maps para evitar pedágios nos links. */
+  avoidTolls?: boolean;
   onNotify: (text: string) => void;
   /** Caminho do link compartilhável da rota (/r/…), ou null. */
   sharePath: string | null;
@@ -114,6 +116,7 @@ export default function ActionsPanel({
   roundTrip,
   plan,
   isMobile,
+  avoidTolls = false,
   onNotify,
   sharePath,
   onDepartureReport,
@@ -121,7 +124,7 @@ export default function ActionsPanel({
   const t = useT();
   const sequence = finalPlace ? [start, ...stops, finalPlace] : [start, ...stops];
   const maxWaypoints = isMobile ? GOOGLE_WAYPOINTS_MOBILE : GOOGLE_WAYPOINTS_DESKTOP;
-  const links = googleMapsLinks(sequence, maxWaypoints);
+  const links = googleMapsLinks(sequence, maxWaypoints, avoidTolls);
   // Próxima parada: a primeira ainda não concluída; com todas feitas, o fim (ou a volta ao início).
   const pending = stops.find((s) => !doneIds.has(s.id));
   const allDone = stops.length > 0 && !pending;
@@ -200,7 +203,7 @@ export default function ActionsPanel({
             <span className="block truncate text-xs font-normal text-muted">{next.label}</span>
           </span>
           <span className="flex shrink-0 gap-1">
-            {navigationLinks(next).map((app) => (
+            {navigationLinks(next, avoidTolls).map((app) => (
               <a
                 key={app.id}
                 href={app.href}

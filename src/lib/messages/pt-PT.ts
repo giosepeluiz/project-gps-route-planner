@@ -410,6 +410,8 @@ const ptPT: Messages = {
     route: "Rota",
     defaultDwell: "Permanência padrão",
     defaultDwellHint: "Tempo que cada nova paragem recebe. Pode alterá-lo em cada paragem pelo ícone do relógio.",
+    avoidTolls: "Evitar portagens",
+    avoidTollsHint: "Desvia das estradas com portagem quando houver alternativa. É uma preferência: sem outro caminho, a rota usa a portagem. Pode tornar a rota mais longa.",
     defaultDwellGroup: "Permanência padrão nas novas paragens",
     blocks: "Blocos",
     blocksPosition: "Posição dos blocos",

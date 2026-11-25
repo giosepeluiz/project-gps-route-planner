@@ -25,6 +25,12 @@ export interface CellBlock {
   meters?: number[][];
 }
 
+/** Preferências do pedido de matriz. */
+export interface MatrixOptions {
+  /** Desviar de pedágios (preferência, não garantia). */
+  avoidTolls?: boolean;
+}
+
 export interface MatrixProvider {
   name: string;
   trafficAware: boolean;
@@ -32,11 +38,14 @@ export interface MatrixProvider {
   label: string;
   /** Sem rede e sem custo: não passa por cache, timeout nem circuit breaker. */
   local?: boolean;
+  /** Sabe evitar pedágios. Sem isto, o provedor é pulado quando o pedido é "sem pedágio". */
+  avoidTolls?: boolean;
   getCells(
     origins: readonly Point[],
     destinations: readonly Point[],
     departAt: Date,
     signal: AbortSignal,
+    options?: MatrixOptions,
   ): Promise<CellBlock>;
 }
 
@@ -157,8 +166,9 @@ export function createTomTomMatrix(
     name: "tomtom",
     trafficAware: true,
     label: "TomTom com trânsito",
+    avoidTolls: true,
 
-    async getCells(origins, destinations, departAt, signal) {
+    async getCells(origins, destinations, departAt, signal, opts) {
       // departAt precisa estar no futuro; para saídas imediatas vale "now" com trânsito ao vivo.
       const live = isNearNow(departAt, now());
       const options = {
@@ -166,6 +176,8 @@ export function createTomTomMatrix(
         traffic: live ? "live" : "historical",
         routeType: "fastest",
         travelMode: "car",
+        // Sem pedágio: a Matrix v2 aceita avoid ["tollRoads"] (preferência, não garantia).
+        ...(opts?.avoidTolls ? { avoid: ["tollRoads"] } : {}),
         // A Matrix v2 só aceita avoid "tollRoads" e "unpavedRoads" (com "ferries" responde 400).
         // A trava contra balsas fica no traçado de cada trecho (Calculate Route com avoid=ferries),
         // que recusa o plano quando não há caminho por terra, ponte ou túnel.
@@ -377,8 +389,9 @@ export function createTomTomPairwise(
     name: "tomtom-rota",
     trafficAware: true,
     label: "TomTom com trânsito (rota a rota)",
+    avoidTolls: true,
 
-    async getCells(origins, destinations, departAt, signal) {
+    async getCells(origins, destinations, departAt, signal, opts) {
       const pairs: [number, number][] = [];
       origins.forEach((a, i) =>
         destinations.forEach((b, j) => {
@@ -412,6 +425,7 @@ export function createTomTomPairwise(
             routeRepresentation: "summaryOnly",
             avoid: "ferries",
           });
+          if (opts?.avoidTolls) params.append("avoid", "tollRoads");
           if (departAt.getTime() - now() >= 60_000) params.set("departAt", departAt.toISOString());
           await budget?.take("tomtom-rota", 1);
           const res = await fetchFn(
@@ -472,14 +486,16 @@ export function createGoogleMatrix(
     name: "google",
     trafficAware: true,
     label: "Google com trânsito",
+    avoidTolls: true,
 
-    async getCells(origins, destinations, departAt, signal) {
+    async getCells(origins, destinations, departAt, signal, opts) {
       const elements = origins.length * destinations.length;
       // Limite do Google por pedido (625 elementos); as nossas matrizes ficam bem abaixo.
       if (elements > 625) throw new Error("google: matriz grande demais para um pedido.");
       await budget?.take("google", elements);
       const body = {
-        origins: origins.map(waypoint),
+        // Na matriz, os modificadores (pedágio) ficam em cada origem, não no pedido.
+        origins: origins.map((p) => (opts?.avoidTolls ? { ...waypoint(p), routeModifiers: { avoidTolls: true } } : waypoint(p))),
         destinations: destinations.map(waypoint),
         travelMode: "DRIVE",
         routingPreference: "TRAFFIC_AWARE",
@@ -535,7 +551,7 @@ export const estimateProvider: MatrixProvider = {
 };
 
 export interface MatrixService {
-  getMatrix(points: readonly Point[], departAt: Date): Promise<MatrixResult>;
+  getMatrix(points: readonly Point[], departAt: Date, options?: MatrixOptions): Promise<MatrixResult>;
 }
 
 export interface MatrixServiceOptions {
@@ -606,7 +622,12 @@ export function createMatrixService({
     await cache.set(pauseKey(name), 1, seconds);
   };
 
-  async function fromProvider(provider: MatrixProvider, points: readonly Point[], departAt: Date) {
+  async function fromProvider(
+    provider: MatrixProvider,
+    points: readonly Point[],
+    departAt: Date,
+    options?: MatrixOptions,
+  ) {
     const n = points.length;
     const seconds = emptyBlock(n, n);
     const meters = emptyBlock(n, n);
@@ -631,7 +652,9 @@ export function createMatrixService({
     const ttl = live ? LIVE_TTL_S : HISTORICAL_TTL_S;
     // Uma entrada de cache por ORIGEM (com todos os destinos já conhecidos),
     // para não fazer centenas de leituras num cache remoto.
-    const rowKey = (i: number) => `mx:v1:${provider.name}:${slot}:${pointKey(points[i])}`;
+    // Pedido "sem pedágio" tem cache próprio: os tempos mudam.
+    const rowKey = (i: number) =>
+      `mx:v1:${provider.name}${options?.avoidTolls ? ":nt" : ""}:${slot}:${pointKey(points[i])}`;
     const rows = await Promise.all(
       points.map(async (_, i) => (await cache.get<Record<string, CachedCell>>(rowKey(i))) ?? {}),
     );
@@ -661,6 +684,7 @@ export function createMatrixService({
             request.destinations.map((j) => points[j]),
             departAt,
             signal,
+            options,
           ),
         { timeoutMs, retries },
       );
@@ -685,13 +709,15 @@ export function createMatrixService({
   }
 
   return {
-    async getMatrix(points, departAt) {
+    async getMatrix(points, departAt, options) {
       let lastError: unknown;
       for (const provider of chain) {
+        // Sem pedágio: provedor que não sabe evitá-los é pulado (a rota real, mais adiante, corrige os tempos).
+        if (options?.avoidTolls && !provider.local && !provider.avoidTolls) continue;
         // Cota acabada há pouco: nem tenta (economiza a chamada e o tempo de espera).
         if (!provider.local && (await isPaused(provider.name))) continue;
         try {
-          const { seconds, meters } = await fromProvider(provider, points, departAt);
+          const { seconds, meters } = await fromProvider(provider, points, departAt, options);
           return {
             seconds,
             meters,
