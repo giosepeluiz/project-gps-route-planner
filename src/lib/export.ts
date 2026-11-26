@@ -1,7 +1,7 @@
 /** Ações de saída: links para Google Maps e Waze e a rota em texto. */
 import { formatDuration, formatTime } from "./format";
 import ptBR, { type Messages } from "./messages/pt-BR";
-import type { Place, Plan } from "./types";
+import { placeName, type Place, type Plan } from "./types";
 
 interface LatLng {
   lat: number;
@@ -101,7 +101,7 @@ export function routeText(
   plan.legs.forEach((leg, i) => {
     const prefix = i < stopCount ? `${i + 1}.` : roundTrip ? words.back : "B.";
     const stay = leg.dwellSeconds > 0 ? words.stay(formatDuration(leg.dwellSeconds), formatTime(leg.leaveAt)) : "";
-    lines.push(`${prefix} ${leg.to.label} (${words.arrives(formatTime(leg.arriveAt))}${stay})`);
+    lines.push(`${prefix} ${placeName(leg.to)} (${words.arrives(formatTime(leg.arriveAt))}${stay})`);
   });
   if (links.length > 0) lines.push("");
   links.forEach((link, i) =>

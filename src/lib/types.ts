@@ -11,7 +11,16 @@ export interface Place {
   confidence: number;
   /** Tempo de permanência na parada, em minutos (0 = só passa). Início e fim ficam em 0. */
   dwellMinutes: number;
+  /** Nome dado pela pessoa (renomear a parada). Vazio = vale o endereço (label). */
+  alias?: string;
 }
+
+/** Nome mostrado de um local: o apelido, se houver, ou o endereço. */
+export const placeName = (place: { label: string; alias?: string }): string =>
+  place.alias?.trim() || place.label;
+
+/** Tamanho máximo do apelido de uma parada. */
+export const MAX_ALIAS_LENGTH = 80;
 
 /** Limite do tempo de permanência numa parada (12 h). */
 export const MAX_DWELL_MINUTES = 720;

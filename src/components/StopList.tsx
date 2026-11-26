@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import DwellPicker from "./DwellPicker";
 import { useT } from "./I18nProvider";
 import Grip, { gripButtonClass } from "./Grip";
@@ -9,7 +9,7 @@ import { formatDuration, formatTime } from "@/lib/format";
 import { DONE_LEG_COLOR, legColor } from "@/lib/leg-colors";
 import type { Locks } from "@/lib/locks";
 import { dwellSecondsOf } from "@/lib/plan";
-import type { Place, PlanLeg } from "@/lib/types";
+import { MAX_ALIAS_LENGTH, placeName, type Place, type PlanLeg } from "@/lib/types";
 import { rowsOf, type RestBreak } from "@/lib/breaks";
 
 function ClockIcon() {
@@ -33,6 +33,8 @@ interface StopListProps {
   onRemove: (id: string) => void;
   /** Muda a permanência (minutos) da parada. */
   onDwellChange: (id: string, minutes: number) => void;
+  /** Dá um nome (apelido) à parada; texto vazio volta ao endereço. */
+  onRename: (id: string, name: string) => void;
   /** Paradas já concluídas. */
   doneIds: ReadonlySet<string>;
   /** Marca ou desmarca a parada como concluída (toque no número). */
@@ -53,6 +55,60 @@ interface StopListProps {
   onArriveAt: (id: string, time: string | null, mode: "back" | "fixed") => void;
 }
 
+/**
+ * Nome da parada: ao passar o mouse ganha um contorno pontilhado; dois cliques
+ * (ou dois toques, no celular) abrem a edição. Enter salva, Esc cancela e vazio
+ * volta ao endereço.
+ */
+function StopName({ stop, done, onRename }: { stop: Place; done: boolean; onRename: (id: string, name: string) => void }) {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const lastTap = useRef(0);
+  const shown = placeName(stop);
+
+  if (editing) {
+    const finish = (value: string | null) => {
+      setEditing(false);
+      if (value !== null) onRename(stop.id, value);
+    };
+    return (
+      <input
+        autoFocus
+        defaultValue={shown}
+        maxLength={MAX_ALIAS_LENGTH}
+        aria-label={t.stops.renameAria(stop.label)}
+        placeholder={stop.label}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={(e) => finish(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") finish(e.currentTarget.value);
+          else if (e.key === "Escape") finish(null);
+        }}
+        className="focus-ring block w-full rounded border border-dashed border-accent bg-surface px-1 py-0 text-compact font-medium text-ink"
+      />
+    );
+  }
+  return (
+    <span
+      title={t.stops.renameTitle}
+      onDoubleClick={() => setEditing(true)}
+      onPointerUp={(e) => {
+        if (e.pointerType !== "touch") return;
+        const now = Date.now();
+        if (now - lastTap.current < 400) {
+          lastTap.current = 0;
+          setEditing(true);
+        } else lastTap.current = now;
+      }}
+      className={`block cursor-text truncate rounded border border-dashed border-transparent px-1 -mx-1 text-compact font-medium [touch-action:manipulation] hover:border-line-strong ${
+        done ? "text-faint line-through decoration-faint" : "text-ink"
+      }`}
+    >
+      {shown}
+    </span>
+  );
+}
+
 function CupIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -71,6 +127,7 @@ export default function StopList({
   onToggleLock,
   onRemove,
   onDwellChange,
+  onRename,
   doneIds,
   onToggleDone,
   breaks,
@@ -195,7 +252,7 @@ export default function StopList({
             {/* Alça: arrastar com o mouse ou o dedo; setas do teclado também movem. */}
             <button
               type="button"
-              aria-label={t.stops.dragAria(stop.label)}
+              aria-label={t.stops.dragAria(placeName(stop))}
               title={t.stops.dragTitle}
               className={`${gripButtonClass} ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
               {...reorder.handleProps(r)}
@@ -208,7 +265,7 @@ export default function StopList({
               type="button"
               aria-pressed={done}
               onClick={() => onToggleDone(stop.id)}
-              aria-label={done ? t.stops.undoDone(stop.label) : t.stops.markDone(stop.label)}
+              aria-label={done ? t.stops.undoDone(placeName(stop)) : t.stops.markDone(placeName(stop))}
               title={done ? t.stops.doneTitle : t.stops.markDoneTitle}
               className={`focus-ring group/done grid h-6 w-6 shrink-0 place-items-center rounded-full text-2xs font-semibold transition-colors duration-150 motion-reduce:transition-none ${
                 done
@@ -231,13 +288,7 @@ export default function StopList({
             </button>
 
             <span className="min-w-0 flex-1">
-              <span
-                className={`block truncate text-compact font-medium ${
-                  done ? "text-faint line-through decoration-faint" : "text-ink"
-                }`}
-              >
-                {stop.label}
-              </span>
+              <StopName stop={stop} done={done} onRename={onRename} />
               <span
                 className={`flex items-center gap-1.5 truncate whitespace-nowrap text-xs ${done ? "text-faint" : "text-muted"}`}
                 title={
@@ -274,8 +325,8 @@ export default function StopList({
               onClick={() => setEditing(isEditing ? null : stop.id)}
               aria-label={
                 dwellMin > 0
-                  ? t.stops.dwellSet(stop.label, formatDuration(dwellMin * 60))
-                  : t.stops.dwellAsk(stop.label)
+                  ? t.stops.dwellSet(placeName(stop), formatDuration(dwellMin * 60))
+                  : t.stops.dwellAsk(placeName(stop))
               }
               title={t.stops.dwellTitle}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
@@ -293,7 +344,7 @@ export default function StopList({
               type="button"
               aria-expanded={arriveEditing === stop.id}
               onClick={() => setArriveEditing(arriveEditing === stop.id ? null : stop.id)}
-              aria-label={t.stops.arriveAria(stop.label)}
+              aria-label={t.stops.arriveAria(placeName(stop))}
               title={t.stops.arriveTitle}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none ${
                 arriveEditing === stop.id
@@ -314,7 +365,7 @@ export default function StopList({
               type="button"
               aria-pressed={locked}
               onClick={() => onToggleLock(stop.id)}
-              aria-label={locked ? t.stops.unlock(stop.label) : t.stops.lock(stop.label, i + 1)}
+              aria-label={locked ? t.stops.unlock(placeName(stop)) : t.stops.lock(placeName(stop), i + 1)}
               title={locked ? t.stops.lockedTitle : t.stops.lockTitle}
               className={`focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg transition-colors duration-200 motion-reduce:transition-none ${
  locked
@@ -331,7 +382,7 @@ export default function StopList({
             <button
               type="button"
               onClick={() => onRemove(stop.id)}
-              aria-label={t.stops.remove(stop.label)}
+              aria-label={t.stops.remove(placeName(stop))}
               className="focus-ring grid h-8 w-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-red-700 dark:hover:text-red-400"
             >
               <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -368,7 +419,7 @@ export default function StopList({
                 <p className="text-2xs text-muted">{arriveStrategy === "back" ? t.stops.arriveBackHint : t.stops.arriveFixedHint}</p>
                 <div className="flex items-center gap-2">
                 <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-ink-2">
-                  <span className="truncate">{t.stops.arriveLabel(stop.label)}</span>
+                  <span className="truncate">{t.stops.arriveLabel(placeName(stop))}</span>
                   <input
                     type="time"
                     autoFocus
@@ -396,7 +447,7 @@ export default function StopList({
             {isEditing && (
               <div id={pickerId} className="mb-1 ml-[3.25rem] mr-1 mt-1.5">
                 <DwellPicker
-                  label={t.stops.dwellGroup(stop.label)}
+                  label={t.stops.dwellGroup(placeName(stop))}
                   value={dwellMin}
                   autoFocus
                   onChange={(minutes) => onDwellChange(stop.id, minutes)}

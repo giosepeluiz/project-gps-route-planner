@@ -83,6 +83,8 @@ const ptBR = {
     dragAria: (label: string) =>
       `Arrastar ${label} para reordenar. Com o teclado, use as setas para cima e para baixo.`,
     dragTitle: "Arraste para reordenar",
+    renameTitle: "Clique duas vezes (ou toque duas vezes) para renomear a parada",
+    renameAria: (name: string) => `Renomear ${name}`,
     markDone: (label: string) => `Marcar ${label} como concluída`,
     undoDone: (label: string) => `${label}: concluída. Desfazer`,
     doneTitle: "Concluída (clique para desfazer)",
@@ -340,7 +342,7 @@ const ptBR = {
     start:
       "Comece pelo ponto de partida: digite um endereço, cole coordenadas ou um link, ou toque no alvo para usar o GPS.",
     stops:
-      "Adicione as paradas aqui ou com clique direito (toque longo) no mapa. A melhor ordem é calculada sozinha; dá para travar, concluir e definir o tempo em cada uma.",
+      "Adicione as paradas aqui ou com clique direito (toque longo) no mapa. A melhor ordem é calculada sozinha; dá para travar, concluir e definir o tempo em cada uma. Para renomear uma parada, dê dois cliques no nome (no celular, dois toques): o contorno pontilhado mostra que dá para editar.",
     summary:
       "O Resumo mostra o tempo total, a distância, os horários e o comentário da IA. Daqui você também inicia a viagem.",
     actions: "Abra a rota no Google Maps, navegue até a próxima parada no seu app preferido ou compartilhe.",

@@ -79,6 +79,8 @@ const ptPT: Messages = {
       `Não existe caminho de carro ${from && to ? `entre ${from} e ${to}` : "a ligar todos os locais"}. Ferries não contam; pontes e túneis, sim.`,
     dragAria: (label) => `Arrastar ${label} para reordenar. Com o teclado, use as setas para cima e para baixo.`,
     dragTitle: "Arraste para reordenar",
+    renameTitle: "Clique duas vezes (ou toque duas vezes) para mudar o nome da paragem",
+    renameAria: (name: string) => `Mudar o nome de ${name}`,
     markDone: (label) => `Marcar ${label} como concluída`,
     undoDone: (label) => `${label}: concluída. Anular`,
     doneTitle: "Concluída (clique para anular)",
@@ -333,7 +335,7 @@ const ptPT: Messages = {
     start:
       "Comece pelo ponto de partida: escreva uma morada, cole coordenadas ou um link, ou toque no alvo para usar o GPS.",
     stops:
-      "Adicione as paragens aqui ou com clique direito (toque longo) no mapa. A melhor ordem é calculada automaticamente; pode bloquear, concluir e definir o tempo em cada uma.",
+      "Adicione as paragens aqui ou com clique direito (toque longo) no mapa. A melhor ordem é calculada automaticamente; pode bloquear, concluir e definir o tempo em cada uma. Para mudar o nome de uma paragem, clique duas vezes no nome (no telemóvel, toque duas vezes): o contorno tracejado mostra que se pode editar.",
     summary:
       "O Resumo mostra o tempo total, a distância, os horários e o comentário da IA. Daqui também inicia a viagem.",
     actions: "Abra a rota no Google Maps, navegue até à próxima paragem na sua aplicação preferida ou partilhe.",

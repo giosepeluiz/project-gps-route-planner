@@ -79,6 +79,8 @@ const enGB: Messages = {
       `There's no driving route ${from && to ? `between ${from} and ${to}` : "connecting all the places"}. Ferries don't count; bridges and tunnels do.`,
     dragAria: (label) => `Drag ${label} to reorder. With the keyboard, use the up and down arrows.`,
     dragTitle: "Drag to reorder",
+    renameTitle: "Double-click (or double-tap) to rename the stop",
+    renameAria: (name: string) => `Rename ${name}`,
     markDone: (label) => `Mark ${label} as done`,
     undoDone: (label) => `${label}: done. Undo`,
     doneTitle: "Done (click to undo)",
@@ -333,7 +335,7 @@ const enGB: Messages = {
     start:
       "Start with the starting point: type an address, paste coordinates or a link, or tap the target to use GPS.",
     stops:
-      "Add stops here or by right-clicking (long-pressing) the map. The best order is worked out for you; you can lock, complete and set the time at each one.",
+      "Add stops here or by right-clicking (long-pressing) the map. The best order is worked out for you; you can lock, complete and set the time at each one. To rename a stop, double-click its name (double-tap on a phone): the dotted outline shows it can be edited.",
     summary:
       "The Summary shows total time, distance, times and the AI comment. You also start the trip from here.",
     actions: "Open the route in Google Maps, navigate to the next stop in your favourite app or share it.",

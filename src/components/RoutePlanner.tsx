@@ -85,7 +85,7 @@ import {
 } from "@/lib/settings";
 import { addStop, isApproximate, isDuplicate, MAX_STOPS } from "@/lib/stops";
 import { MESSAGES } from "@/lib/messages";
-import { MAX_DWELL_MINUTES, type LegTimeFn, type Place } from "@/lib/types";
+import { MAX_ALIAS_LENGTH, MAX_DWELL_MINUTES, placeName, type LegTimeFn, type Place } from "@/lib/types";
 import {
   hasArrived,
   hasPassed,
@@ -639,8 +639,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // ---------- Pausas para descanso ----------
   const [breakDialog, setBreakDialog] = useState(false);
   const legName = (i: number) => {
-    const from = i === 0 ? t.breaks.startName : `${i}. ${stops[i - 1]?.label ?? ""}`;
-    const to = i < stops.length ? `${i + 1}. ${stops[i].label}` : endSame ? t.breaks.backName : t.breaks.endName;
+    const from = i === 0 ? t.breaks.startName : `${i}. ${stops[i - 1] ? placeName(stops[i - 1]) : ""}`;
+    const to = i < stops.length ? `${i + 1}. ${placeName(stops[i])}` : endSame ? t.breaks.backName : t.breaks.endName;
     return t.breaks.leg(from, to);
   };
   const breakOptions: LegOption[] = Array.from({ length: legCount }, (_, i) => ({
@@ -1165,7 +1165,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       if (arrivedStop && leaveAsk === null && away >= leaveAtRef.current) {
         leaveAtRef.current = Infinity;
         lastLeaveMetersRef.current = away;
-        setLeaveAsk(arrivedStop.label);
+        setLeaveAsk(placeName(arrivedStop));
       }
       return;
     }
@@ -1384,6 +1384,18 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
       ),
     }));
 
+  const renameStop = (id: string, name: string) =>
+    setRoute((prev) => ({
+      ...prev,
+      stops: prev.stops.map((s) => {
+        if (s.id !== id) return s;
+        const alias = name.trim().slice(0, MAX_ALIAS_LENGTH);
+        const { alias: _old, ...rest } = s;
+        void _old;
+        return alias && alias !== s.label ? { ...rest, alias } : rest;
+      }),
+    }));
+
   const handleToggleLock = (id: string) =>
     setRoute((prev) => ({ ...prev, locks: toggleLock(displayedIds, locks, id) }));
 
@@ -1551,7 +1563,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         lng: s.lng,
         kind: "stop",
         badge: String(i + 1),
-        title: s.label,
+        title: placeName(s),
       })),
     ];
     if (!endSame && end) {
@@ -1619,7 +1631,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   const reportRows = (): ReportRow[] =>
     (plan?.legs ?? []).map((leg, i) => ({
       n: i < stops.length ? String(i + 1) : endSame ? ROUND_TRIP_BADGE : "B",
-      name: leg.to.label,
+      name: placeName(leg.to),
       arriveAt: leg.arriveAt,
       dwellSeconds: leg.dwellSeconds,
       leaveAt: i < stops.length ? leg.leaveAt : null,
@@ -1638,12 +1650,12 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     const mandatoryIndex = arriveLeg !== null || holdAtMs !== null ? arriveIndex : -1;
     const mandatoryLeg = mandatoryIndex >= 0 ? plan?.legs[mandatoryIndex] : undefined;
     return {
-      locked: stops.flatMap((s, i) => (locks[s.id] !== undefined ? [{ n: String(i + 1), name: s.label }] : [])),
+      locked: stops.flatMap((s, i) => (locks[s.id] !== undefined ? [{ n: String(i + 1), name: placeName(s) }] : [])),
       mandatory:
         mandatoryIndex >= 0 && mandatoryLeg
           ? {
               n: mandatoryIndex + 1,
-              name: stops[mandatoryIndex].label,
+              name: placeName(stops[mandatoryIndex]),
               time: formatTime(mandatoryLeg.arriveAt),
               mode: holdAtMs !== null ? "fixed" : "back",
               slackMinutes: holdAtMs !== null && serverPlan?.deadline ? serverPlan.deadline.slackSeconds / 60 : null,
@@ -1911,7 +1923,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     : tripActive && target
       ? isCompact
         ? t.app.panel
-        : `${t.trip.next}: ${target.label}`
+        : `${t.trip.next}: ${placeName(target)}`
       : `${totalText} · ${t.common.stops(stops.length)} · ${t.summary.arrivesAt(arriveText)}`;
   const liveKm = live ? `${live.estimated ? "≈ " : ""}${formatKm(live.nextMeters)}` : "—";
   const statsShort = tripStats
@@ -1989,7 +2001,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         : trip.status === "paused"
           ? t.trip.paused
           : trip.status === "arrived"
-            ? t.trip.arrived(arrivedPlace?.label ?? t.stops.fallbackName)
+            ? t.trip.arrived(arrivedPlace ? placeName(arrivedPlace) : t.stops.fallbackName)
             : t.trip.finished;
     return (
       <div className="flex flex-col gap-2.5 rounded-lg border border-accent/35 bg-accent/5 p-3" aria-live="polite">
@@ -2020,7 +2032,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         {(trip.status === "running" || trip.status === "paused") && target && (
           <div className="flex flex-col gap-0.5">
             <p className="truncate text-compact text-ink">
-              <span className="text-muted">{t.trip.next}:</span> <span className="font-medium">{target.label}</span>
+              <span className="text-muted">{t.trip.next}:</span> <span className="font-medium">{placeName(target)}</span>
             </p>
             <p className="text-xs text-muted">
               {rerouting
@@ -2125,7 +2137,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                 : trip.status === "paused"
                   ? t.trip.paused
                   : trip.status === "arrived"
-                    ? t.trip.arrived(stops.find((x) => x.id === trip.arrivedId)?.label ?? t.stops.fallbackName)
+                    ? t.trip.arrived(placeName(stops.find((x) => x.id === trip.arrivedId) ?? { label: t.stops.fallbackName }))
                     : t.trip.finished}
             </span>
             {simulating && (
@@ -2136,7 +2148,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           </p>
           {trip.status !== "finished" && (trip.status === "arrived" ? tripNextAfterArrival : target) && (
             <p className="truncate text-md font-semibold text-ink">
-              {t.trip.next}: {(trip.status === "arrived" ? tripNextAfterArrival : target)?.label}
+              {t.trip.next}: {(() => { const n = trip.status === "arrived" ? tripNextAfterArrival : target; return n ? placeName(n) : ""; })()}
             </p>
           )}
         </div>
@@ -2380,7 +2392,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                       <option value="">{t.startEnd.arriveAtEnd}</option>
                       {stops.map((stop, i) => (
                         <option key={stop.id} value={stop.id}>
-                          {t.startEnd.arriveAtStop(i + 1, stop.label)}
+                          {t.startEnd.arriveAtStop(i + 1, placeName(stop))}
                         </option>
                       ))}
                     </select>
@@ -2459,6 +2471,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
                     onToggleLock={handleToggleLock}
                     onRemove={removeStop}
                     onDwellChange={setDwell}
+                    onRename={renameStop}
                     doneIds={doneIds}
                     onToggleDone={toggleDone}
                   />

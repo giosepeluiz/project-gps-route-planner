@@ -79,6 +79,8 @@ const esES: Messages = {
       `No hay camino en coche ${from && to ? `entre ${from} y ${to}` : "que una todos los lugares"}. Los ferris no cuentan; los puentes y túneles, sí.`,
     dragAria: (label) => `Arrastrar ${label} para reordenar. Con el teclado, usa las flechas arriba y abajo.`,
     dragTitle: "Arrastra para reordenar",
+    renameTitle: "Haz doble clic (o toca dos veces) para renombrar la parada",
+    renameAria: (name: string) => `Renombrar ${name}`,
     markDone: (label) => `Marcar ${label} como hecha`,
     undoDone: (label) => `${label}: hecha. Deshacer`,
     doneTitle: "Hecha (haz clic para deshacer)",
@@ -333,7 +335,7 @@ const esES: Messages = {
     start:
       "Empieza por el punto de partida: escribe una dirección, pega coordenadas o un enlace, o toca la diana para usar el GPS.",
     stops:
-      "Añade las paradas aquí o con clic derecho (pulsación larga) en el mapa. El mejor orden se calcula solo; puedes bloquear, completar y fijar el tiempo de cada una.",
+      "Añade las paradas aquí o con clic derecho (pulsación larga) en el mapa. El mejor orden se calcula solo; puedes bloquear, completar y fijar el tiempo de cada una. Para renombrar una parada, haz doble clic en el nombre (en el móvil, toca dos veces): el contorno punteado indica que se puede editar.",
     summary:
       "El Resumen muestra el tiempo total, la distancia, los horarios y el comentario de la IA. Desde aquí también inicias el viaje.",
     actions: "Abre la ruta en Google Maps, navega hasta la siguiente parada con tu app favorita o compártela.",
