@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.13.0%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.13.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -66,7 +66,7 @@ No celular, use **Adicionar à tela inicial** (Chrome) ou **Compartilhar → Adi
 
 Além do site, há aplicativos para **Windows** (instalador e versão portátil), **Linux** (AppImage) e **Android** (APK), publicados nas **[Releases do repositório dos apps](https://github.com/giosepeluiz/project-gps-route-planner-app/releases)**. A versão para **macOS** ainda não foi publicada.
 
-O próprio site divulga o app: no **computador**, um painel no canto superior esquerdo (arrastável e recolhível) detecta o seu sistema e oferece o download certo, com o do Android logo abaixo; no **celular Android**, uma linha no alto da bandeja abre uma janela com o botão de baixar o APK. Quem usa iPhone não vê nada, e dentro do próprio app a divulgação some. O painel pode ser dispensado e não volta. Os links vêm sempre da versão mais recente, lida pelo servidor (`/api/app-release`) e guardada por 30 minutos.
+O próprio site divulga o app: no **computador**, um bloco no canto superior esquerdo (arrastável e recolhível, como os outros) detecta o seu sistema e oferece o download certo, com o do Android logo abaixo; no **celular Android**, uma linha no alto da bandeja abre uma janela com o botão de baixar o APK. Quem usa iPhone não vê nada, e dentro do próprio app a divulgação some. Os links vêm sempre da versão mais recente, lida pelo servidor (`/api/app-release`) e guardada por 30 minutos.
 
 ## 📖 Como usar, passo a passo
 
@@ -240,6 +240,12 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhum mapa do Google**: o Google entra só nos tempos e no traçado (Routes API). A HERE ficou desligada (`HERE_ENABLED=1` a religa, depois da TomTom).
 
 ## 🕰️ Histórico de versões
+
+### 🧩 Versão 0.13.1 (beta)
+
+- **Caixa do app como as outras:** sem X, só arrasta e recolhe; começa no topo esquerdo, com o Resumo embaixo à esquerda. No celular Android é uma linha fixa na bandeja.
+- **Blocos em qualquer canto:** perto da borda, o bloco só se empilha na coluna se for solto junto dos outros; longe deles fica solto onde foi largado (antes o Resumo sempre voltava ao topo).
+- **Efeito sanfona:** no celular sempre (também na viagem); no PC, quando os blocos abertos de uma coluna passam da altura da janela, os vizinhos se recolhem.
 
 ### 📲 Versão 0.13.0 (beta)
 

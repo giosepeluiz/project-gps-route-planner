@@ -51,7 +51,7 @@ describe("configurações", () => {
       right: ["resumo", "inicio"],
       free: { inicio: { h: "left", x: 10, v: "top", y: 10 }, acoes: { h: "meio" } },
     });
-    expect(layout.left).toEqual(["resumo"]);
+    expect(layout.left).toEqual(["resumo", "app"]);
     expect(layout.right).toEqual(["inicio", "paradas", "acoes"]);
     expect(layout.free).toEqual({});
     expect(allBlocks(layout)).toEqual([...BLOCK_IDS].sort());
@@ -116,6 +116,19 @@ describe("blocos arrastáveis", () => {
     });
   });
 
+
+  it("perto da borda, só empilha se for solto junto dos blocos da coluna; longe deles fica solto na borda", () => {
+    const spans = { left: { top: 16, bottom: 300 }, right: null };
+    const mids = { left: [158], right: [] };
+    const under = dropTarget({ rect: { left: 20, top: 290, ...size }, viewport, dockMids: mids, dockSpans: spans });
+    expect(under).toEqual({ kind: "dock", side: "left", index: 1 });
+    const bottom = dropTarget({ rect: { left: 20, top: 900 - 200 - 20, ...size }, viewport, dockMids: mids, dockSpans: spans });
+    expect(bottom).toEqual({ kind: "free", position: { h: "left", x: EDGE_MARGIN, v: "bottom", y: EDGE_MARGIN } });
+    // Coluna vazia: o bloco fica onde foi largado, na borda.
+    const empty = dropTarget({ rect: { left: 1400 - 322 - 20, top: 600, ...size }, viewport, dockMids: noDocks, dockSpans: { left: null, right: null } });
+    expect(empty.kind).toBe("free");
+  });
+
   it("no meio da tela fica solto; perto do topo ou da base gruda na margem", () => {
     const middle = dropTarget({ rect: { left: 500, top: 300, ...size }, viewport, dockMids: noDocks });
     expect(middle).toEqual({ kind: "free", position: { h: "left", x: 500, v: "top", y: 300 } });
@@ -142,7 +155,7 @@ describe("blocos arrastáveis", () => {
   });
 
   it("no celular, a gaveta segue a ordem das colunas e depois os soltos", () => {
-    expect(sheetOrder(DEFAULT_LAYOUT, BLOCK_IDS)).toEqual(["inicio", "paradas", "acoes", "resumo"]);
+    expect(sheetOrder(DEFAULT_LAYOUT, BLOCK_IDS)).toEqual(["app", "inicio", "paradas", "acoes", "resumo"]);
   });
 });
 

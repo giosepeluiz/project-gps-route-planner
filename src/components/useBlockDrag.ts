@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HeaderDrag } from "./CollapsibleCard";
-import { dropTarget, type DropTarget, type Rect } from "@/lib/block-layout";
+import { dropTarget, type DropTarget, type Rect, type Span } from "@/lib/block-layout";
 import type { BlockId, BlockLayout } from "@/lib/settings";
 
 /** Distância mínima (px) para um toque no título virar arrasto em vez de clique. */
@@ -49,6 +49,7 @@ export function useBlockDrag(layout: BlockLayout, onDrop: (id: BlockId, target: 
    */
   const measureDocks = (id: BlockId, height: number) => {
     const result = { left: [] as number[], right: [] as number[] };
+    const spans: { left: Span | null; right: Span | null } = { left: null, right: null };
     for (const side of ["left", "right"] as const) {
       const column = layoutRef.current[side];
       const from = column.indexOf(id);
@@ -58,9 +59,13 @@ export function useBlockDrag(layout: BlockLayout, onDrop: (id: BlockId, target: 
         if (!box) return;
         const shift = from !== -1 && i > from ? height + COLUMN_GAP : 0;
         result[side].push(box.top + box.height / 2 - shift);
+        const top = box.top - shift;
+        const bottom = box.bottom - shift;
+        const span = spans[side];
+        spans[side] = span ? { top: Math.min(span.top, top), bottom: Math.max(span.bottom, bottom) } : { top, bottom };
       });
     }
-    return result;
+    return { mids: result, spans };
   };
 
   const headerDrag = (id: BlockId): HeaderDrag => ({
@@ -74,7 +79,7 @@ export function useBlockDrag(layout: BlockLayout, onDrop: (id: BlockId, target: 
       const pointerId = event.pointerId;
       let active = false;
       let last: BlockDragState | null = null;
-      const dockMids = measureDocks(id, box.height);
+      const { mids: dockMids, spans: dockSpans } = measureDocks(id, box.height);
 
       const move = (e: PointerEvent) => {
         if (e.pointerId !== pointerId) return;
@@ -91,6 +96,7 @@ export function useBlockDrag(layout: BlockLayout, onDrop: (id: BlockId, target: 
           rect,
           viewport: { width: window.innerWidth, height: window.innerHeight },
           dockMids,
+          dockSpans,
         });
         last = { id, rect, target };
         setDrag(last);

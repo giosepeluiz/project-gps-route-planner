@@ -330,7 +330,6 @@ const esES: Messages = {
   appPromo: {
     aria: "Descargar la aplicación",
     title: "Llévala contigo",
-    short: "App",
     lead: "La aplicación es el mismo planificador de rutas, directamente en tu dispositivo.",
     version: (v: string) => `Versión ${v} (beta)`,
     loading: "Buscando la versión más reciente…",
@@ -339,10 +338,6 @@ const esES: Messages = {
     portable: "Versión portátil (sin instalar)",
     alsoAndroid: "También para Android",
     download: (os: string) => `Descargar para ${os}`,
-    expand: "Abrir el panel de la app",
-    collapse: "Recoger",
-    dismiss: "No mostrar más",
-    drag: "Arrastra para mover el panel",
     mobileTitle: "Instala la app para Android",
     mobileHint: "Toca para descargar",
     modalTitle: "App para Android",

@@ -28,12 +28,22 @@ export interface DropInput {
   viewport: { width: number; height: number };
   /** Centro vertical dos outros blocos de cada coluna, em ordem. */
   dockMids: { left: number[]; right: number[] };
+  /**
+   * Faixa vertical (topo e base) ocupada pelos blocos de cada coluna, ou null se
+   * a coluna está vazia. Sem ela, perto da borda o bloco sempre gruda na coluna.
+   */
+  dockSpans?: { left: Span | null; right: Span | null };
+}
+
+export interface Span {
+  top: number;
+  bottom: number;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
 
 /** Decide onde o bloco cai e com qual ímã. */
-export function dropTarget({ rect, viewport, dockMids }: DropInput): DropTarget {
+export function dropTarget({ rect, viewport, dockMids, dockSpans }: DropInput): DropTarget {
   const right = rect.left + rect.width;
   const centerY = rect.top + rect.height / 2;
   const reach = EDGE_MARGIN + SNAP_DISTANCE;
@@ -44,8 +54,14 @@ export function dropTarget({ rect, viewport, dockMids }: DropInput): DropTarget 
     // Se couber nos dois lados (tela estreita), vence a borda mais próxima.
     const side = nearLeft && nearRight ? (rect.left <= viewport.width - right ? "left" : "right") : nearLeft ? "left" : "right";
     const mids = dockMids[side];
-    const index = mids.filter((mid) => mid < centerY).length;
-    return { kind: "dock", side, index };
+    // Só empilha se for solto sobre (ou colado em) outros blocos da coluna; longe deles
+    // o bloco fica solto na borda, no ponto onde foi largado (ex.: no canto de baixo).
+    const span = dockSpans?.[side];
+    const reachesColumn = !dockSpans || (!!span && centerY >= span.top - rect.height / 2 && centerY <= span.bottom + rect.height / 2);
+    if (reachesColumn) {
+      const index = mids.filter((mid) => mid < centerY).length;
+      return { kind: "dock", side, index };
+    }
   }
 
   // Solto: inteiro na tela e preso à borda mais próxima de cada eixo.

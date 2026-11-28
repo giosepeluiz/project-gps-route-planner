@@ -29,7 +29,7 @@ import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
 import InfoTip from "./InfoTip";
-import { AppPromoDesktop, AppPromoMobile } from "./AppPromo";
+import { AppPromoContent, AppPromoMobile, appPromoSummary, useAppPromo } from "./AppPromo";
 import Tour, { type TourStep } from "./Tour";
 import TripWarningDialog from "./TripWarningDialog";
 import { I18nProvider, useResolvedLocale } from "./I18nProvider";
@@ -145,6 +145,7 @@ const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
   paradas: true,
   acoes: false,
   resumo: true,
+  app: true,
 };
 
 /** Largura dos blocos no desktop (rem): ~322 px no texto pequeno. */
@@ -398,10 +399,31 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
   // "Abrir e compartilhar" sempre começa recolhido: o estado dele não é guardado.
   const [actionsOpen, setActionsOpen] = useState(false);
   const isOpen = (id: BlockId) => (id === "acoes" ? actionsOpen : (openBlocks[id] ?? BLOCKS_DEFAULT[id]));
+  const [fit, setFit] = useState<{ id: BlockId; side: "left" | "right"; column: BlockId[] } | null>(null);
+  useEffect(() => {
+    if (!fit) return;
+    const timer = window.setTimeout(() => {
+      const element = document.querySelector<HTMLElement>(`[data-column="${fit.side}"]`);
+      if (element && element.scrollHeight > element.clientHeight + 2) {
+        if (fit.column.includes("acoes")) setActionsOpen(fit.id === "acoes");
+        setOpenBlocks((prev) => ({
+          ...BLOCKS_DEFAULT,
+          ...prev,
+          ...Object.fromEntries(fit.column.filter((b) => b !== "acoes").map((b) => [b, b === fit.id])),
+        }));
+      }
+      setFit(null);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [fit, setOpenBlocks]);
   const toggle = (id: BlockId) => {
     const opening = !isOpen(id);
-    // Celular, fora da viagem: ao abrir um bloco, os outros se fecham (poupa espaço na gaveta).
-    const accordion = !isDesktop && trip === null && opening;
+    // PC, blocos colados na mesma coluna: se ao abrir este a coluna passar da altura da janela,
+    // os vizinhos se recolhem (efeito sanfona). A medida é feita depois da animação de abrir.
+    const side = isDesktop ? (settings.layout.left.includes(id) ? "left" : settings.layout.right.includes(id) ? "right" : null) : null;
+    if (opening && side && settings.layout[side].length > 1) setFit({ id, side, column: [...settings.layout[side]] });
+    // Celular, sempre (inclusive na viagem): ao abrir um bloco, os outros se fecham (poupa espaço na gaveta).
+    const accordion = !isDesktop && opening;
     if (accordion) {
       setActionsOpen(id === "acoes");
       setOpenBlocks({
@@ -918,6 +940,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // Rota que falta, saindo da posição atual: as paradas pendentes na ordem combinada e o fim.
   const tripActive = trip !== null && trip.status !== "finished";
+  const appPromo = useAppPromo(tripActive || !!resumeAsk);
   useEffect(() => {
     tripActiveRef.current = tripActive;
   }, [tripActive]);
@@ -2280,6 +2303,22 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // Blocos do HUD. Onde cada um aparece vem das configurações (arrastar e soltar).
   const blocks: Record<BlockId, (options: BlockOptions) => ReactNode> = {
+    // Divulgação do app: um bloco como os outros (arrasta e recolhe), sem fechar.
+    app: (options) =>
+      !isDesktop ? (
+        <AppPromoMobile promo={appPromo} />
+      ) : appPromo.desktop ? (
+        <CollapsibleCard
+          id="bloco-app"
+          title={t.appPromo.title}
+          summary={appPromoSummary(appPromo)}
+          open={isOpen("app")}
+          onToggle={() => toggle("app")}
+          {...options}
+        >
+          <AppPromoContent promo={appPromo} />
+        </CollapsibleCard>
+      ) : null,
     inicio: (options) => (
           <CollapsibleCard
             id="bloco-inicio"
@@ -2772,6 +2811,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
     return (
       <div
         key={side}
+        data-column={side}
         className="pointer-events-none fixed top-4 z-10 flex max-h-[calc(100dvh-2rem)] flex-col gap-3 overflow-y-auto [scrollbar-width:none]"
         style={{ [side]: EDGE_MARGIN }}
       >
@@ -2998,7 +3038,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           }`}
         >
           <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line">
-            <AppPromoMobile suspended={!tourSeen || !!resumeAsk || tripActive} />
             {/* No celular, a mesma ordem das colunas do desktop (esquerda, direita, soltos). */}
             {sheetOrder(layoutBlocks, BLOCK_IDS).map((id) => (
               <Fragment key={id}>{blocks[id]({ variant: "section" })}</Fragment>
@@ -3084,8 +3123,6 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           onClose={() => setTourSeen(true)}
         />
       )}
-
-      {isDesktop && <AppPromoDesktop suspended={!tourSeen || !!resumeAsk || tripActive} />}
 
       <AboutDialog
         open={aboutOpen}

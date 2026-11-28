@@ -330,7 +330,6 @@ const enGB: Messages = {
   appPromo: {
     aria: "Download the app",
     title: "Take it with you",
-    short: "App",
     lead: "The app is the same route planner, right on your device.",
     version: (v: string) => `Version ${v} (beta)`,
     loading: "Looking for the latest version…",
@@ -339,10 +338,6 @@ const enGB: Messages = {
     portable: "Portable version (no install)",
     alsoAndroid: "Also for Android",
     download: (os: string) => `Download for ${os}`,
-    expand: "Open the app panel",
-    collapse: "Collapse",
-    dismiss: "Don't show again",
-    drag: "Drag to move the panel",
     mobileTitle: "Install the Android app",
     mobileHint: "Tap to download",
     modalTitle: "Android app",

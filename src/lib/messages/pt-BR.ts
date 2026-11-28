@@ -337,7 +337,6 @@ const ptBR = {
   appPromo: {
     aria: "Baixar o aplicativo",
     title: "Leve para o seu aparelho",
-    short: "App",
     lead: "O aplicativo tem o mesmo planejador de rotas, direto no seu aparelho.",
     version: (v: string) => `Versão ${v} (beta)`,
     loading: "Buscando a versão mais recente…",
@@ -346,10 +345,6 @@ const ptBR = {
     portable: "Versão portátil (sem instalar)",
     alsoAndroid: "Também para Android",
     download: (os: string) => `Baixar para ${os}`,
-    expand: "Abrir o painel do app",
-    collapse: "Recolher",
-    dismiss: "Não mostrar mais",
-    drag: "Arraste para mover o painel",
     mobileTitle: "Instale o app para Android",
     mobileHint: "Toque para baixar",
     modalTitle: "App para Android",

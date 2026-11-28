@@ -5,7 +5,7 @@ import { MAX_DWELL_MINUTES } from "./types";
 export type ThemeChoice = "system" | "light" | "dark";
 export type FontSize = "sm" | "md" | "lg" | "xl";
 
-export const BLOCK_IDS = ["inicio", "paradas", "acoes", "resumo"] as const;
+export const BLOCK_IDS = ["app", "inicio", "paradas", "acoes", "resumo"] as const;
 export type BlockId = (typeof BLOCK_IDS)[number];
 
 export const BLOCK_NAMES: Record<BlockId, string> = {
@@ -13,6 +13,7 @@ export const BLOCK_NAMES: Record<BlockId, string> = {
   paradas: "Paradas",
   acoes: "Abrir e compartilhar",
   resumo: "Resumo",
+  app: "App",
 };
 
 /**
@@ -57,7 +58,7 @@ export const SETTINGS_KEY = "rotas:config";
 export const EDGE_MARGIN = 16;
 
 export const DEFAULT_LAYOUT: BlockLayout = {
-  left: [],
+  left: ["app"],
   right: ["inicio", "paradas", "acoes"],
   free: { resumo: { h: "left", x: EDGE_MARGIN, v: "bottom", y: EDGE_MARGIN + 16 } },
 };
