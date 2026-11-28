@@ -36,7 +36,7 @@ import { I18nProvider, useResolvedLocale } from "./I18nProvider";
 import SettingsDialog from "./SettingsDialog";
 import StopList from "./StopList";
 import { useBlockDrag } from "./useBlockDrag";
-import { freeRect, freeStyle, placeBlock, sheetOrder } from "@/lib/block-layout";
+import { freeRect, freeStyle, placeBlock } from "@/lib/block-layout";
 import {
   formatDuration,
   formatKm,
@@ -147,6 +147,9 @@ const BLOCKS_DEFAULT: Record<BlockId, boolean> = {
   resumo: true,
   app: true,
 };
+
+/** Ordem dos blocos na gaveta do celular (sanfona): app, resumo, início e fim, paradas e partilhar. */
+const MOBILE_ORDER: readonly BlockId[] = ["app", "resumo", "inicio", "paradas", "acoes"];
 
 /** Largura dos blocos no desktop (rem): ~322 px no texto pequeno. */
 const BLOCK_WIDTH_REM = 23;
@@ -398,7 +401,9 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
 
   // "Abrir e compartilhar" sempre começa recolhido: o estado dele não é guardado.
   const [actionsOpen, setActionsOpen] = useState(false);
-  const isOpen = (id: BlockId) => (id === "acoes" ? actionsOpen : (openBlocks[id] ?? BLOCKS_DEFAULT[id]));
+  // No celular (sanfona), ao abrir a gaveta só o Resumo vem aberto.
+  const isOpen = (id: BlockId) =>
+    id === "acoes" ? actionsOpen : (openBlocks[id] ?? (isDesktop ? BLOCKS_DEFAULT[id] : id === "resumo"));
   const [fit, setFit] = useState<{ id: BlockId; side: "left" | "right"; column: BlockId[] } | null>(null);
   useEffect(() => {
     if (!fit) return;
@@ -3039,7 +3044,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
         >
           <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line">
             {/* No celular, a mesma ordem das colunas do desktop (esquerda, direita, soltos). */}
-            {sheetOrder(layoutBlocks, BLOCK_IDS).map((id) => (
+            {MOBILE_ORDER.map((id) => (
               <Fragment key={id}>{blocks[id]({ variant: "section" })}</Fragment>
             ))}
           </div>

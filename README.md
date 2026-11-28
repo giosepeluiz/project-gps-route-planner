@@ -6,7 +6,7 @@
 
 ### A melhor ordem para as suas paradas de carro, com trânsito real, traçado pelas ruas e tempo em cada parada.
 
-[![Versão](https://img.shields.io/badge/versão-0.13.1%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
+[![Versão](https://img.shields.io/badge/versão-0.13.2%20beta-f59e0b?style=for-the-badge)](https://github.com/giosepeluiz/project-gps-route-planner)
 [![Acessar](https://img.shields.io/badge/acessar-online-2456d6?style=for-the-badge&logo=vercel&logoColor=white)](https://rotas.arqueirover.de)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -240,6 +240,10 @@ As respostas são validadas (zod). Sem resposta, vale o algoritmo local, e a tel
 MapLibre GL JS com o estilo Liberty do OpenFreeMap (dados © colaboradores do OpenStreetMap). **Nenhum mapa do Google**: o Google entra só nos tempos e no traçado (Routes API). A HERE ficou desligada (`HERE_ENABLED=1` a religa, depois da TomTom).
 
 ## 🕰️ Histórico de versões
+
+### 📱 Versão 0.13.2 (beta)
+
+- **Gaveta do celular em sanfona, em nova ordem:** App, Resumo, Início e fim, Paradas e Partilhar. Ao abrir a gaveta, só o Resumo vem aberto.
 
 ### 🧩 Versão 0.13.1 (beta)
 
