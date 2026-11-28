@@ -327,6 +327,29 @@ const esES: Messages = {
     aware: "Entendido",
   },
 
+  appPromo: {
+    aria: "Descargar la aplicación",
+    title: "Llévala contigo",
+    short: "App",
+    lead: "La aplicación es el mismo planificador de rutas, directamente en tu dispositivo.",
+    version: (v: string) => `Versión ${v} (beta)`,
+    loading: "Buscando la versión más reciente…",
+    soon: (os: string) => `Todavía no hay versión para ${os}. Mira la página de descargas para seguir el avance.`,
+    allDownloads: "Todas las descargas",
+    portable: "Versión portátil (sin instalar)",
+    alsoAndroid: "También para Android",
+    download: (os: string) => `Descargar para ${os}`,
+    expand: "Abrir el panel de la app",
+    collapse: "Recoger",
+    dismiss: "No mostrar más",
+    drag: "Arrastra para mover el panel",
+    mobileTitle: "Instala la app para Android",
+    mobileHint: "Toca para descargar",
+    modalTitle: "App para Android",
+    androidNote: "Al instalar, Android puede pedirte permitir apps de este navegador. Es normal: el archivo viene directamente del GitHub del proyecto.",
+    later: "Ahora no",
+  },
+
   tour: {
     skip: "Saltar tutorial",
     next: "Siguiente",
@@ -426,7 +449,7 @@ const esES: Messages = {
 
   about: {
     title: "Acerca de",
-    version: (v) => `Versión ${v}`,
+    version: (v: string) => `Versión ${v}`,
     beta: "Beta",
     betaLabel: "beta",
     betaNote:

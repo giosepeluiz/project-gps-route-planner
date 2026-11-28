@@ -327,6 +327,29 @@ const ptPT: Messages = {
     aware: "Ciente",
   },
 
+  appPromo: {
+    aria: "Descarregar a aplicação",
+    title: "Leve para o seu dispositivo",
+    short: "App",
+    lead: "A aplicação tem o mesmo planeador de rotas, diretamente no seu dispositivo.",
+    version: (v: string) => `Versão ${v} (beta)`,
+    loading: "A procurar a versão mais recente…",
+    soon: (os: string) => `Ainda não existe versão para ${os}. Consulte a página de transferências para acompanhar.`,
+    allDownloads: "Todas as transferências",
+    portable: "Versão portátil (sem instalar)",
+    alsoAndroid: "Também para Android",
+    download: (os: string) => `Descarregar para ${os}`,
+    expand: "Abrir o painel da app",
+    collapse: "Recolher",
+    dismiss: "Não mostrar mais",
+    drag: "Arraste para mover o painel",
+    mobileTitle: "Instale a app para Android",
+    mobileHint: "Toque para descarregar",
+    modalTitle: "App para Android",
+    androidNote: "Ao instalar, o Android pode pedir para permitir apps deste navegador. É normal: o ficheiro vem diretamente do GitHub do projeto.",
+    later: "Agora não",
+  },
+
   tour: {
     skip: "Saltar tutorial",
     next: "Seguinte",
@@ -426,7 +449,7 @@ const ptPT: Messages = {
 
   about: {
     title: "Sobre",
-    version: (v) => `Versão ${v}`,
+    version: (v: string) => `Versão ${v}`,
     beta: "Beta",
     betaLabel: "beta",
     betaNote:

@@ -327,6 +327,29 @@ const enGB: Messages = {
     aware: "Understood",
   },
 
+  appPromo: {
+    aria: "Download the app",
+    title: "Take it with you",
+    short: "App",
+    lead: "The app is the same route planner, right on your device.",
+    version: (v: string) => `Version ${v} (beta)`,
+    loading: "Looking for the latest version…",
+    soon: (os: string) => `There is no ${os} version yet. See the downloads page to follow progress.`,
+    allDownloads: "All downloads",
+    portable: "Portable version (no install)",
+    alsoAndroid: "Also for Android",
+    download: (os: string) => `Download for ${os}`,
+    expand: "Open the app panel",
+    collapse: "Collapse",
+    dismiss: "Don't show again",
+    drag: "Drag to move the panel",
+    mobileTitle: "Install the Android app",
+    mobileHint: "Tap to download",
+    modalTitle: "Android app",
+    androidNote: "When installing, Android may ask you to allow apps from this browser. That is normal: the file comes straight from the project's GitHub.",
+    later: "Not now",
+  },
+
   tour: {
     skip: "Skip tutorial",
     next: "Next",
@@ -426,7 +449,7 @@ const enGB: Messages = {
 
   about: {
     title: "About",
-    version: (v) => `Version ${v}`,
+    version: (v: string) => `Version ${v}`,
     beta: "Beta",
     betaLabel: "beta",
     betaNote:

@@ -29,6 +29,7 @@ import PlaceField, { inputClass } from "./PlaceField";
 import PlacePopup from "./PlacePopup";
 import AboutDialog from "./AboutDialog";
 import InfoTip from "./InfoTip";
+import { AppPromoDesktop, AppPromoMobile } from "./AppPromo";
 import Tour, { type TourStep } from "./Tour";
 import TripWarningDialog from "./TripWarningDialog";
 import { I18nProvider, useResolvedLocale } from "./I18nProvider";
@@ -2997,6 +2998,7 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           }`}
         >
           <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t border-line">
+            <AppPromoMobile suspended={!tourSeen || !!resumeAsk || tripActive} />
             {/* No celular, a mesma ordem das colunas do desktop (esquerda, direita, soltos). */}
             {sheetOrder(layoutBlocks, BLOCK_IDS).map((id) => (
               <Fragment key={id}>{blocks[id]({ variant: "section" })}</Fragment>
@@ -3082,6 +3084,8 @@ export default function RoutePlanner({ fallbackStyleUrl }: { fallbackStyleUrl: s
           onClose={() => setTourSeen(true)}
         />
       )}
+
+      {isDesktop && <AppPromoDesktop suspended={!tourSeen || !!resumeAsk || tripActive} />}
 
       <AboutDialog
         open={aboutOpen}
